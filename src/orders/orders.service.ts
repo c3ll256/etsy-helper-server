@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order } from './entities/order.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 
 @Injectable()
 export class OrdersService {
@@ -19,10 +21,55 @@ export class OrdersService {
     return await this.ordersRepository.save(order);
   }
 
-  async findAll(): Promise<Order[]> {
-    return await this.ordersRepository.find({
-      relations: ['etsyOrder']
+  private async addOrderDetails(orders: Order[]): Promise<Order[]> {
+    return orders.map(order => {
+      const orderWithDetails = { ...order };
+      if (order.orderType === 'etsy' && order.etsyOrder) {
+        orderWithDetails.orderDetails = {
+          orderId: order.etsyOrder.orderId,
+          itemName: order.etsyOrder.itemName,
+          buyer: order.etsyOrder.buyer,
+          price: order.etsyOrder.price,
+          quantity: order.etsyOrder.quantity,
+          shipName: order.etsyOrder.shipName,
+          shipAddress: order.etsyOrder.shipAddress1,
+          shipCity: order.etsyOrder.shipCity,
+          shipState: order.etsyOrder.shipState,
+          shipZipcode: order.etsyOrder.shipZipcode,
+          shipCountry: order.etsyOrder.shipCountry,
+          variations: order.etsyOrder.variations,
+        };
+      } else {
+        orderWithDetails.orderDetails = null;
+      }
+      return orderWithDetails;
     });
+  }
+
+  async findAll(paginationDto: PaginationDto): Promise<PaginatedResponse<Order>> {
+    const { page = 1, limit = 10 } = paginationDto;
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await this.ordersRepository.findAndCount({
+      relations: ['etsyOrder'],
+      skip,
+      take: limit,
+      order: {
+        createdAt: 'DESC'
+      }
+    });
+
+    const ordersWithDetails = await this.addOrderDetails(items);
+
+    return {
+      items: ordersWithDetails,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
   }
 
   async findOne(id: string): Promise<Order> {
@@ -30,10 +77,13 @@ export class OrdersService {
       where: { id },
       relations: ['etsyOrder']
     });
+
     if (!order) {
       throw new NotFoundException(`Order with ID "${id}" not found`);
     }
-    return order;
+
+    const [orderWithDetails] = await this.addOrderDetails([order]);
+    return orderWithDetails;
   }
 
   async update(id: string, updateOrderDto: Partial<CreateOrderDto>): Promise<Order> {
