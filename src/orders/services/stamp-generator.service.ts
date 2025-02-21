@@ -26,11 +26,11 @@ export class StampGeneratorService {
   async generateStamp(order: EtsyOrder): Promise<StampGenerationResult> {
     try {
       // 检查SKU图片是否存在
-      const skuImagePath = path.join(process.cwd(), 'uploads/sku-images', `${order.sku}.png`);
+      const skuImagePath = path.join(process.cwd(), 'uploads/sku-images', `${order.sku}.jpg`);
       if (!fs.existsSync(skuImagePath)) {
         return {
           success: false,
-          error: `SKU image not found: ${order.sku}.png`
+          error: `SKU image not found: ${order.sku}.jpg`
         };
       }
 

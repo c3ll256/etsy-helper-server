@@ -126,7 +126,7 @@ export class EtsyOrder {
 
   @ApiProperty({ description: 'Associated order', type: () => Order })
   @OneToOne(() => Order, { nullable: true })
-  @JoinColumn()
+  @JoinColumn({ name: 'order_id' })
   order: Order;
 
   @ApiProperty({ description: 'Creation timestamp' })
