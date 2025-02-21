@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { createCanvas, loadImage, Canvas, registerFont } from 'canvas';
+import { createCanvas, loadImage, Canvas } from 'canvas';
 import { EtsyOrder } from '../entities/etsy-order.entity';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -15,50 +15,12 @@ export class StampGeneratorService {
   private readonly CANVAS_WIDTH = 800;
   private readonly CANVAS_HEIGHT = 600;
   private readonly outputDir = 'uploads/stamps';
-  private readonly fontsDir = 'assets/fonts';
 
   constructor() {
     // 确保输出目录存在
     if (!fs.existsSync(this.outputDir)) {
       fs.mkdirSync(this.outputDir, { recursive: true });
     }
-
-    // 注册字体
-    // this.registerFonts();
-  }
-
-  private registerFonts() {
-    const fontsPath = path.join(process.cwd(), this.fontsDir);
-    if (!fs.existsSync(fontsPath)) {
-      console.warn('Fonts directory not found, using system fonts');
-      return;
-    }
-
-    try {
-      const fontFiles = fs.readdirSync(fontsPath);
-      fontFiles.forEach(fontFile => {
-        if (fontFile.match(/\.(ttf|otf)$/i)) {
-          const fontPath = path.join(fontsPath, fontFile);
-          const fontFamily = path.parse(fontFile).name;
-          registerFont(fontPath, { family: fontFamily });
-          console.log(`Registered font: ${fontFamily}`);
-        }
-      });
-    } catch (error) {
-      console.error('Error registering fonts:', error);
-    }
-  }
-
-  private getFontForSku(sku: string): string {
-    // 根据SKU前缀选择字体
-    const skuPrefix = sku.split('-')[0];
-    const fontMapping: { [key: string]: string } = {
-      'STAMP': 'TimesNewRoman',  // 示例：STAMP-开头的SKU使用Times New Roman字体
-      'SEAL': 'Arial',           // 示例：SEAL-开头的SKU使用Arial字体
-      'CUSTOM': 'Helvetica'      // 示例：CUSTOM-开头的SKU使用Helvetica字体
-    };
-
-    return fontMapping[skuPrefix] || 'Arial'; // 默认使用Arial
   }
 
   async generateStamp(order: EtsyOrder): Promise<StampGenerationResult> {
@@ -91,11 +53,8 @@ export class StampGeneratorService {
       const y = (this.CANVAS_HEIGHT - image.height * scale) / 2;
       ctx.drawImage(image, x, y, image.width * scale, image.height * scale);
 
-      // 获取该SKU对应的字体
-      const font = this.getFontForSku(order.sku);
-      
       // 添加订单信息文字
-      ctx.font = `24px "${font}"`;
+      ctx.font = '24px Arial';
       ctx.fillStyle = 'black';
       ctx.textAlign = 'center';
       
@@ -106,17 +65,17 @@ export class StampGeneratorService {
       ctx.fillText(`Order: ${order.orderId}`, this.CANVAS_WIDTH / 2, this.CANVAS_HEIGHT - 50);
 
       // 如果有variations，添加variation信息
-      // if (order.variations) {
-      //   const variationText = Object.entries(order.variations)
-      //     .map(([key, value]) => `${key}: ${value}`)
-      //     .join(' | ');
-      //   ctx.font = `18px "${font}"`;
-      //   ctx.fillText(variationText, this.CANVAS_WIDTH / 2, this.CANVAS_HEIGHT - 80);
-      // }
+      if (order.variations) {
+        const variationText = Object.entries(order.variations)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(' | ');
+        ctx.font = '18px Arial';
+        ctx.fillText(variationText, this.CANVAS_WIDTH / 2, this.CANVAS_HEIGHT - 80);
+      }
 
       // 保存图章
-      const outputPath = path.join(this.outputDir, `${order.orderId}_${order.sku}.jpg`);
-      const buffer = canvas.toBuffer('image/jpeg');
+      const outputPath = path.join(this.outputDir, `${order.orderId}_${order.sku}.png`);
+      const buffer = canvas.toBuffer('image/png');
       fs.writeFileSync(outputPath, buffer);
 
       return {

@@ -5,7 +5,7 @@ import { ApiProperty } from '@nestjs/swagger';
 @Entity('etsy_orders')
 export class EtsyOrder {
   @ApiProperty({ description: 'Etsy order ID', example: '1234567890' })
-  @PrimaryColumn('text')
+  @PrimaryColumn('varchar')
   orderId: string;
 
   @ApiProperty({ description: 'Etsy transaction ID', example: '9876543210', required: false })
