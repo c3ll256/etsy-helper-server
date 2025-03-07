@@ -136,4 +136,7 @@ export class EtsyOrder {
   @ApiProperty({ description: 'Last update timestamp' })
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @Column({ nullable: true })
+  stampImageUrl: string;
 } 

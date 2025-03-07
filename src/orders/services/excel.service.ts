@@ -37,10 +37,19 @@ export class ExcelService {
             // 为新创建的订单生成图章
             try {
               const stampResult = await this.stampGeneratorService.generateStamp(result.order);
-              if (stampResult.success) {
+              if (stampResult.success && stampResult.path) {
+                // 将文件路径转换为URL路径（去掉uploads前缀）
+                const stampImageUrl = stampResult.path.replace('uploads/', '/');
+                
+                // 更新EtsyOrder记录
+                await this.etsyOrderService.updateStampImage(
+                  result.order.orderId,
+                  stampImageUrl
+                );
+
                 stamps.push({
                   orderId: result.order.orderId,
-                  stampPath: stampResult.path
+                  stampPath: stampImageUrl
                 });
               } else {
                 skippedStamps.push({

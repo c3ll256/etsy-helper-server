@@ -102,4 +102,11 @@ export class EtsyOrderService {
       return null;
     }
   }
+
+  async updateStampImage(orderId: string, stampImageUrl: string): Promise<void> {
+    await this.etsyOrderRepository.update(
+      { orderId },
+      { stampImageUrl }
+    );
+  }
 } 

@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { apiReference } from '@scalar/nestjs-api-reference'
+import * as express from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -24,6 +25,9 @@ async function bootstrap() {
       },
     }),
   )
+
+  // 配置静态文件服务
+  app.use('/stamps', express.static('uploads/stamps'));
 
   await app.listen(process.env.PORT || 3000);
 }
