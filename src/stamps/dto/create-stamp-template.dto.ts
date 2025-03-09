@@ -1,0 +1,102 @@
+import { IsString, IsArray, IsBoolean, IsOptional, ValidateNested, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ApiProperty } from '@nestjs/swagger';
+import { TextElement } from '../entities/stamp-template.entity';
+
+class PositionDto {
+  @ApiProperty({ description: 'X coordinate of the text element' })
+  @IsNumber()
+  x: number;
+
+  @ApiProperty({ description: 'Y coordinate of the text element' })
+  @IsNumber()
+  y: number;
+
+  @ApiProperty({ description: 'Width of the text element', required: false })
+  @IsNumber()
+  @IsOptional()
+  width?: number;
+
+  @ApiProperty({ description: 'Height of the text element', required: false })
+  @IsNumber()
+  @IsOptional()
+  height?: number;
+
+  @ApiProperty({ description: 'Rotation angle in degrees', required: false })
+  @IsNumber()
+  @IsOptional()
+  rotation?: number;
+
+  @ApiProperty({ description: 'Text alignment', required: false, enum: ['left', 'center', 'right'] })
+  @IsString()
+  @IsOptional()
+  textAlign?: 'left' | 'center' | 'right';
+}
+
+class TextElementDto implements TextElement {
+  @ApiProperty({ description: 'Unique identifier for the text element' })
+  @IsString()
+  id: string;
+
+  @ApiProperty({ description: 'Default value for the text element' })
+  @IsString()
+  defaultValue: string;
+
+  @ApiProperty({ description: 'Font family for the text element' })
+  @IsString()
+  fontFamily: string;
+
+  @ApiProperty({ description: 'Font size for the text element' })
+  @IsNumber()
+  fontSize: number;
+
+  @ApiProperty({ description: 'Font weight for the text element', required: false })
+  @IsString()
+  @IsOptional()
+  fontWeight?: string;
+
+  @ApiProperty({ description: 'Font style for the text element', required: false })
+  @IsString()
+  @IsOptional()
+  fontStyle?: string;
+
+  @ApiProperty({ description: 'Text color in hex format', required: false })
+  @IsString()
+  @IsOptional()
+  color?: string;
+
+  @ApiProperty({ description: 'Position and dimensions of the text element' })
+  @ValidateNested()
+  @Type(() => PositionDto)
+  position: PositionDto;
+}
+
+export class CreateStampTemplateDto {
+  @ApiProperty({ description: 'SKU of the stamp template' })
+  @IsString()
+  sku: string;
+
+  @ApiProperty({ description: 'Name of the stamp template' })
+  @IsString()
+  name: string;
+
+  @ApiProperty({ description: 'Path to the background image' })
+  @IsString()
+  backgroundImagePath: string;
+
+  @ApiProperty({ description: 'Text elements in the stamp template', type: [TextElementDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TextElementDto)
+  textElements: TextElementDto[];
+
+  @ApiProperty({ description: 'Description of the stamp template', required: false })
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @ApiProperty({ description: 'Whether the template is active', default: true, required: false })
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+} 

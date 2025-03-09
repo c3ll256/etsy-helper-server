@@ -1,0 +1,45 @@
+{
+  "sku": "AD-101",
+  "name": "The Family Address Stamp",
+  "backgroundImagePath": "uploads/backgrounds/background-1.png",
+  "textElements": [
+    {
+      "id": "family-name",
+      "defaultValue": "The Ccccc Family",
+      "fontFamily": "Arial",
+      "fontSize": 24,
+      "fontWeight": "bold",
+      "color": "#000000",
+      "position": {
+        "x": 150,
+        "y": 50,
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "address-line1",
+      "defaultValue": "XXX VALVERDE DRIVE",
+      "fontFamily": "Arial",
+      "fontSize": 12,
+      "color": "#000000",
+      "position": {
+        "x": 150,
+        "y": 80,
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "address-line2",
+      "defaultValue": "SOUTH SAN FRANCISCO, CA XXXXX",
+      "fontFamily": "Arial",
+      "fontSize": 12,
+      "color": "#000000",
+      "position": {
+        "x": 150,
+        "y": 100,
+        "textAlign": "center"
+      }
+    }
+  ],
+  "description": "A classic family address stamp"
+} 
