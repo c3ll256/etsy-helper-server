@@ -31,6 +31,7 @@ export class StampsService {
     
     try {
       const fontFiles = fs.readdirSync(fontsDir);
+      console.log(`Found ${fontFiles.length} font files in ${fontsDir}`);
       
       fontFiles.forEach(file => {
         const fontPath = path.join(fontsDir, file);
@@ -40,8 +41,16 @@ export class StampsService {
         const fontFamily = path.basename(file, path.extname(file));
         
         try {
+          // Register the font with its exact name
           registerFont(fontPath, { family: fontFamily });
           console.log(`Registered font: ${fontFamily} from ${fontPath}`);
+          
+          // For variable fonts or fonts with complex names, also register with a simplified name
+          if (fontFamily.includes('-')) {
+            const simpleName = fontFamily.split('-')[0];
+            registerFont(fontPath, { family: simpleName });
+            console.log(`Also registered as: ${simpleName}`);
+          }
         } catch (error) {
           console.error(`Failed to register font ${fontFamily}:`, error);
         }
@@ -147,8 +156,13 @@ export class StampsService {
         ...(inputElement.position || {}),
       };
       
-      // Set text properties
-      ctx.font = `${templateElement.fontStyle || ''} ${templateElement.fontWeight || ''} ${templateElement.fontSize}px "${templateElement.fontFamily}"`;
+      // Set text properties - fix font string construction
+      const fontStyle = templateElement.fontStyle ? `${templateElement.fontStyle} ` : '';
+      const fontWeight = templateElement.fontWeight ? `${templateElement.fontWeight} ` : '';
+      ctx.font = `${fontStyle}${fontWeight}${templateElement.fontSize}px "${templateElement.fontFamily}"`;
+      
+      console.log(`Setting font: ${ctx.font} for text: ${text}`);
+      
       ctx.fillStyle = templateElement.color || '#000000';
       
       // Set text alignment
