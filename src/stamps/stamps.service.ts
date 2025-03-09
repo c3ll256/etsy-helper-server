@@ -20,7 +20,7 @@ export class StampsService {
   }
 
   private registerAvailableFonts() {
-    const fontsDir = path.join(process.cwd(), 'assets', 'fonts');
+    const fontsDir = path.join(process.cwd(), 'uploads', 'fonts');
     
     // Create fonts directory if it doesn't exist
     if (!fs.existsSync(fontsDir)) {
@@ -34,17 +34,20 @@ export class StampsService {
       
       fontFiles.forEach(file => {
         const fontPath = path.join(fontsDir, file);
+        // Skip directories
+        if (fs.statSync(fontPath).isDirectory()) return;
+        
         const fontFamily = path.basename(file, path.extname(file));
         
         try {
           registerFont(fontPath, { family: fontFamily });
-          console.log(`Registered font: ${fontFamily}`);
+          console.log(`Registered font: ${fontFamily} from ${fontPath}`);
         } catch (error) {
           console.error(`Failed to register font ${fontFamily}:`, error);
         }
       });
     } catch (error) {
-      console.error('Error registering fonts:', error);
+      console.error(`Error registering fonts from ${fontsDir}:`, error);
     }
   }
 
