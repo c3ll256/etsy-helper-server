@@ -29,6 +29,6 @@ async function bootstrap() {
   // 配置静态文件服务
   app.use('/stamps', express.static('uploads/stamps'));
 
-  await app.listen(process.env.PORT || 3000);
+  await app.listen(process.env.PORT || 3080);
 }
 bootstrap(); 

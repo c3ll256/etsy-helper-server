@@ -25,20 +25,7 @@ export class OrdersService {
     return orders.map(order => {
       const orderWithDetails = { ...order };
       if (order.orderType === 'etsy' && order.etsyOrder) {
-        orderWithDetails.orderDetails = {
-          orderId: order.etsyOrder.orderId,
-          itemName: order.etsyOrder.itemName,
-          buyer: order.etsyOrder.buyer,
-          price: order.etsyOrder.price,
-          quantity: order.etsyOrder.quantity,
-          shipName: order.etsyOrder.shipName,
-          shipAddress: order.etsyOrder.shipAddress1,
-          shipCity: order.etsyOrder.shipCity,
-          shipState: order.etsyOrder.shipState,
-          shipZipcode: order.etsyOrder.shipZipcode,
-          shipCountry: order.etsyOrder.shipCountry,
-          variations: order.etsyOrder.variations,
-        };
+        orderWithDetails.orderDetails = order.etsyOrder;
       } else {
         orderWithDetails.orderDetails = null;
       }

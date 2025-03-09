@@ -45,11 +45,11 @@ export class StampsService {
           registerFont(fontPath, { family: fontFamily });
           console.log(`Registered font: ${fontFamily} from ${fontPath}`);
           
-          // For variable fonts or fonts with complex names, also register with a simplified name
+          // Also register without hyphens if the name contains them
           if (fontFamily.includes('-')) {
-            const simpleName = fontFamily.split('-')[0];
-            registerFont(fontPath, { family: simpleName });
-            console.log(`Also registered as: ${simpleName}`);
+            const noHyphenName = fontFamily.replace(/-/g, '');
+            registerFont(fontPath, { family: noHyphenName });
+            console.log(`Also registered as: ${noHyphenName} (without hyphens)`);
           }
         } catch (error) {
           console.error(`Failed to register font ${fontFamily}:`, error);
@@ -112,8 +112,9 @@ export class StampsService {
         // Draw background image, scaling it to fit the canvas if needed
         ctx.drawImage(backgroundImage, 0, 0, template.width, template.height);
       } else {
-        // Set transparent background (optional, as canvas is transparent by default)
-        ctx.clearRect(0, 0, template.width, template.height);
+        // Set white background instead of transparent
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, template.width, template.height);
       }
       
       // Process text elements
@@ -156,13 +157,15 @@ export class StampsService {
         ...(inputElement.position || {}),
       };
       
-      // Set text properties - fix font string construction
-      const fontStyle = templateElement.fontStyle ? `${templateElement.fontStyle} ` : '';
-      const fontWeight = templateElement.fontWeight ? `${templateElement.fontWeight} ` : '';
-      ctx.font = `${fontStyle}${fontWeight}${templateElement.fontSize}px "${templateElement.fontFamily}"`;
+      // Get font properties
+      const fontFamily = templateElement.fontFamily;
+      const fontSize = templateElement.fontSize;
       
+      // Set the font - use the exact font name with quotes
+      ctx.font = `${fontSize}px "${fontFamily}"`;
       console.log(`Setting font: ${ctx.font} for text: ${text}`);
       
+      // Set fill style
       ctx.fillStyle = templateElement.color || '#000000';
       
       // Set text alignment
