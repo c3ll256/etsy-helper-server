@@ -1,13 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { read, utils } from 'xlsx';
 import { EtsyOrderService } from './etsy-order.service';
-import { StampGeneratorService } from './stamp-generator.service';
+import { OrderStampService } from '../../stamps/services/order-stamp.service';
 
 @Injectable()
 export class ExcelService {
+  private readonly logger = new Logger(ExcelService.name);
+
   constructor(
     private readonly etsyOrderService: EtsyOrderService,
-    private readonly stampGeneratorService: StampGeneratorService,
+    private readonly orderStampService: OrderStampService,
   ) {}
 
   async parseExcelFile(file: Express.Multer.File): Promise<{
@@ -36,7 +38,10 @@ export class ExcelService {
             created++;
             // 为新创建的订单生成图章
             try {
-              const stampResult = await this.stampGeneratorService.generateStamp(result.order);
+              // 使用模板系统生成印章
+              const stampResult = await this.orderStampService.generateStampFromOrder(result.order);
+              
+              // 如果成功生成印章
               if (stampResult.success && stampResult.path) {
                 // 将文件路径转换为URL路径（去掉uploads前缀）
                 const stampImageUrl = stampResult.path.replace('uploads/', '/');
@@ -51,14 +56,18 @@ export class ExcelService {
                   orderId: result.order.orderId,
                   stampPath: stampImageUrl
                 });
+                
+                this.logger.log(`Generated stamp for order ${result.order.orderId} using template system`);
               } else {
+                // 如果无法生成印章，记录错误
+                this.logger.warn(`Failed to generate stamp for order ${result.order.orderId}: ${stampResult.error}`);
                 skippedStamps.push({
                   orderId: result.order.orderId,
                   reason: stampResult.error
                 });
               }
             } catch (stampError) {
-              console.error('Failed to generate stamp:', stampError);
+              this.logger.error(`Error generating stamp for order ${result.order.orderId}:`, stampError);
               skippedStamps.push({
                 orderId: result.order.orderId,
                 reason: stampError.message
@@ -68,7 +77,7 @@ export class ExcelService {
             skipped++;
           }
         } catch (error) {
-          console.error('Failed to process order:', error);
+          this.logger.error(`Failed to process order:`, error);
           failed++;
         }
       }

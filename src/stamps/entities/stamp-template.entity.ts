@@ -14,7 +14,7 @@ export class StampTemplate {
   @Column({ nullable: true })
   backgroundImagePath: string;
 
-  @Column('json')
+  @Column('json', { nullable: true })
   textElements: TextElement[];
 
   @Column({ nullable: true })

@@ -46,9 +46,9 @@ class StampTextElementDto {
 }
 
 export class GenerateStampDto {
-  @ApiProperty({ description: 'Template SKU or ID' })
-  @IsString()
-  templateId: string;
+  @ApiProperty({ description: 'Template ID' })
+  @IsNumber()
+  templateId: number;
 
   @ApiProperty({ description: 'Text elements with values to replace defaults', type: [StampTextElementDto] })
   @IsArray()

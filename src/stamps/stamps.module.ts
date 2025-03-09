@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import { StampsController } from './stamps.controller';
 import { StampsService } from './stamps.service';
 import { StampTemplate } from './entities/stamp-template.entity';
+import { OrderStampService } from './services/order-stamp.service';
 
 // Ensure uploads directory exists
 const UPLOADS_DIR = 'uploads';
@@ -32,7 +33,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
     }),
   ],
   controllers: [StampsController],
-  providers: [StampsService],
-  exports: [StampsService],
+  providers: [StampsService, OrderStampService],
+  exports: [StampsService, OrderStampService],
 })
 export class StampsModule {} 

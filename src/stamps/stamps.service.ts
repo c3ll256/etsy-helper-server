@@ -57,14 +57,10 @@ export class StampsService {
     return this.stampTemplateRepository.find();
   }
 
-  async findOne(id: number | string): Promise<StampTemplate> {
+  async findById(id: number): Promise<StampTemplate> {
     let template: StampTemplate;
-    
-    if (typeof id === 'number') {
-      template = await this.stampTemplateRepository.findOne({ where: { id } });
-    } else {
-      template = await this.stampTemplateRepository.findOne({ where: { sku: id } });
-    }
+
+    template = await this.stampTemplateRepository.findOne({ where: { id } });
     
     if (!template) {
       throw new NotFoundException(`Stamp template with ID or SKU ${id} not found`);
@@ -84,7 +80,7 @@ export class StampsService {
     const { templateId, textElements, format = 'png', quality = 0.9 } = generateStampDto;
     
     // Find the template
-    const template = await this.findOne(templateId);
+    const template = await this.findById(templateId);
     
     // Load the background image
     const backgroundImagePath = path.join(process.cwd(), template.backgroundImagePath);

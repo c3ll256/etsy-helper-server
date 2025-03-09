@@ -55,8 +55,11 @@ export class StampsController {
   @ApiResponse({ status: 404, description: 'Stamp template not found' })
   async findOne(@Param('id') id: string) {
     // Try to parse as number, otherwise use as string (SKU)
-    const parsedId = isNaN(+id) ? id : +id;
-    return this.stampsService.findOne(parsedId);
+    const parsedId = +id;
+    if (isNaN(parsedId)) {
+      throw new BadRequestException('ID must be a number');
+    }
+    return this.stampsService.findById(parsedId);
   }
 
   @Delete('templates/:id')

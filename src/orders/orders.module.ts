@@ -6,11 +6,14 @@ import { Order } from './entities/order.entity';
 import { EtsyOrder } from './entities/etsy-order.entity';
 import { ExcelService } from './services/excel.service';
 import { EtsyOrderService } from './services/etsy-order.service';
-import { StampGeneratorService } from './services/stamp-generator.service';
+import { StampsModule } from '../stamps/stamps.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Order, EtsyOrder])],
+  imports: [
+    TypeOrmModule.forFeature([Order, EtsyOrder]),
+    StampsModule
+  ],
   controllers: [OrdersController],
-  providers: [OrdersService, ExcelService, EtsyOrderService, StampGeneratorService],
+  providers: [OrdersService, ExcelService, EtsyOrderService],
 })
 export class OrdersModule {} 
