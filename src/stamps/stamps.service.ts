@@ -82,21 +82,27 @@ export class StampsService {
     // Find the template
     const template = await this.findById(templateId);
     
-    // Load the background image
-    const backgroundImagePath = path.join(process.cwd(), template.backgroundImagePath);
-    if (!fs.existsSync(backgroundImagePath)) {
-      throw new NotFoundException(`Background image not found at ${backgroundImagePath}`);
-    }
-    
     try {
-      const backgroundImage = await loadImage(backgroundImagePath);
-      
-      // Create canvas with the same dimensions as the background image
-      const canvas = createCanvas(backgroundImage.width, backgroundImage.height);
+      // Create canvas with the template's dimensions
+      const canvas = createCanvas(template.width, template.height);
       const ctx = canvas.getContext('2d');
       
-      // Draw background image
-      ctx.drawImage(backgroundImage, 0, 0);
+      // Check if the template has a background image
+      if (template.backgroundImagePath) {
+        // Load the background image
+        const backgroundImagePath = path.join(process.cwd(), template.backgroundImagePath);
+        if (!fs.existsSync(backgroundImagePath)) {
+          throw new NotFoundException(`Background image not found at ${backgroundImagePath}`);
+        }
+        
+        const backgroundImage = await loadImage(backgroundImagePath);
+        
+        // Draw background image, scaling it to fit the canvas if needed
+        ctx.drawImage(backgroundImage, 0, 0, template.width, template.height);
+      } else {
+        // Set transparent background (optional, as canvas is transparent by default)
+        ctx.clearRect(0, 0, template.width, template.height);
+      }
       
       // Process text elements
       await this.drawTextElements(ctx, template.textElements, textElements);

@@ -14,6 +14,12 @@ export class StampTemplate {
   @Column({ nullable: true })
   backgroundImagePath: string;
 
+  @Column({ default: 500 })
+  width: number;
+
+  @Column({ default: 500 })
+  height: number;
+
   @Column('json', { nullable: true })
   textElements: TextElement[];
 

@@ -80,9 +80,20 @@ export class CreateStampTemplateDto {
   @IsString()
   name: string;
 
-  @ApiProperty({ description: 'Path to the background image' })
+  @ApiProperty({ description: 'Path to the background image', required: false })
   @IsString()
-  backgroundImagePath: string;
+  @IsOptional()
+  backgroundImagePath?: string;
+
+  @ApiProperty({ description: 'Width of the canvas in pixels', default: 500 })
+  @IsNumber()
+  @IsOptional()
+  width?: number = 500;
+
+  @ApiProperty({ description: 'Height of the canvas in pixels', default: 500 })
+  @IsNumber()
+  @IsOptional()
+  height?: number = 500;
 
   @ApiProperty({ description: 'Text elements in the stamp template', type: [TextElementDto] })
   @IsArray()
