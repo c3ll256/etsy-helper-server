@@ -22,6 +22,8 @@ import { diskStorage } from 'multer';
 import { StampsService } from './stamps.service';
 import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
 import { GenerateStampDto } from './dto/generate-stamp.dto';
+import { PreviewStampDto } from './dto/preview-stamp.dto';
+import { CloneStampTemplateDto } from './dto/clone-stamp-template.dto';
 
 const UPLOAD_DIR = 'uploads/backgrounds';
 
@@ -90,6 +92,26 @@ export class StampsController {
     return res.status(HttpStatus.OK).send(buffer);
   }
 
+  @Post('preview')
+  @ApiOperation({ summary: 'Preview a stamp with custom parameters' })
+  @ApiResponse({ status: 200, description: 'Returns the preview image of the stamp' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiBody({ type: PreviewStampDto })
+  async previewStamp(@Body() previewStampDto: PreviewStampDto, @Res() res: Response) {
+    const buffer = await this.stampsService.previewStamp(previewStampDto);
+    
+    // Set appropriate content type based on format
+    const format = previewStampDto.format || 'png';
+    const contentType = format === 'jpeg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
+    
+    res.set({
+      'Content-Type': contentType,
+      'Content-Length': buffer.length,
+    });
+    
+    return res.status(HttpStatus.OK).send(buffer);
+  }
+
   @Post('upload-background')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -141,6 +163,20 @@ export class StampsController {
       filePath: relativePath,
       filename: file.filename,
       originalName: file.originalname,
+    };
+  }
+
+  @Post('templates/clone')
+  @ApiOperation({ summary: '复制现有的印章模板' })
+  @ApiResponse({ status: 201, description: '模板复制成功' })
+  @ApiResponse({ status: 400, description: '请求参数错误' })
+  @ApiResponse({ status: 404, description: '源模板未找到' })
+  @ApiBody({ type: CloneStampTemplateDto })
+  async cloneTemplate(@Body() cloneStampTemplateDto: CloneStampTemplateDto) {
+    const clonedTemplate = await this.stampsService.cloneTemplate(cloneStampTemplateDto);
+    return {
+      message: '模板复制成功',
+      template: clonedTemplate
     };
   }
 } 
