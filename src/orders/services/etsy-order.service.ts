@@ -30,8 +30,10 @@ export class EtsyOrderService {
 
     // 创建基本订单
     const order = this.orderRepository.create({
-      status: 'pending',
-      orderType: 'etsy'
+      status: 'stamp_not_generated',
+      orderType: 'etsy',
+      platformOrderId: orderId,
+      platformOrderDate: data['Date Paid'] ? new Date(data['Date Paid']) : null
     });
     await this.orderRepository.save(order);
 
@@ -70,6 +72,36 @@ export class EtsyOrderService {
     });
 
     const savedOrder = await this.etsyOrderRepository.save(etsyOrder);
+
+    // 更新Order的searchKey字段，用于模糊搜索
+    const searchKeyParts = [
+      orderId,
+      data['Buyer'],
+      data['Item Name'],
+      data['Ship Name'],
+      data['Ship Address1'],
+      data['Ship City'],
+      data['Ship State'],
+      data['Ship Zipcode'],
+      data['Ship Country'],
+      data['SKU'],
+      data['Variations'],
+      data['Date Paid'] ? new Date(data['Date Paid']).toISOString().split('T')[0] : null
+    ];
+    
+    // 过滤掉空值并连接
+    const searchKey = searchKeyParts
+      .filter(part => part)
+      .join(' ')
+      .trim();
+    
+    if (searchKey) {
+      await this.orderRepository.update(
+        { id: order.id },
+        { searchKey }
+      );
+    }
+
     return { order: savedOrder, status: 'created' };
   }
 

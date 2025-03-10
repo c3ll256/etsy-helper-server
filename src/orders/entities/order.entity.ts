@@ -36,6 +36,30 @@ export class Order {
   orderType: string;
 
   @ApiProperty({
+    description: 'The order ID from the e-commerce platform',
+    example: '1234567890',
+    required: false
+  })
+  @Column({ nullable: true })
+  platformOrderId: string;
+
+  @ApiProperty({
+    description: 'The creation date of the order from the e-commerce platform',
+    example: '2025-02-08',
+    required: false
+  })
+  @Column({ nullable: true, type: 'date' })
+  platformOrderDate: Date;
+
+  @ApiProperty({
+    description: 'Search key for fuzzy searching, contains concatenated data from various fields',
+    example: '1234567890 John Doe Custom Address Stamp',
+    required: false
+  })
+  @Column({ nullable: true, type: 'text' })
+  searchKey: string;
+
+  @ApiProperty({
     description: 'The associated Etsy order details',
     type: () => EtsyOrder,
     required: false

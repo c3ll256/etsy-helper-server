@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsInt, Min, IsString, IsEnum } from 'class-validator';
+import { IsOptional, IsInt, Min, IsString, IsEnum, IsDateString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PaginationDto {
@@ -43,4 +43,20 @@ export class PaginationDto {
   })
   @IsOptional()
   status?: string;
+
+  @ApiPropertyOptional({
+    description: '开始日期筛选 (YYYY-MM-DD)',
+    example: '2025-01-01',
+  })
+  @IsDateString()
+  @IsOptional()
+  startDate?: string;
+
+  @ApiPropertyOptional({
+    description: '结束日期筛选 (YYYY-MM-DD)',
+    example: '2025-12-31',
+  })
+  @IsDateString()
+  @IsOptional()
+  endDate?: string;
 } 

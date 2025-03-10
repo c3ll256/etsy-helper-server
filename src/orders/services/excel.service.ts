@@ -2,6 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { read, utils } from 'xlsx';
 import { EtsyOrderService } from './etsy-order.service';
 import { OrderStampService } from '../../stamps/services/order-stamp.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Order } from '../entities/order.entity';
 
 @Injectable()
 export class ExcelService {
@@ -10,6 +13,8 @@ export class ExcelService {
   constructor(
     private readonly etsyOrderService: EtsyOrderService,
     private readonly orderStampService: OrderStampService,
+    @InjectRepository(Order)
+    private readonly orderRepository: Repository<Order>,
   ) {}
 
   async parseExcelFile(file: Express.Multer.File): Promise<{
@@ -51,6 +56,14 @@ export class ExcelService {
                   result.order.orderId,
                   stampImageUrl
                 );
+
+                // 更新Order状态为已生成印章待审核
+                if (result.order.order) {
+                  await this.orderRepository.update(
+                    { id: result.order.order.id },
+                    { status: 'stamp_generated_pending_review' }
+                  );
+                }
 
                 stamps.push({
                   orderId: result.order.orderId,

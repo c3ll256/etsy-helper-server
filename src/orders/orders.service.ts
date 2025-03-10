@@ -34,7 +34,7 @@ export class OrdersService {
   }
 
   async findAll(paginationDto: PaginationDto): Promise<PaginatedResponse<Order>> {
-    const { page = 1, limit = 10, search, status } = paginationDto;
+    const { page = 1, limit = 10, search, status, startDate, endDate } = paginationDto;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
@@ -48,10 +48,19 @@ export class OrdersService {
       queryBuilder.andWhere('order.status = :status', { status });
     }
 
+    // Apply date range filters if provided
+    if (startDate) {
+      queryBuilder.andWhere('order.platformOrderDate >= :startDate', { startDate });
+    }
+
+    if (endDate) {
+      queryBuilder.andWhere('order.platformOrderDate <= :endDate', { endDate });
+    }
+
     // Apply search filter if provided
     if (search) {
       queryBuilder.andWhere(
-        '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search)',
+        '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
         { search: `%${search}%` }
       );
     }
