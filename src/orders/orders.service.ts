@@ -34,18 +34,29 @@ export class OrdersService {
   }
 
   async findAll(paginationDto: PaginationDto): Promise<PaginatedResponse<Order>> {
-    const { page = 1, limit = 10 } = paginationDto;
+    const { page = 1, limit = 10, search, status } = paginationDto;
     const skip = (page - 1) * limit;
 
-    const [items, total] = await this.ordersRepository.findAndCount({
-      relations: ['etsyOrder'],
-      skip,
-      take: limit,
-      order: {
-        createdAt: 'DESC'
-      }
-    });
+    const queryBuilder = this.ordersRepository.createQueryBuilder('order')
+      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
+      .orderBy('order.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
 
+    // Apply status filter if provided
+    if (status) {
+      queryBuilder.andWhere('order.status = :status', { status });
+    }
+
+    // Apply search filter if provided
+    if (search) {
+      queryBuilder.andWhere(
+        '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search)',
+        { search: `%${search}%` }
+      );
+    }
+
+    const [items, total] = await queryBuilder.getManyAndCount();
     const ordersWithDetails = await this.addOrderDetails(items);
 
     return {

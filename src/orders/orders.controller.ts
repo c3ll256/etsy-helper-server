@@ -116,6 +116,17 @@ export class OrdersController {
     isArray: true
   })
   @ApiQuery({ type: PaginationDto })
+  @ApiQuery({ 
+    name: 'search', 
+    required: false, 
+    description: '搜索订单号' 
+  })
+  @ApiQuery({ 
+    name: 'status', 
+    required: false, 
+    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
+    description: '按订单状态筛选' 
+  })
   findAll(@Query() paginationDto: PaginationDto): Promise<PaginatedResponse<Order>> {
     return this.ordersService.findAll(paginationDto);
   }

@@ -12,14 +12,14 @@ export class Order {
   id: string;
 
   @ApiProperty({
-    enum: ['pending', 'processing', 'completed', 'cancelled'],
+    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
     description: 'The status of the order',
-    example: 'pending'
+    example: 'stamp_not_generated'
   })
   @Column({
     type: 'enum',
-    enum: ['pending', 'processing', 'completed', 'cancelled'],
-    default: 'pending'
+    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
+    default: 'stamp_not_generated'
   })
   status: string;
 

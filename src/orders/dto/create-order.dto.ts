@@ -3,11 +3,11 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateOrderDto {
   @ApiProperty({
-    enum: ['pending', 'processing', 'completed', 'cancelled'],
+    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
     description: 'Order status',
-    example: 'pending'
+    example: 'stamp_not_generated'
   })
-  @IsEnum(['pending', 'processing', 'completed', 'cancelled'])
+  @IsEnum(['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'])
   status: string;
 
   @ApiProperty({
