@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 import { StampsService } from '../stamps.service';
+import { PythonStampService } from './python-stamp.service';
 import { StampTemplate } from '../entities/stamp-template.entity';
 import { StampGenerationRecord } from '../entities/stamp-generation-record.entity';
 import { GenerateStampDto } from '../dto/generate-stamp.dto';
@@ -16,6 +17,7 @@ export class OrderStampService {
 
   constructor(
     private readonly stampsService: StampsService,
+    private readonly pythonStampService: PythonStampService,
     @InjectRepository(StampTemplate)
     private stampTemplateRepository: Repository<StampTemplate>,
     @InjectRepository(StampGenerationRecord)
@@ -32,11 +34,15 @@ export class OrderStampService {
    * @param order Etsy订单
    * @param customTextElements 可选的自定义文本元素，如果提供则使用这些元素而不是从personalization解析
    * @param customTemplateId 可选的自定义模板ID，如果提供则使用这个模板而不是从SKU查找
+   * @param format 输出格式，默认是 'png'
+   * @param convertTextToPaths 是否将文本转换为路径，默认是 false
    */
   async generateStampFromOrder(
     order: any, 
     customTextElements?: any[], 
-    customTemplateId?: number
+    customTemplateId?: number,
+    format: 'png' | 'jpeg' | 'webp' | 'svg' = 'png',
+    convertTextToPaths: boolean = false
   ): Promise<{ 
     success: boolean; 
     path?: string; 
@@ -150,57 +156,23 @@ export class OrderStampService {
         }
       }
 
-      // 准备生成印章的数据
-      const generateStampDto: GenerateStampDto = {
-        templateId: template.id,
-        textElements: textElements
-      };
-
-      // 生成印章
-      const stampBuffer = await this.stampsService.generateStamp(generateStampDto);
-
-      // 生成文件名
-      const timestamp = Date.now();
-      const fileName = `${order.orderId}_${timestamp}.png`;
-      const outputPath = path.join(this.outputDir, fileName);
-      
-      // 保存到文件
-      fs.writeFileSync(outputPath, stampBuffer);
-      
-      // 转换为URL路径（用于存储和返回）
-      const stampImageUrl = `/stamps/${fileName}`;
-      
-      // 创建印章生成记录的完整数据
-      // 确保保存完整的文本元素信息
-      const recordTextElements = textElements.map(el => {
-        // 如果是自定义文本元素，可能需要补充模板中的默认值
-        const templateEl = template.textElements.find(t => t.id === el.id);
-        return {
-          id: el.id,
-          value: el.value,
-          fontFamily: el.fontFamily || templateEl?.fontFamily,
-          fontSize: el.fontSize || templateEl?.fontSize,
-          fontWeight: el.fontWeight || templateEl?.fontWeight,
-          fontStyle: el.fontStyle || templateEl?.fontStyle,
-          color: el.color || templateEl?.color,
-          position: {
-            x: el.position?.x || templateEl?.position?.x,
-            y: el.position?.y || templateEl?.position?.y,
-            width: el.position?.width || templateEl?.position?.width,
-            height: el.position?.height || templateEl?.position?.height,
-            rotation: el.position?.rotation || templateEl?.position?.rotation,
-            textAlign: el.position?.textAlign || templateEl?.position?.textAlign
-          }
-        };
-      });
+      // 使用 Python 服务生成印章，而不是之前的 NestJS 方法
+      const orderId = order.order?.id || order.orderId;
+      const stampImageUrl = await this.pythonStampService.generateAndSaveStamp(
+        template,
+        textElements,
+        orderId,
+        format === 'webp' ? 'png' : format,  // Convert webp to png since python may not support webp
+        convertTextToPaths
+      );
       
       // 创建印章生成记录
       const record = await this.stampGenerationRecordRepository.create({
-        orderId: order.order?.id || order.orderId,
+        orderId: orderId,
         templateId: template.id,
-        textElements: recordTextElements,
+        textElements: textElements,
         stampImageUrl: stampImageUrl,
-        format: 'png'
+        format: format === 'svg' ? 'svg' : (format === 'jpeg' ? 'jpg' : 'png')
       });
       
       // 保存记录

@@ -10,6 +10,7 @@ import { StampsService } from './stamps.service';
 import { StampTemplate } from './entities/stamp-template.entity';
 import { StampGenerationRecord } from './entities/stamp-generation-record.entity';
 import { OrderStampService } from './services/order-stamp.service';
+import { PythonStampService } from './services/python-stamp.service';
 import { GlmService } from 'src/common/services/glm.service';
 import { Font } from '../fonts/entities/font.entity';
 
@@ -36,7 +37,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
     }),
   ],
   controllers: [StampsController],
-  providers: [StampsService, OrderStampService, GlmService],
-  exports: [StampsService, OrderStampService, TypeOrmModule.forFeature([StampGenerationRecord])],
+  providers: [StampsService, OrderStampService, PythonStampService, GlmService],
+  exports: [StampsService, OrderStampService, PythonStampService, TypeOrmModule.forFeature([StampGenerationRecord])],
 })
 export class StampsModule {} 

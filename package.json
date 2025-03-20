@@ -19,7 +19,6 @@
     "@nestjs/swagger": "^11.0.4",
     "@nestjs/typeorm": "^10.0.1",
     "@scalar/nestjs-api-reference": "^0.3.183",
-    "canvas": "^3.1.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
     "multer": "^1.4.5-lts.1",

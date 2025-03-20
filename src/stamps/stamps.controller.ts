@@ -17,9 +17,9 @@ import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestj
 import { Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { diskStorage } from 'multer';
 
 import { StampsService } from './stamps.service';
+import { PythonStampService } from './services/python-stamp.service';
 import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
 import { GenerateStampDto } from './dto/generate-stamp.dto';
 import { PreviewStampDto } from './dto/preview-stamp.dto';
@@ -37,13 +37,14 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 @Controller('stamps')
 export class StampsController {
   constructor(
-    private readonly stampsService: StampsService, 
+    private readonly stampsService: StampsService,
+    private readonly pythonStampService: PythonStampService, 
     private readonly glmService: GlmService
   ) {}
 
   @Post('templates')
   @ApiOperation({ summary: 'Create a new stamp template' })
-  @ApiResponse({ status: 201, description: 'The stamp template has been successfully created.' })
+  @ApiResponse({ status: 201, description: 'The stamp template has been successfully created' })
   async create(@Body() createStampTemplateDto: CreateStampTemplateDto) {
     return this.stampsService.create(createStampTemplateDto);
   }
@@ -56,16 +57,11 @@ export class StampsController {
   }
 
   @Get('templates/:id')
-  @ApiOperation({ summary: 'Get a stamp template by ID or SKU' })
+  @ApiOperation({ summary: 'Get a stamp template by id' })
   @ApiResponse({ status: 200, description: 'Return the stamp template' })
   @ApiResponse({ status: 404, description: 'Stamp template not found' })
   async findOne(@Param('id') id: string) {
-    // Try to parse as number, otherwise use as string (SKU)
-    const parsedId = +id;
-    if (isNaN(parsedId)) {
-      throw new BadRequestException('ID must be a number');
-    }
-    return this.stampsService.findById(parsedId);
+    return this.stampsService.findById(+id);
   }
 
   @Delete('templates/:id')
@@ -82,11 +78,21 @@ export class StampsController {
   @ApiResponse({ status: 200, description: 'Return the generated stamp image' })
   @ApiResponse({ status: 404, description: 'Template not found' })
   async generateStamp(@Body() generateStampDto: GenerateStampDto, @Res() res: Response) {
-    const buffer = await this.stampsService.generateStamp(generateStampDto);
+    // 获取模板
+    const template = await this.stampsService.findById(generateStampDto.templateId);
     
-    // Set appropriate content type based on format
+    // 使用 Python 服务生成图章
+    const buffer = await this.pythonStampService.generateStamp(
+      template,
+      generateStampDto.textElements,
+      generateStampDto.format || 'png',
+      generateStampDto.convertTextToPaths || false
+    );
+    
+    // 设置响应头
     const format = generateStampDto.format || 'png';
-    const contentType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+    const contentType = format === 'svg' ? 'image/svg+xml' : 
+                       format === 'jpeg' ? 'image/jpeg' : 'image/png';
     
     res.set({
       'Content-Type': contentType,
@@ -102,11 +108,45 @@ export class StampsController {
   @ApiResponse({ status: 400, description: 'Bad request' })
   @ApiBody({ type: PreviewStampDto })
   async previewStamp(@Body() previewStampDto: PreviewStampDto, @Res() res: Response) {
-    const buffer = await this.stampsService.previewStamp(previewStampDto);
+    let template = null;
     
-    // Set appropriate content type based on format
+    // 如果提供了模板 ID，则获取模板
+    if (previewStampDto.templateId) {
+      try {
+        template = await this.stampsService.findById(previewStampDto.templateId);
+      } catch (error) {
+        // 如果找不到模板，则使用提供的参数创建临时模板
+        template = {
+          id: 0,
+          width: previewStampDto.width || 500,
+          height: previewStampDto.height || 500,
+          backgroundImagePath: previewStampDto.backgroundImagePath,
+          textElements: []
+        };
+      }
+    } else {
+      // 创建临时模板
+      template = {
+        id: 0,
+        width: previewStampDto.width || 500,
+        height: previewStampDto.height || 500,
+        backgroundImagePath: previewStampDto.backgroundImagePath,
+        textElements: []
+      };
+    }
+    
+    // 使用 Python 服务生成预览
+    const buffer = await this.pythonStampService.generateStamp(
+      template,
+      previewStampDto.textElements,
+      previewStampDto.format || 'png',
+      previewStampDto.convertTextToPaths || false
+    );
+    
+    // 设置响应头
     const format = previewStampDto.format || 'png';
-    const contentType = format === 'jpeg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
+    const contentType = format === 'svg' ? 'image/svg+xml' : 
+                        format === 'jpeg' ? 'image/jpeg' : 'image/png';
     
     res.set({
       'Content-Type': contentType,
@@ -119,27 +159,24 @@ export class StampsController {
   @Post('upload-background')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: UPLOAD_DIR,
-        filename: (req, file, cb) => {
-          // Generate a unique filename
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          const ext = path.extname(file.originalname);
-          cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-        },
-      }),
-      fileFilter: (req, file, cb) => {
-        // Accept only image files
-        if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
-          return cb(new BadRequestException('Only image files are allowed!'), false);
+      fileFilter: (req, file, callback) => {
+        const allowedMimes = ['image/jpeg', 'image/png', 'image/svg+xml'];
+        const allowedExts = ['.jpg', '.jpeg', '.png', '.svg'];
+        
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
+          callback(null, true);
+        } else {
+          callback(new BadRequestException('仅支持 JPG, PNG 和 SVG 格式的图片'), false);
         }
-        cb(null, true);
       },
       limits: {
         fileSize: 5 * 1024 * 1024, // 5MB
       },
+      dest: 'uploads/backgrounds',
     }),
   )
+  @ApiOperation({ summary: '上传印章背景图片' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -148,40 +185,40 @@ export class StampsController {
         file: {
           type: 'string',
           format: 'binary',
+          description: '印章背景图片文件',
         },
       },
     },
   })
-  @ApiOperation({ summary: 'Upload a background image for stamp templates' })
-  @ApiResponse({ status: 201, description: 'The background image has been successfully uploaded' })
+  @ApiResponse({ status: 201, description: '背景图片上传成功' })
+  @ApiResponse({ status: 400, description: '无效的文件类型或大小' })
   async uploadBackground(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
-      throw new BadRequestException('No file uploaded');
+      throw new BadRequestException('未提供文件或文件上传失败');
     }
-    
-    // Return the relative path to the uploaded file
-    const relativePath = path.join(UPLOAD_DIR, file.filename);
-    
+
+    // 确保目录存在
+    const uploadsDir = path.join(process.cwd(), 'uploads', 'backgrounds');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    // 返回文件相对路径
+    const relativePath = path.join('uploads', 'backgrounds', file.filename);
     return {
-      message: 'File uploaded successfully',
+      success: true,
       filePath: relativePath,
-      filename: file.filename,
-      originalName: file.originalname,
+      fileName: file.originalname,
     };
   }
 
   @Post('templates/clone')
-  @ApiOperation({ summary: '复制现有的印章模板' })
-  @ApiResponse({ status: 201, description: '模板复制成功' })
-  @ApiResponse({ status: 400, description: '请求参数错误' })
-  @ApiResponse({ status: 404, description: '源模板未找到' })
-  @ApiBody({ type: CloneStampTemplateDto })
+  @ApiOperation({ summary: '克隆现有印章模板' })
+  @ApiResponse({ status: 201, description: '印章模板克隆成功' })
+  @ApiResponse({ status: 404, description: '源模板不存在' })
+  @ApiResponse({ status: 400, description: 'SKU已存在或数据无效' })
   async cloneTemplate(@Body() cloneStampTemplateDto: CloneStampTemplateDto) {
-    const clonedTemplate = await this.stampsService.cloneTemplate(cloneStampTemplateDto);
-    return {
-      message: '模板复制成功',
-      template: clonedTemplate
-    };
+    return this.stampsService.cloneTemplate(cloneStampTemplateDto);
   }
 
   @Get('test')

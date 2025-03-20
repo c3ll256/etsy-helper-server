@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsOptional, ValidateNested, IsNumber } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsString, ValidateNested, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -27,43 +27,43 @@ class TextPositionDto {
   @IsNumber()
   @IsOptional()
   rotation?: number;
-
-  @ApiProperty({ description: 'Text alignment', required: false, enum: ['left', 'center', 'right'] })
+  
+  @ApiProperty({ description: 'Text alignment (left, center, right)', required: false })
   @IsString()
   @IsOptional()
-  textAlign?: 'left' | 'center' | 'right';
+  textAlign?: string;
 }
 
 class PreviewTextElementDto {
-  @ApiProperty({ description: 'Unique identifier for the text element' })
+  @ApiProperty({ description: 'ID of the text element' })
   @IsString()
   id: string;
 
-  @ApiProperty({ description: 'Value for the text element' })
+  @ApiProperty({ description: 'Text value' })
   @IsString()
   value: string;
 
-  @ApiProperty({ description: 'Font family for the text element' })
+  @ApiProperty({ description: 'Font family', required: false })
   @IsString()
   @IsOptional()
   fontFamily?: string;
 
-  @ApiProperty({ description: 'Font size for the text element' })
+  @ApiProperty({ description: 'Font size', required: false })
   @IsNumber()
   @IsOptional()
   fontSize?: number;
 
-  @ApiProperty({ description: 'Font weight for the text element', required: false })
+  @ApiProperty({ description: 'Font weight', required: false })
   @IsString()
   @IsOptional()
   fontWeight?: string;
 
-  @ApiProperty({ description: 'Font style for the text element', required: false })
+  @ApiProperty({ description: 'Font style', required: false })
   @IsString()
   @IsOptional()
   fontStyle?: string;
 
-  @ApiProperty({ description: 'Text color in hex format', required: false })
+  @ApiProperty({ description: 'Text color', required: false })
   @IsString()
   @IsOptional()
   color?: string;
@@ -102,13 +102,13 @@ export class PreviewStampDto {
   @Type(() => PreviewTextElementDto)
   textElements: PreviewTextElementDto[];
 
-  @ApiProperty({ description: 'Output format', default: 'png', enum: ['png', 'jpeg', 'webp'] })
+  @ApiProperty({ description: 'Output format', default: 'png', enum: ['png', 'jpeg', 'svg'] })
   @IsString()
   @IsOptional()
-  format?: 'png' | 'jpeg' | 'webp' = 'png';
+  format?: 'png' | 'jpeg' | 'svg' = 'png';
 
-  @ApiProperty({ description: 'Output quality (0-1 for jpeg/webp)', default: 0.9 })
-  @IsNumber()
+  @ApiProperty({ description: 'Convert text to paths in SVG output', default: false })
+  @IsBoolean()
   @IsOptional()
-  quality?: number = 0.9;
+  convertTextToPaths?: boolean = false;
 } 

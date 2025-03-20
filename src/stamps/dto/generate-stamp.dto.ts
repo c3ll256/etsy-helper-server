@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsOptional, ValidateNested, IsNumber } from 'class-validator';
+import { IsString, IsArray, IsOptional, ValidateNested, IsNumber, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -27,6 +27,11 @@ class TextPositionDto {
   @IsNumber()
   @IsOptional()
   rotation?: number;
+  
+  @ApiProperty({ description: 'Text alignment (left, center, right)', required: false })
+  @IsString()
+  @IsOptional()
+  textAlign?: string;
 }
 
 class StampTextElementDto {
@@ -37,6 +42,31 @@ class StampTextElementDto {
   @ApiProperty({ description: 'Value to replace the default text' })
   @IsString()
   value: string;
+  
+  @ApiProperty({ description: 'Font family', required: false })
+  @IsString()
+  @IsOptional()
+  fontFamily?: string;
+  
+  @ApiProperty({ description: 'Font size', required: false })
+  @IsNumber()
+  @IsOptional()
+  fontSize?: number;
+  
+  @ApiProperty({ description: 'Font weight', required: false })
+  @IsString()
+  @IsOptional()
+  fontWeight?: string;
+  
+  @ApiProperty({ description: 'Font style', required: false })
+  @IsString()
+  @IsOptional()
+  fontStyle?: string;
+  
+  @ApiProperty({ description: 'Text color', required: false })
+  @IsString()
+  @IsOptional()
+  color?: string;
 
   @ApiProperty({ description: 'Optional position override', required: false })
   @IsOptional()
@@ -56,13 +86,13 @@ export class GenerateStampDto {
   @Type(() => StampTextElementDto)
   textElements: StampTextElementDto[];
 
-  @ApiProperty({ description: 'Output format', default: 'png', enum: ['png', 'jpeg', 'webp'] })
+  @ApiProperty({ description: 'Output format', default: 'png', enum: ['png', 'jpeg', 'svg'] })
   @IsString()
   @IsOptional()
-  format?: 'png' | 'jpeg' | 'webp' = 'png';
+  format?: 'png' | 'jpeg' | 'svg' = 'png';
 
-  @ApiProperty({ description: 'Output quality (0-1 for jpeg/webp)', default: 0.9 })
-  @IsNumber()
+  @ApiProperty({ description: 'Convert text to paths in SVG output', default: false })
+  @IsBoolean()
   @IsOptional()
-  quality?: number = 0.9;
+  convertTextToPaths?: boolean = false;
 } 
