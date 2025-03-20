@@ -61,6 +61,7 @@ export class EtsyOrderService {
       shipState: data['Ship State'],
       shipZipcode: data['Ship Zipcode']?.toString(),
       shipCountry: data['Ship Country'],
+      originalVariations: data['Variations'],
       variations: this.parseVariations(data['Variations']),
       orderType: data['Order Type'],
       listingsType: data['Listings Type'],
@@ -109,17 +110,37 @@ export class EtsyOrderService {
     if (!variationsString) return null;
     try {
       const variations = {};
-      variationsString.split(',').forEach(variation => {
-        const [key, value] = variation.split(':').map(s => s?.trim());
+      
+      // 使用正则表达式匹配键值对，考虑冒号后可能出现的逗号
+      const regex = /([^:,]+):([^,]+(?:,[^:,]+)*?)(?:,(?=[^,]+:)|$)/g;
+      let match;
+      
+      while ((match = regex.exec(variationsString)) !== null) {
+        const key = match[1]?.trim();
+        const value = match[2]?.trim();
+        
         if (key && value) {
           variations[key] = value;
         }
-      });
+      }
+      
+      // 如果解析结果为空对象，尝试使用AI解析方法
+      if (Object.keys(variations).length === 0) {
+        return this.fallbackToAIParseVariations(variationsString);
+      }
+      
       return variations;
     } catch (error) {
       console.error('Error parsing variations:', error);
-      return null;
+      return this.fallbackToAIParseVariations(variationsString);
     }
+  }
+  
+  private fallbackToAIParseVariations(variationsString: string): any {
+    // TODO: 实现AI解析方法
+    console.log('Falling back to AI parsing for variations:', variationsString);
+    // 暂时返回原始字符串作为单个值
+    return { 'Raw Variations': variationsString };
   }
 
   private excelDateToJSDate(excelDate: number): Date | null {

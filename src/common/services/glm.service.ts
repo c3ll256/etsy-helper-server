@@ -51,13 +51,9 @@ export class GlmService {
   }
 
   private async makeRequest(endpoint: string, body: GlmRequestBody) {
-    const timestamp = Math.floor(Date.now() / 1000);
-    const [apiKeyId] = this.apiKey.split('.');
-    const signature = this.generateSignature(timestamp);
-
     const headers = {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKeyId}.${timestamp}.${signature}`,
+      'Authorization': `Bearer ${this.apiKey}`,
     };
 
     try {

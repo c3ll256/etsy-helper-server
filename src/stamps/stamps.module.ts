@@ -9,6 +9,7 @@ import { StampsController } from './stamps.controller';
 import { StampsService } from './stamps.service';
 import { StampTemplate } from './entities/stamp-template.entity';
 import { OrderStampService } from './services/order-stamp.service';
+import { GlmService } from 'src/common/services/glm.service';
 
 // Ensure uploads directory exists
 const UPLOADS_DIR = 'uploads';
@@ -33,7 +34,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
     }),
   ],
   controllers: [StampsController],
-  providers: [StampsService, OrderStampService],
+  providers: [StampsService, OrderStampService, GlmService],
   exports: [StampsService, OrderStampService],
 })
 export class StampsModule {} 

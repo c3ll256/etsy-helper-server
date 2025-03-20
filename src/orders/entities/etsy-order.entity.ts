@@ -100,6 +100,14 @@ export class EtsyOrder {
   @Column({ type: 'jsonb', nullable: true })
   variations: any;
 
+  @ApiProperty({
+    description: 'Original variations string before parsing',
+    example: 'Color:Red,Size:Large',
+    required: false
+  })
+  @Column({ nullable: true })
+  originalVariations: string;
+
   @ApiProperty({ description: 'Order type', example: 'online', required: false })
   @Column({ nullable: true })
   orderType: string;

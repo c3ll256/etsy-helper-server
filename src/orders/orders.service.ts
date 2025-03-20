@@ -48,13 +48,13 @@ export class OrdersService {
       queryBuilder.andWhere('order.status = :status', { status });
     }
 
-    // Apply date range filters if provided
+    // 这里筛选的是导入时间
     if (startDate) {
-      queryBuilder.andWhere('order.platformOrderDate >= :startDate', { startDate });
+      queryBuilder.andWhere('order.createdAt >= :startDate', { startDate });
     }
 
     if (endDate) {
-      queryBuilder.andWhere('order.platformOrderDate <= :endDate', { endDate });
+      queryBuilder.andWhere('order.createdAt <= :endDate', { endDate });
     }
 
     // Apply search filter if provided

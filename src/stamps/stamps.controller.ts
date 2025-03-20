@@ -24,6 +24,7 @@ import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
 import { GenerateStampDto } from './dto/generate-stamp.dto';
 import { PreviewStampDto } from './dto/preview-stamp.dto';
 import { CloneStampTemplateDto } from './dto/clone-stamp-template.dto';
+import { GlmService } from 'src/common/services/glm.service';
 
 const UPLOAD_DIR = 'uploads/backgrounds';
 
@@ -35,7 +36,10 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 @ApiTags('stamps')
 @Controller('stamps')
 export class StampsController {
-  constructor(private readonly stampsService: StampsService) {}
+  constructor(
+    private readonly stampsService: StampsService, 
+    private readonly glmService: GlmService
+  ) {}
 
   @Post('templates')
   @ApiOperation({ summary: 'Create a new stamp template' })
@@ -178,5 +182,12 @@ export class StampsController {
       message: '模板复制成功',
       template: clonedTemplate
     };
+  }
+
+  @Get('test')
+  @ApiOperation({ summary: 'Test API' })
+  @ApiResponse({ status: 200, description: 'Test successful' })
+  test() {
+    return this.glmService.generateText('你好');
   }
 } 
