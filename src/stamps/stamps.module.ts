@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import { StampsController } from './stamps.controller';
 import { StampsService } from './stamps.service';
 import { StampTemplate } from './entities/stamp-template.entity';
+import { StampGenerationRecord } from './entities/stamp-generation-record.entity';
 import { OrderStampService } from './services/order-stamp.service';
 import { GlmService } from 'src/common/services/glm.service';
 
@@ -19,7 +20,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StampTemplate]),
+    TypeOrmModule.forFeature([StampTemplate, StampGenerationRecord]),
     MulterModule.register({
       storage: diskStorage({
         destination: (req, file, cb) => {
@@ -35,6 +36,6 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   ],
   controllers: [StampsController],
   providers: [StampsService, OrderStampService, GlmService],
-  exports: [StampsService, OrderStampService],
+  exports: [StampsService, OrderStampService, TypeOrmModule.forFeature([StampGenerationRecord])],
 })
 export class StampsModule {} 

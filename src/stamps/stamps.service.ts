@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { StampTemplate, TextElement } from './entities/stamp-template.entity';
+import { StampGenerationRecord } from './entities/stamp-generation-record.entity';
 import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
 import { GenerateStampDto } from './dto/generate-stamp.dto';
 import { PreviewStampDto } from './dto/preview-stamp.dto';
@@ -16,6 +17,8 @@ export class StampsService {
   constructor(
     @InjectRepository(StampTemplate)
     private stampTemplateRepository: Repository<StampTemplate>,
+    @InjectRepository(StampGenerationRecord)
+    private stampGenerationRecordRepository: Repository<StampGenerationRecord>,
   ) {
     // Register fonts that will be available for stamp generation
     this.registerAvailableFonts();
@@ -401,5 +404,64 @@ export class StampsService {
     
     // 保存新模板
     return this.stampTemplateRepository.save(clonedTemplate);
+  }
+
+  // 创建印章生成记录
+  async createGenerationRecord(
+    orderId: string, 
+    templateId: number, 
+    textElements: any[], 
+    stampImageUrl: string,
+    format: string = 'png'
+  ): Promise<StampGenerationRecord> {
+    const record = this.stampGenerationRecordRepository.create({
+      orderId,
+      templateId,
+      textElements,
+      stampImageUrl,
+      format
+    });
+    
+    return await this.stampGenerationRecordRepository.save(record);
+  }
+
+  // 根据订单ID获取印章生成记录
+  async getGenerationRecordsByOrderId(orderId: string): Promise<StampGenerationRecord[]> {
+    return this.stampGenerationRecordRepository.find({
+      where: { orderId },
+      order: { createdAt: 'DESC' },
+      relations: ['template']
+    });
+  }
+
+  // 根据记录ID获取特定的印章生成记录
+  async getGenerationRecordById(id: number): Promise<StampGenerationRecord> {
+    const record = await this.stampGenerationRecordRepository.findOne({
+      where: { id },
+      relations: ['template']
+    });
+    
+    if (!record) {
+      throw new NotFoundException(`Stamp generation record with ID ${id} not found`);
+    }
+    
+    return record;
+  }
+
+  // 获取最新一条印章生成记录（无论是哪个订单）
+  async getLatestGenerationRecord(): Promise<StampGenerationRecord | null> {
+    return this.stampGenerationRecordRepository.findOne({
+      order: { createdAt: 'DESC' },
+      relations: ['template']
+    });
+  }
+
+  // 获取指定订单的最新一条印章生成记录
+  async getLatestGenerationRecordByOrderId(orderId: string): Promise<StampGenerationRecord | null> {
+    return this.stampGenerationRecordRepository.findOne({
+      where: { orderId },
+      order: { createdAt: 'DESC' },
+      relations: ['template']
+    });
   }
 } 

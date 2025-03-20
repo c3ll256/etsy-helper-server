@@ -15,5 +15,6 @@ import { StampsModule } from '../stamps/stamps.module';
   ],
   controllers: [OrdersController],
   providers: [OrdersService, ExcelService, EtsyOrderService],
+  exports: [OrdersService]
 })
 export class OrdersModule {} 
