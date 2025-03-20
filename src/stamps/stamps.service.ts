@@ -11,6 +11,7 @@ import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
 import { GenerateStampDto } from './dto/generate-stamp.dto';
 import { PreviewStampDto } from './dto/preview-stamp.dto';
 import { CloneStampTemplateDto } from './dto/clone-stamp-template.dto';
+import { Font } from '../fonts/entities/font.entity';
 
 @Injectable()
 export class StampsService {
@@ -19,12 +20,33 @@ export class StampsService {
     private stampTemplateRepository: Repository<StampTemplate>,
     @InjectRepository(StampGenerationRecord)
     private stampGenerationRecordRepository: Repository<StampGenerationRecord>,
+    @InjectRepository(Font)
+    private fontRepository: Repository<Font>,
   ) {
     // Register fonts that will be available for stamp generation
     this.registerAvailableFonts();
   }
 
-  private registerAvailableFonts() {
+  private async registerAvailableFonts() {
+    // First register fonts from the database
+    try {
+      const fonts = await this.fontRepository.find({ where: { isActive: true } });
+      console.log(`Found ${fonts.length} fonts in database`);
+      
+      fonts.forEach(font => {
+        try {
+          // Register the font with its database name
+          registerFont(font.filePath, { family: font.name });
+          console.log(`Registered font from database: ${font.name} from ${font.filePath}`);
+        } catch (error) {
+          console.error(`Failed to register font ${font.name} from database:`, error);
+        }
+      });
+    } catch (error) {
+      console.error('Error loading fonts from database:', error);
+    }
+    
+    // Also scan the fonts directory for backward compatibility
     const fontsDir = path.join(process.cwd(), 'uploads', 'fonts');
     
     // Create fonts directory if it doesn't exist
@@ -48,7 +70,7 @@ export class StampsService {
         try {
           // Register the font with its exact name
           registerFont(fontPath, { family: fontFamily });
-          console.log(`Registered font: ${fontFamily} from ${fontPath}`);
+          console.log(`Registered font from directory: ${fontFamily} from ${fontPath}`);
           
           // Also register without hyphens if the name contains them
           if (fontFamily.includes('-')) {
@@ -57,7 +79,7 @@ export class StampsService {
             console.log(`Also registered as: ${noHyphenName} (without hyphens)`);
           }
         } catch (error) {
-          console.error(`Failed to register font ${fontFamily}:`, error);
+          console.error(`Failed to register font ${fontFamily} from directory:`, error);
         }
       });
     } catch (error) {
