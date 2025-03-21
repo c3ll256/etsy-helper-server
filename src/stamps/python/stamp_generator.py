@@ -14,6 +14,7 @@ from fontTools.ttLib import TTFont
 from fontTools.pens.svgPathPen import SVGPathPen
 import cairo
 import math
+import uharfbuzz as hb
 
 class StampGenerator:
     def __init__(self, data):
@@ -32,6 +33,9 @@ class StampGenerator:
         
         # Map font families to font files
         self.font_map = self._build_font_map()
+        
+        # 初始化uharfbuzz缓存
+        self.hb_fonts = {}
 
     def _build_font_map(self):
         """Build a mapping of font family names to font file paths"""
@@ -206,11 +210,13 @@ class StampGenerator:
             return None, f"Error generating SVG with Cairo: {e}"
 
     def _render_with_advanced_cairo(self, ctx, text, font_family, font_size, x, y, color, rotation, text_align, vert_align):
-        """使用纯Cairo和手动字体间距调整渲染文本"""
+        """使用uharfbuzz处理字体间距并使用Cairo渲染文本"""
         try:
             # 保存当前状态用于旋转
+            ctx.save()
+            
+            # 旋转 (如果需要)
             if rotation:
-                ctx.save()
                 # 移动到旋转中心
                 ctx.translate(x, y)
                 # 旋转 (需要转换为弧度)
@@ -218,79 +224,156 @@ class StampGenerator:
                 # 重置位置为原点
                 ctx.translate(-x, -y)
             
-            # 设置字体
-            ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-            ctx.set_font_size(font_size)
+            # 获取字体文件路径
+            font_path = self._get_font_path(font_family)
             
             # 设置颜色
             ctx.set_source_rgb(color[0], color[1], color[2])
             
-            # 获取文本整体尺寸
-            text_extents = ctx.text_extents(text)
-            text_width = text_extents.width
-            text_height = text_extents.height
-            
-            # 计算定位
-            place_x = x
-            place_y = y
-            
-            # 水平对齐
-            if text_align == 'center':
-                place_x = x - (text_width / 2)
-            elif text_align == 'right':
-                place_x = x - text_width
-            
-            # 垂直对齐
-            if vert_align == 'top':
-                place_y = y + text_height
-            elif vert_align == 'middle':
-                place_y = y + (text_height / 2)
-            # baseline 是默认
-            
-            # 调试输出
-            sys.stderr.write(f"Advanced Cairo: Rendering '{text}' at ({place_x}, {place_y}), size: {text_width}x{text_height}\n")
-            
-            # 对于短文本或不需要特殊间距处理的文本，直接使用标准渲染
-            if len(text) < 3 or not any(c.isupper() and c.lower() != c for c in text):
+            # 使用uharfbuzz进行排版
+            try:
+                # 从缓存中获取uharfbuzz字体对象，如果不存在则创建
+                hb_font_key = (font_path, font_size)
+                if hb_font_key not in self.hb_fonts:
+                    # 创建blob和face
+                    blob = hb.Blob.from_file_path(font_path)
+                    face = hb.Face(blob)
+                    
+                    # 创建字体
+                    font = hb.Font(face)
+                    
+                    # 设置缩放比例 (uharfbuzz自动处理缩放)
+                    font.scale = (int(font_size * 64), int(font_size * 64))
+                    
+                    # 存入缓存
+                    self.hb_fonts[hb_font_key] = font
+                else:
+                    font = self.hb_fonts[hb_font_key]
+                
+                # 创建Buffer
+                buf = hb.Buffer()
+                
+                # 添加文本
+                buf.add_str(text)
+                
+                # 设置buffer属性
+                buf.direction = "ltr"  # 从左到右
+                buf.script = "Latn"    # 拉丁文
+                buf.language = "en"    # 英语
+                
+                # 应用字体排版 - 启用kerning
+                features = {"kern": True, "liga": True}  # 启用字偶距和连字
+                hb.shape(font, buf, features)
+                
+                # 获取排版信息
+                infos = buf.glyph_infos
+                positions = buf.glyph_positions
+                
+                # 计算整体宽度用于对齐
+                total_width = sum(pos.x_advance for pos in positions) / 64.0
+                
+                # 计算定位
+                place_x = x
+                place_y = y
+                
+                # 水平对齐
+                if text_align == 'center':
+                    place_x = x - (total_width / 2)
+                elif text_align == 'right':
+                    place_x = x - total_width
+                
+                # 计算垂直位置，需要字体的度量信息
+                ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+                ctx.set_font_size(font_size)
+                font_extents = ctx.font_extents()
+                
+                # 垂直对齐
+                if vert_align == 'top':
+                    place_y = y + font_extents.ascent
+                elif vert_align == 'middle':
+                    place_y = y + (font_extents.ascent - font_extents.descent) / 2
+                # baseline 是默认
+                
+                # 调试输出
+                sys.stderr.write(f"uharfbuzz rendering '{text}' at ({place_x}, {place_y}), total width: {total_width}\n")
+                
+                # 使用Cairo渲染每个字形
+                current_x = place_x
+                current_y = place_y
+                
+                # 创建字体上下文用于后续渲染
+                ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+                ctx.set_font_size(font_size)
+                
+                # 遍历所有字形并渲染
+                for i, (info, pos) in enumerate(zip(infos, positions)):
+                    # 获取字符
+                    # uharfbuzz不提供直接的字形到字符串的转换，所以我们使用原始字符
+                    # 我们从文本的字符簇信息中获取对应的字符
+                    cluster = info.cluster
+                    # 根据字符簇找到原始字符（这里简化处理，可能对复杂文本不够准确）
+                    glyph_char = text[cluster] if cluster < len(text) else ' '
+                    
+                    # 获取位置偏移 (需要转换单位)
+                    x_offset = pos.x_offset / 64.0
+                    y_offset = pos.y_offset / 64.0
+                    x_advance = pos.x_advance / 64.0
+                    
+                    # 移动到绘制位置
+                    glyph_x = current_x + x_offset
+                    glyph_y = current_y - y_offset
+                    
+                    # 渲染字符
+                    ctx.move_to(glyph_x, glyph_y)
+                    ctx.show_text(glyph_char)
+                    
+                    # 更新位置
+                    current_x += x_advance
+                
+            except Exception as hb_error:
+                sys.stderr.write(f"Error with uharfbuzz: {hb_error}, falling back to basic rendering\n")
+                # 回退到基本的渲染
+                ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+                ctx.set_font_size(font_size)
+                
+                # 获取文本尺寸
+                text_extents = ctx.text_extents(text)
+                text_width = text_extents.width
+                
+                # 计算定位
+                place_x = x
+                place_y = y
+                
+                # 水平对齐
+                if text_align == 'center':
+                    place_x = x - (text_width / 2)
+                elif text_align == 'right':
+                    place_x = x - text_width
+                
+                # 垂直对齐
+                font_extents = ctx.font_extents()
+                if vert_align == 'top':
+                    place_y = y + font_extents.ascent
+                elif vert_align == 'middle':
+                    place_y = y + (font_extents.ascent - font_extents.descent) / 2
+                
+                # 简单渲染文本
                 ctx.move_to(place_x, place_y)
                 ctx.show_text(text)
-            else:
-                # 对于包含大小写混合的文本，手动调整字符间距
-                current_x = place_x
-                
-                # 遍历每个字符
-                for i, char in enumerate(text):
-                    # 获取当前字符的尺寸
-                    char_extents = ctx.text_extents(char)
-                    
-                    # 为大写字母与小写字母之间的过渡添加一点额外间距
-                    extra_spacing = 0
-                    if i > 0:
-                        prev_is_upper = text[i-1].isupper() and text[i-1].lower() != text[i-1]
-                        curr_is_lower = char.islower() and char.upper() != char
-                        curr_is_upper = char.isupper() and char.lower() != char
-                        prev_is_lower = text[i-1].islower() and text[i-1].upper() != text[i-1]
-                        
-                        # 当从大写变为小写，或从小写变为大写时添加间距
-                        if (prev_is_upper and curr_is_lower) or (prev_is_lower and curr_is_upper):
-                            extra_spacing = font_size * 0.03  # 字体大小的3%作为额外间距
-                    
-                    # 文本渲染
-                    ctx.move_to(current_x + extra_spacing, place_y)
-                    ctx.show_text(char)
-                    
-                    # 更新x位置
-                    current_x += char_extents.x_advance + extra_spacing
             
             # 恢复旋转前的状态
-            if rotation:
-                ctx.restore()
+            ctx.restore()
                 
         except Exception as e:
             sys.stderr.write(f"Error in advanced Cairo rendering: {e}\n")
             # 回退到最基本的文本渲染
+            ctx.save()
+            ctx.set_source_rgb(color[0], color[1], color[2])
+            ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+            ctx.set_font_size(font_size)
             ctx.move_to(x, y)
             ctx.show_text(text)
+            ctx.restore()
 
     def generate(self):
         """Generate the stamp in SVG format"""
