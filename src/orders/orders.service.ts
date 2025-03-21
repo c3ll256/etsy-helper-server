@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as AdmZip from 'adm-zip';
 import { Order } from './entities/order.entity';
 import { EtsyOrder } from './entities/etsy-order.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -15,6 +16,7 @@ import { OrderStampService } from '../stamps/services/order-stamp.service';
 @Injectable()
 export class OrdersService {
   private readonly stampsOutputDir = 'uploads/stamps';
+  private readonly exportsOutputDir = 'uploads/exports';
 
   constructor(
     @InjectRepository(Order)
@@ -24,9 +26,14 @@ export class OrdersService {
     private readonly stampsService: StampsService,
     private readonly orderStampService: OrderStampService,
   ) {
-    // 确保印章输出目录存在
+    // 确保输出目录存在
     if (!fs.existsSync(this.stampsOutputDir)) {
       fs.mkdirSync(this.stampsOutputDir, { recursive: true });
+    }
+    
+    // 确保导出目录存在
+    if (!fs.existsSync(this.exportsOutputDir)) {
+      fs.mkdirSync(this.exportsOutputDir, { recursive: true });
     }
   }
 
@@ -144,11 +151,12 @@ export class OrdersService {
       }
 
       // 使用orderStampService生成印章并创建记录
-      const result = await this.orderStampService.generateStampFromOrder(
-        order.etsyOrder,
-        updateOrderStampDto.textElements,
-        updateOrderStampDto.templateId
-      );
+      const result = await this.orderStampService.generateStampFromOrder({
+        order: order.etsyOrder,
+        customTextElements: updateOrderStampDto.textElements,
+        customTemplateId: updateOrderStampDto.templateId,
+        convertTextToPaths: true
+      });
 
       if (!result.success) {
         return {
@@ -214,5 +222,144 @@ export class OrdersService {
     }
     
     return record;
+  }
+
+  async exportStampsAsZip(startDate?: string, endDate?: string): Promise<{
+    filePath: string;
+    fileName: string;
+    orderCount: number;
+  }> {
+    console.log(`开始导出图章: 开始日期=${startDate || '无'}, 结束日期=${endDate || '无'}`);
+    
+    // Create query builder for finding orders with generated stamps
+    const queryBuilder = this.ordersRepository.createQueryBuilder('order')
+      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
+      .where('order.status IN (:...statuses)', { 
+        statuses: ['stamp_generated_pending_review', 'stamp_generated_reviewed'] 
+      });
+
+    // Apply date filters if provided
+    if (startDate) {
+      queryBuilder.andWhere('order.createdAt >= :startDate', { 
+        startDate: new Date(startDate) 
+      });
+    }
+    
+    if (endDate) {
+      // Set time to end of day for the end date
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      
+      queryBuilder.andWhere('order.createdAt <= :endDate', { 
+        endDate: endDateTime 
+      });
+    }
+
+    // Find all relevant orders
+    const orders = await queryBuilder.getMany();
+    
+    if (orders.length === 0) {
+      throw new NotFoundException('No orders with generated stamps found in the specified date range');
+    }
+
+    console.log(`找到 ${orders.length} 个订单需要导出`);
+
+    // Create output directory if it doesn't exist
+    const exportDir = path.join(process.cwd(), this.exportsOutputDir);
+    if (!fs.existsSync(exportDir)) {
+      fs.mkdirSync(exportDir, { recursive: true });
+    }
+
+    // Create a new zip file
+    const zip = new AdmZip();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `stamps_export_${timestamp}.zip`;
+    const filePath = path.join(exportDir, fileName);
+    
+    console.log(`将创建压缩包: ${filePath}`);
+
+    // Keep track of files added to the zip
+    let addedFilesCount = 0;
+
+    // Process each order
+    for (const order of orders) {
+      try {
+        console.log(`处理订单 ${order.id} (platformOrderId: ${order.platformOrderId || 'N/A'})`);
+        
+        // 首先检查关联的 EtsyOrder 是否存在且有 stampImageUrl
+        if (order.etsyOrder && order.etsyOrder.stampImageUrl) {
+          console.log(`订单 ${order.id} 有关联的 EtsyOrder, stampImageUrl: ${order.etsyOrder.stampImageUrl}`);
+          
+          // Get absolute path to the stamp file
+          const relativePath = order.etsyOrder.stampImageUrl.startsWith('/') 
+            ? order.etsyOrder.stampImageUrl.substring(1) 
+            : order.etsyOrder.stampImageUrl;
+          
+          const stampPath = path.join(process.cwd(), relativePath);
+          
+          console.log(`检查文件路径: ${stampPath}, 存在: ${fs.existsSync(stampPath)}`);
+          
+          if (fs.existsSync(stampPath)) {
+            // 获取文件大小
+            const stats = fs.statSync(stampPath);
+            console.log(`文件大小: ${stats.size} 字节`);
+            
+            if (stats.size === 0) {
+              console.log(`警告: 文件 ${stampPath} 大小为0`);
+              continue;
+            }
+            
+            // Create meaningful filename for the stamp in the zip
+            let stampFileName = '';
+            
+            // Add order ID/platform order ID to filename for easy identification
+            if (order.platformOrderId) {
+              stampFileName = `Order_${order.platformOrderId}`;
+            } else {
+              stampFileName = `Order_${order.id}`;
+            }
+            
+            // If there's an Etsy order, add customer name from shipName
+            if (order.etsyOrder.shipName) {
+              stampFileName += `_${order.etsyOrder.shipName.replace(/[\\\/\:\*\?\"\<\>\|]/g, '_')}`;
+            }
+            
+            // Add file extension
+            const fileExtension = path.extname(stampPath) || '.png';
+            stampFileName += fileExtension;
+            
+            console.log(`添加文件到压缩包: ${stampFileName}`);
+            
+            // Add the file to the zip
+            zip.addLocalFile(stampPath, '', stampFileName);
+            addedFilesCount++;
+          } else {
+            console.log(`错误: 文件不存在 ${stampPath}`);
+          }
+        } else {
+          console.log(`订单 ${order.id} 没有关联的 EtsyOrder 或没有 stampImageUrl`);
+        }
+      } catch (error) {
+        console.error(`处理订单 ${order.id} 时发生错误:`, error);
+        // Continue with other orders even if one fails
+      }
+    }
+
+    if (addedFilesCount === 0) {
+      throw new NotFoundException('未找到任何有效的图章文件。请检查文件是否存在。');
+    }
+
+    console.log(`写入压缩文件，共有 ${addedFilesCount} 个图章`);
+    
+    // Save the zip file
+    zip.writeZip(filePath);
+    
+    console.log(`压缩文件已保存到: ${filePath}`);
+
+    return {
+      filePath,
+      fileName,
+      orderCount: addedFilesCount
+    };
   }
 } 

@@ -19,6 +19,7 @@
     "@nestjs/swagger": "^11.0.4",
     "@nestjs/typeorm": "^10.0.1",
     "@scalar/nestjs-api-reference": "^0.3.183",
+    "adm-zip": "^0.5.16",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
     "multer": "^1.4.5-lts.1",
@@ -31,6 +32,7 @@
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",
     "@nestjs/schematics": "^10.0.0",
+    "@types/adm-zip": "^0.5.7",
     "@types/express": "^4.17.17",
     "@types/multer": "^1.4.12",
     "@types/node": "^20.3.1",

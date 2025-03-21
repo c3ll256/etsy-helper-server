@@ -37,13 +37,13 @@ export class OrderStampService {
    * @param format 输出格式，默认是 'png'
    * @param convertTextToPaths 是否将文本转换为路径，默认是 false
    */
-  async generateStampFromOrder(
-    order: any, 
+  async generateStampFromOrder({order, format = 'svg', customTextElements, customTemplateId, convertTextToPaths = false}: {
+    order: any,
+    format?: 'png' | 'jpeg' | 'webp' | 'svg',
     customTextElements?: any[], 
     customTemplateId?: number,
-    format: 'png' | 'jpeg' | 'webp' | 'svg' = 'png',
-    convertTextToPaths: boolean = false
-  ): Promise<{ 
+    convertTextToPaths?: boolean
+  }): Promise<{ 
     success: boolean; 
     path?: string; 
     error?: string; 

@@ -1,13 +1,17 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors, UploadedFile, BadRequestException, Query, Put, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors, UploadedFile, BadRequestException, Query, Put, ParseIntPipe, Res, NotFoundException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStampDto } from './dto/update-order-stamp.dto';
+import { ExportStampsDto } from './dto/export-stamps.dto';
 import { ExcelService } from './services/excel.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery } from '@nestjs/swagger';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { Order } from './entities/order.entity';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
+import { Response } from 'express';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @ApiTags('orders')
 @Controller('orders')
@@ -130,6 +134,69 @@ export class OrdersController {
   })
   findAll(@Query() paginationDto: PaginationDto): Promise<PaginatedResponse<Order>> {
     return this.ordersService.findAll(paginationDto);
+  }
+
+  @Get('export-stamps')
+  @ApiOperation({ summary: '将指定时间段内的订单印章导出为zip包' })
+  @ApiResponse({
+    status: 200,
+    description: '导出成功，返回zip文件',
+    schema: {
+      type: 'string',
+      format: 'binary'
+    }
+  })
+  @ApiResponse({ status: 400, description: '请求处理失败' })
+  @ApiResponse({ status: 404, description: '没有找到符合条件的订单印章' })
+  async exportStamps(
+    @Query() exportStampsDto: ExportStampsDto,
+    @Res() res: Response
+  ) {
+    try {
+      const result = await this.ordersService.exportStampsAsZip(
+        exportStampsDto.startDate,
+        exportStampsDto.endDate
+      );
+
+      // 确保文件存在且有效
+      if (!fs.existsSync(result.filePath)) {
+        throw new BadRequestException(`Generated file does not exist: ${result.filePath}`);
+      }
+
+      // 检查文件大小
+      const stats = fs.statSync(result.filePath);
+      if (stats.size === 0) {
+        throw new BadRequestException('Generated zip file is empty');
+      }
+      
+      console.log(`Sending zip file: ${result.filePath}, size: ${stats.size} bytes, contains ${result.orderCount} stamps`);
+
+      // 设置响应头
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
+      res.setHeader('Content-Length', stats.size);
+      
+      // 创建文件流并发送文件
+      const fileStream = fs.createReadStream(result.filePath);
+      fileStream.pipe(res);
+      
+      // 不再删除文件，而是保留
+      console.log(`ZIP文件已保存在: ${result.filePath}`);
+      
+      // 处理错误
+      fileStream.on('error', (err) => {
+        console.error(`Error sending file: ${err.message}`);
+        if (!res.headersSent) {
+          res.status(500).send(`Error sending file: ${err.message}`);
+        }
+      });
+    } catch (error) {
+      console.error('Error in exportStamps:', error);
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException(error.message);
+    }
   }
 
   @Get(':id')
@@ -285,5 +352,106 @@ export class OrdersController {
   @ApiResponse({ status: 404, description: 'Order not found.' })
   remove(@Param('id') id: string) {
     return this.ordersService.remove(id);
+  }
+
+  @Get('exports')
+  @ApiOperation({ summary: '列出所有已导出的图章包' })
+  @ApiResponse({
+    status: 200,
+    description: '返回所有导出的文件列表',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          fileName: { type: 'string' },
+          fileSize: { type: 'number' },
+          createdAt: { type: 'string', format: 'date-time' },
+          downloadUrl: { type: 'string' }
+        }
+      }
+    }
+  })
+  listExports() {
+    try {
+      const exportDir = path.join(process.cwd(), 'uploads', 'exports');
+      
+      // 确保目录存在
+      if (!fs.existsSync(exportDir)) {
+        fs.mkdirSync(exportDir, { recursive: true });
+        return [];
+      }
+      
+      // 读取目录下所有文件
+      const files = fs.readdirSync(exportDir)
+        .filter(file => file.endsWith('.zip'))
+        .map(file => {
+          const filePath = path.join(exportDir, file);
+          const stats = fs.statSync(filePath);
+          
+          return {
+            fileName: file,
+            fileSize: stats.size,
+            createdAt: stats.mtime,
+            downloadUrl: `/uploads/exports/${file}`
+          };
+        })
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); // 按修改时间降序排序
+      
+      return files;
+    } catch (error) {
+      console.error('Error listing exports:', error);
+      return [];
+    }
+  }
+  
+  @Get('exports/:fileName')
+  @ApiOperation({ summary: '下载指定的导出文件' })
+  @ApiResponse({
+    status: 200,
+    description: '返回导出的文件',
+    schema: {
+      type: 'string',
+      format: 'binary'
+    }
+  })
+  @ApiResponse({ status: 404, description: '文件不存在' })
+  downloadExport(@Param('fileName') fileName: string, @Res() res: Response) {
+    try {
+      // 确保文件名不包含路径攻击
+      const sanitizedFileName = path.basename(fileName);
+      const filePath = path.join(process.cwd(), 'uploads', 'exports', sanitizedFileName);
+      
+      if (!fs.existsSync(filePath)) {
+        throw new NotFoundException(`File ${sanitizedFileName} not found`);
+      }
+      
+      const stats = fs.statSync(filePath);
+      if (stats.size === 0) {
+        throw new BadRequestException(`File ${sanitizedFileName} is empty`);
+      }
+      
+      // 设置响应头
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFileName}"`);
+      res.setHeader('Content-Length', stats.size);
+      
+      // 创建文件流并发送文件
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+      
+      // 处理错误
+      fileStream.on('error', (err) => {
+        console.error(`Error sending file: ${err.message}`);
+        if (!res.headersSent) {
+          res.status(500).send(`Error sending file: ${err.message}`);
+        }
+      });
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException(error.message);
+    }
   }
 } 

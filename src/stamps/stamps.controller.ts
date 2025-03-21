@@ -73,35 +73,6 @@ export class StampsController {
     return { message: 'Template deleted successfully' };
   }
 
-  @Post('generate')
-  @ApiOperation({ summary: 'Generate a stamp based on a template' })
-  @ApiResponse({ status: 200, description: 'Return the generated stamp image' })
-  @ApiResponse({ status: 404, description: 'Template not found' })
-  async generateStamp(@Body() generateStampDto: GenerateStampDto, @Res() res: Response) {
-    // 获取模板
-    const template = await this.stampsService.findById(generateStampDto.templateId);
-    
-    // 使用 Python 服务生成图章
-    const buffer = await this.pythonStampService.generateStamp(
-      template,
-      generateStampDto.textElements,
-      generateStampDto.format || 'png',
-      generateStampDto.convertTextToPaths || false
-    );
-    
-    // 设置响应头
-    const format = generateStampDto.format || 'png';
-    const contentType = format === 'svg' ? 'image/svg+xml' : 
-                       format === 'jpeg' ? 'image/jpeg' : 'image/png';
-    
-    res.set({
-      'Content-Type': contentType,
-      'Content-Length': buffer.length,
-    });
-    
-    return res.status(HttpStatus.OK).send(buffer);
-  }
-
   @Post('preview')
   @ApiOperation({ summary: 'Preview a stamp with custom parameters' })
   @ApiResponse({ status: 200, description: 'Returns the preview image of the stamp' })
@@ -136,12 +107,12 @@ export class StampsController {
     }
     
     // 使用 Python 服务生成预览
-    const buffer = await this.pythonStampService.generateStamp(
+    const buffer = await this.pythonStampService.generateStamp({
       template,
-      previewStampDto.textElements,
-      previewStampDto.format || 'png',
-      previewStampDto.convertTextToPaths || false
-    );
+      textElements: previewStampDto.textElements,
+      format: previewStampDto.format || 'png',
+      convertTextToPaths: previewStampDto.convertTextToPaths || false
+    });
     
     // 设置响应头
     const format = previewStampDto.format || 'png';

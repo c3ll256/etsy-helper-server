@@ -38,21 +38,24 @@ export class PythonStampService {
    * @param textElements Text elements with values
    * @param format Output format (png, jpeg, svg)
    * @param convertTextToPaths Whether to convert text to paths in SVG
+   * @param debug Whether to enable debug mode with reference points
    * @returns Buffer containing the generated stamp image
    */
-  async generateStamp(
-    template: any,
-    textElements: any[],
-    format: 'png' | 'jpeg' | 'svg' = 'png',
-    convertTextToPaths: boolean = false
-  ): Promise<Buffer> {
+  async generateStamp({template, textElements, format = 'svg', convertTextToPaths = false, debug = false}: {
+    template: any;
+    textElements: any[];
+    format?: 'png' | 'jpeg' | 'svg';
+    convertTextToPaths?: boolean;
+    debug?: boolean;
+  }): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       // Prepare data for Python script
       const inputData = {
         template,
         textElements,
         format,
-        convertTextToPaths
+        convertTextToPaths,
+        debug
       };
 
       // Spawn Python process
@@ -112,6 +115,7 @@ export class PythonStampService {
    * @param orderId Order ID for filename
    * @param format Output format (png, jpeg, svg)
    * @param convertTextToPaths Whether to convert text to paths in SVG
+   * @param debug Whether to enable debug mode with reference points
    * @returns Path to the saved stamp file
    */
   async generateAndSaveStamp(
@@ -119,7 +123,8 @@ export class PythonStampService {
     textElements: any[],
     orderId: string,
     format: 'png' | 'jpeg' | 'svg' = 'png',
-    convertTextToPaths: boolean = false
+    convertTextToPaths: boolean = false,
+    debug: boolean = false
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       // Generate unique filename
@@ -134,7 +139,8 @@ export class PythonStampService {
         textElements,
         format,
         convertTextToPaths,
-        filename
+        filename,
+        debug
       };
 
       // Spawn Python process

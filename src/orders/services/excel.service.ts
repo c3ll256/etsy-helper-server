@@ -44,7 +44,11 @@ export class ExcelService {
             // 为新创建的订单生成图章
             try {
               // 使用模板系统生成印章
-              const stampResult = await this.orderStampService.generateStampFromOrder(result.order);
+              const stampResult = await this.orderStampService.generateStampFromOrder({
+                order: result.order,
+                format: 'svg',
+                convertTextToPaths: true
+              });
               
               // 如果成功生成印章
               if (stampResult.success && stampResult.path) {
