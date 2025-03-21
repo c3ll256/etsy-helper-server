@@ -57,6 +57,43 @@ export class OrdersService {
     });
   }
 
+  // Helper method to apply date filters to any query builder
+  private applyDateFilters(queryBuilder: any, startDate?: string, endDate?: string): void {
+    // Handle case when only startDate is provided
+    if (startDate && !endDate) {
+      queryBuilder.andWhere('date_trunc(\'day\', "order"."createdAt") >= date_trunc(\'day\', :startDate::timestamp)', { 
+        startDate: startDate 
+      });
+      return;
+    }
+    
+    // Handle case when only endDate is provided
+    if (!startDate && endDate) {
+      queryBuilder.andWhere('date_trunc(\'day\', "order"."createdAt") <= date_trunc(\'day\', :endDate::timestamp)', { 
+        endDate: endDate 
+      });
+      return;
+    }
+    
+    // Handle case when startDate and endDate are the same
+    if (startDate && endDate && startDate === endDate) {;
+      queryBuilder.andWhere('date_trunc(\'day\', "order"."createdAt") = date_trunc(\'day\', :sameDate::timestamp)', {
+        sameDate: startDate
+      });
+      return;
+    }
+    
+    // Handle normal date range (both startDate and endDate provided)
+    if (startDate && endDate) {
+      queryBuilder.andWhere('date_trunc(\'day\', "order"."createdAt") >= date_trunc(\'day\', :startDate::timestamp)', { 
+        startDate: startDate
+      });
+      queryBuilder.andWhere('date_trunc(\'day\', "order"."createdAt") <= date_trunc(\'day\', :endDate::timestamp)', { 
+        endDate: endDate
+      });
+    }
+  }
+
   async findAll(paginationDto: PaginationDto): Promise<PaginatedResponse<Order>> {
     const { page = 1, limit = 10, search, status, startDate, endDate } = paginationDto;
     const skip = (page - 1) * limit;
@@ -72,14 +109,8 @@ export class OrdersService {
       queryBuilder.andWhere('order.status = :status', { status });
     }
 
-    // 这里筛选的是导入时间
-    if (startDate) {
-      queryBuilder.andWhere('order.createdAt >= :startDate', { startDate });
-    }
-
-    if (endDate) {
-      queryBuilder.andWhere('order.createdAt <= :endDate', { endDate });
-    }
+    // Apply date filters
+    this.applyDateFilters(queryBuilder, startDate, endDate);
 
     // Apply search filter if provided
     if (search) {
@@ -238,24 +269,31 @@ export class OrdersService {
         statuses: ['stamp_generated_pending_review', 'stamp_generated_reviewed'] 
       });
 
-    // Apply date filters if provided
-    if (startDate) {
-      queryBuilder.andWhere('order.createdAt >= :startDate', { 
-        startDate: new Date(startDate) 
-      });
-    }
+    // Apply date filters
+    this.applyDateFilters(queryBuilder, startDate, endDate);
+
+    // Get the SQL query for debugging
+    const sqlQuery = queryBuilder.getSql();
+    console.log(`查询SQL: ${sqlQuery}`);
     
-    if (endDate) {
-      // Set time to end of day for the end date
-      const endDateTime = new Date(endDate);
-      endDateTime.setHours(23, 59, 59, 999);
-      
-      queryBuilder.andWhere('order.createdAt <= :endDate', { 
-        endDate: endDateTime 
+    // Also log the parameters
+    const sqlParams = queryBuilder.getParameters();
+    console.log(`查询参数: ${JSON.stringify(sqlParams)}`);
+
+    // First, let's check all orders with their dates, without filtering
+    const allOrdersQuery = this.ordersRepository.createQueryBuilder('order')
+      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
+      .where('order.status IN (:...statuses)', { 
+        statuses: ['stamp_generated_pending_review', 'stamp_generated_reviewed'] 
       });
+    
+    const allOrders = await allOrdersQuery.getMany();
+    console.log(`总共找到 ${allOrders.length} 个状态符合的订单`);
+    for (const order of allOrders) {
+      console.log(`订单ID: ${order.id}, 创建时间: ${order.createdAt}`);
     }
 
-    // Find all relevant orders
+    // Find all relevant orders with date filtering
     const orders = await queryBuilder.getMany();
     
     if (orders.length === 0) {
@@ -291,9 +329,16 @@ export class OrdersService {
           console.log(`订单 ${order.id} 有关联的 EtsyOrder, stampImageUrl: ${order.etsyOrder.stampImageUrl}`);
           
           // Get absolute path to the stamp file
-          const relativePath = order.etsyOrder.stampImageUrl.startsWith('/') 
+          let relativePath = order.etsyOrder.stampImageUrl.startsWith('/') 
             ? order.etsyOrder.stampImageUrl.substring(1) 
             : order.etsyOrder.stampImageUrl;
+          
+          // If the path doesn't already include uploads/stamps, use the stampsOutputDir
+          if (!relativePath.includes('uploads/stamps')) {
+            // Extract just the filename from the path
+            const fileName = path.basename(relativePath);
+            relativePath = path.join(this.stampsOutputDir, fileName);
+          }
           
           const stampPath = path.join(process.cwd(), relativePath);
           
@@ -314,14 +359,9 @@ export class OrdersService {
             
             // Add order ID/platform order ID to filename for easy identification
             if (order.platformOrderId) {
-              stampFileName = `Order_${order.platformOrderId}`;
+              stampFileName = `${order.platformOrderId}`;
             } else {
-              stampFileName = `Order_${order.id}`;
-            }
-            
-            // If there's an Etsy order, add customer name from shipName
-            if (order.etsyOrder.shipName) {
-              stampFileName += `_${order.etsyOrder.shipName.replace(/[\\\/\:\*\?\"\<\>\|]/g, '_')}`;
+              stampFileName = `${order.id}`;
             }
             
             // Add file extension

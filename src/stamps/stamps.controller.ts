@@ -110,12 +110,12 @@ export class StampsController {
     const buffer = await this.pythonStampService.generateStamp({
       template,
       textElements: previewStampDto.textElements,
-      format: previewStampDto.format || 'png',
+      format: previewStampDto.format || 'svg',
       convertTextToPaths: previewStampDto.convertTextToPaths || false
     });
     
     // 设置响应头
-    const format = previewStampDto.format || 'png';
+    const format = previewStampDto.format || 'svg';
     const contentType = format === 'svg' ? 'image/svg+xml' : 
                         format === 'jpeg' ? 'image/jpeg' : 'image/png';
     

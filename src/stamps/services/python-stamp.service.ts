@@ -118,14 +118,14 @@ export class PythonStampService {
    * @param debug Whether to enable debug mode with reference points
    * @returns Path to the saved stamp file
    */
-  async generateAndSaveStamp(
+  async generateAndSaveStamp({template, textElements, orderId, format = 'png', convertTextToPaths = false, debug = false}: {
     template: any,
     textElements: any[],
     orderId: string,
-    format: 'png' | 'jpeg' | 'svg' = 'png',
-    convertTextToPaths: boolean = false,
-    debug: boolean = false
-  ): Promise<string> {
+    format?: 'png' | 'jpeg' | 'svg';
+    convertTextToPaths?: boolean;
+    debug?: boolean;
+  }): Promise<string> {
     return new Promise((resolve, reject) => {
       // Generate unique filename
       const timestamp = Date.now();

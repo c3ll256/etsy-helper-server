@@ -39,7 +39,7 @@ export class OrderStampService {
    */
   async generateStampFromOrder({order, format = 'svg', customTextElements, customTemplateId, convertTextToPaths = false}: {
     order: any,
-    format?: 'png' | 'jpeg' | 'webp' | 'svg',
+    format?: 'png' | 'jpeg' | 'svg',
     customTextElements?: any[], 
     customTemplateId?: number,
     convertTextToPaths?: boolean
@@ -158,13 +158,13 @@ export class OrderStampService {
 
       // 使用 Python 服务生成印章，而不是之前的 NestJS 方法
       const orderId = order.order?.id || order.orderId;
-      const stampImageUrl = await this.pythonStampService.generateAndSaveStamp(
+      const stampImageUrl = await this.pythonStampService.generateAndSaveStamp({
         template,
         textElements,
         orderId,
-        format === 'webp' ? 'png' : format,  // Convert webp to png since python may not support webp
+        format,
         convertTextToPaths
-      );
+      });
       
       // 创建印章生成记录
       const record = await this.stampGenerationRecordRepository.create({
