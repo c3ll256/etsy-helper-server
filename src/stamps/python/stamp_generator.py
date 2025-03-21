@@ -13,10 +13,7 @@ from PIL import Image
 from fontTools.ttLib import TTFont
 from fontTools.pens.svgPathPen import SVGPathPen
 import cairo
-import gi
-gi.require_version('Pango', '1.0')
-gi.require_version('PangoCairo', '1.0')
-from gi.repository import Pango, PangoCairo
+import math
 
 class StampGenerator:
     def __init__(self, data):
@@ -189,7 +186,7 @@ class StampGenerator:
                     vert_align = position.get('verticalAlign', 'baseline')
                     
                     # 使用Pango渲染文本以解决字母间距问题
-                    self._render_with_pango(ctx, text, font_family, font_size, x, y, color, rotation, text_align, vert_align)
+                    self._render_with_advanced_cairo(ctx, text, font_family, font_size, x, y, color, rotation, text_align, vert_align)
                     
                 except Exception as e:
                     sys.stderr.write(f"Error drawing text with Cairo: {e}\n")
@@ -208,8 +205,8 @@ class StampGenerator:
         except Exception as e:
             return None, f"Error generating SVG with Cairo: {e}"
 
-    def _render_with_pango(self, ctx, text, font_family, font_size, x, y, color, rotation, text_align, vert_align):
-        """使用Pango渲染文本以解决字母间距问题"""
+    def _render_with_advanced_cairo(self, ctx, text, font_family, font_size, x, y, color, rotation, text_align, vert_align):
+        """使用纯Cairo和手动字体间距调整渲染文本"""
         try:
             # 保存当前状态用于旋转
             if rotation:
@@ -217,32 +214,21 @@ class StampGenerator:
                 # 移动到旋转中心
                 ctx.translate(x, y)
                 # 旋转 (需要转换为弧度)
-                ctx.rotate(rotation * (3.14159 / 180.0))
+                ctx.rotate(rotation * (math.pi / 180.0))
                 # 重置位置为原点
                 ctx.translate(-x, -y)
             
-            # 创建Pango布局
-            layout = PangoCairo.create_layout(ctx)
+            # 设置字体
+            ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+            ctx.set_font_size(font_size)
             
-            # 创建字体描述
-            font_desc = Pango.FontDescription()
-            font_desc.set_family(font_family)
-            font_desc.set_size(int(font_size * Pango.SCALE))
-            layout.set_font_description(font_desc)
+            # 设置颜色
+            ctx.set_source_rgb(color[0], color[1], color[2])
             
-            # 设置文本
-            layout.set_text(text, -1)
-            
-            # 设置文本对齐
-            if text_align == 'center':
-                layout.set_alignment(Pango.Alignment.CENTER)
-            elif text_align == 'right':
-                layout.set_alignment(Pango.Alignment.RIGHT)
-            else:
-                layout.set_alignment(Pango.Alignment.LEFT)
-            
-            # 获取文本尺寸
-            width, height = layout.get_pixel_size()
+            # 获取文本整体尺寸
+            text_extents = ctx.text_extents(text)
+            text_width = text_extents.width
+            text_height = text_extents.height
             
             # 计算定位
             place_x = x
@@ -250,42 +236,59 @@ class StampGenerator:
             
             # 水平对齐
             if text_align == 'center':
-                place_x = x - (width / 2)
+                place_x = x - (text_width / 2)
             elif text_align == 'right':
-                place_x = x - width
+                place_x = x - text_width
             
             # 垂直对齐
             if vert_align == 'top':
-                place_y = y
+                place_y = y + text_height
             elif vert_align == 'middle':
-                place_y = y - (height / 2)
-            else:  # baseline
-                # Pango默认是顶部对齐，需要根据文本属性计算基线位置
-                # 这里使用一个近似值
-                place_y = y - (height * 0.8)
+                place_y = y + (text_height / 2)
+            # baseline 是默认
             
-            # 调试
-            sys.stderr.write(f"Pango: Rendering '{text}' at ({place_x}, {place_y}), size: {width}x{height}, align: {text_align}/{vert_align}\n")
+            # 调试输出
+            sys.stderr.write(f"Advanced Cairo: Rendering '{text}' at ({place_x}, {place_y}), size: {text_width}x{text_height}\n")
             
-            # 移动到文本位置
-            ctx.move_to(place_x, place_y)
-            
-            # 设置颜色
-            ctx.set_source_rgb(color[0], color[1], color[2])
-            
-            # 绘制文本
-            PangoCairo.show_layout(ctx, layout)
+            # 对于短文本或不需要特殊间距处理的文本，直接使用标准渲染
+            if len(text) < 3 or not any(c.isupper() and c.lower() != c for c in text):
+                ctx.move_to(place_x, place_y)
+                ctx.show_text(text)
+            else:
+                # 对于包含大小写混合的文本，手动调整字符间距
+                current_x = place_x
+                
+                # 遍历每个字符
+                for i, char in enumerate(text):
+                    # 获取当前字符的尺寸
+                    char_extents = ctx.text_extents(char)
+                    
+                    # 为大写字母与小写字母之间的过渡添加一点额外间距
+                    extra_spacing = 0
+                    if i > 0:
+                        prev_is_upper = text[i-1].isupper() and text[i-1].lower() != text[i-1]
+                        curr_is_lower = char.islower() and char.upper() != char
+                        curr_is_upper = char.isupper() and char.lower() != char
+                        prev_is_lower = text[i-1].islower() and text[i-1].upper() != text[i-1]
+                        
+                        # 当从大写变为小写，或从小写变为大写时添加间距
+                        if (prev_is_upper and curr_is_lower) or (prev_is_lower and curr_is_upper):
+                            extra_spacing = font_size * 0.03  # 字体大小的3%作为额外间距
+                    
+                    # 文本渲染
+                    ctx.move_to(current_x + extra_spacing, place_y)
+                    ctx.show_text(char)
+                    
+                    # 更新x位置
+                    current_x += char_extents.x_advance + extra_spacing
             
             # 恢复旋转前的状态
             if rotation:
                 ctx.restore()
                 
         except Exception as e:
-            sys.stderr.write(f"Error in Pango rendering: {e}\n")
-            # 回退到普通Cairo文本渲染
-            ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-            ctx.set_font_size(font_size)
-            ctx.set_source_rgb(color[0], color[1], color[2])
+            sys.stderr.write(f"Error in advanced Cairo rendering: {e}\n")
+            # 回退到最基本的文本渲染
             ctx.move_to(x, y)
             ctx.show_text(text)
 
