@@ -94,15 +94,13 @@ export class StampsService {
     orderId: string, 
     templateId: number, 
     textElements: any[], 
-    stampImageUrl: string,
-    format: string = 'png'
+    stampImageUrl: string
   ): Promise<StampGenerationRecord> {
     const record = this.stampGenerationRecordRepository.create({
       orderId,
       templateId,
       textElements,
-      stampImageUrl,
-      format
+      stampImageUrl
     });
     
     return await this.stampGenerationRecordRepository.save(record);

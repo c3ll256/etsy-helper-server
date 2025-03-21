@@ -34,12 +34,10 @@ export class OrderStampService {
    * @param order Etsy订单
    * @param customTextElements 可选的自定义文本元素，如果提供则使用这些元素而不是从personalization解析
    * @param customTemplateId 可选的自定义模板ID，如果提供则使用这个模板而不是从SKU查找
-   * @param format 输出格式，默认是 'png'
    * @param convertTextToPaths 是否将文本转换为路径，默认是 false
    */
-  async generateStampFromOrder({order, format = 'svg', customTextElements, customTemplateId, convertTextToPaths = false}: {
+  async generateStampFromOrder({order, customTextElements, customTemplateId, convertTextToPaths = false}: {
     order: any,
-    format?: 'png' | 'jpeg' | 'svg',
     customTextElements?: any[], 
     customTemplateId?: number,
     convertTextToPaths?: boolean
@@ -162,7 +160,6 @@ export class OrderStampService {
         template,
         textElements,
         orderId,
-        format,
         convertTextToPaths
       });
       
@@ -171,8 +168,7 @@ export class OrderStampService {
         orderId: orderId,
         templateId: template.id,
         textElements: textElements,
-        stampImageUrl: stampImageUrl,
-        format: format === 'svg' ? 'svg' : (format === 'jpeg' ? 'jpg' : 'png')
+        stampImageUrl: stampImageUrl
       });
       
       // 保存记录

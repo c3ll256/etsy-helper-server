@@ -89,9 +89,4 @@ export class UpdateOrderStampDto {
   @ValidateNested({ each: true })
   @Type(() => TextElementDto)
   textElements: TextElementDto[];
-
-  @ApiProperty({ description: '输出格式', enum: ['png', 'jpeg', 'webp'], default: 'png', required: false })
-  @IsString()
-  @IsOptional()
-  format?: 'png' | 'jpeg' | 'webp' = 'png';
 } 

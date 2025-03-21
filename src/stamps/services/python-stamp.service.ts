@@ -36,15 +36,13 @@ export class PythonStampService {
    * Generate a stamp using Python
    * @param template The stamp template data
    * @param textElements Text elements with values
-   * @param format Output format (png, jpeg, svg)
    * @param convertTextToPaths Whether to convert text to paths in SVG
    * @param debug Whether to enable debug mode with reference points
    * @returns Buffer containing the generated stamp image
    */
-  async generateStamp({template, textElements, format = 'svg', convertTextToPaths = false, debug = false}: {
+  async generateStamp({template, textElements, convertTextToPaths = false, debug = false}: {
     template: any;
     textElements: any[];
-    format?: 'png' | 'jpeg' | 'svg';
     convertTextToPaths?: boolean;
     debug?: boolean;
   }): Promise<Buffer> {
@@ -53,7 +51,6 @@ export class PythonStampService {
       const inputData = {
         template,
         textElements,
-        format,
         convertTextToPaths,
         debug
       };
@@ -113,16 +110,14 @@ export class PythonStampService {
    * @param template The stamp template data
    * @param textElements Text elements with values
    * @param orderId Order ID for filename
-   * @param format Output format (png, jpeg, svg)
    * @param convertTextToPaths Whether to convert text to paths in SVG
    * @param debug Whether to enable debug mode with reference points
    * @returns Path to the saved stamp file
    */
-  async generateAndSaveStamp({template, textElements, orderId, format = 'png', convertTextToPaths = false, debug = false}: {
+  async generateAndSaveStamp({template, textElements, orderId, convertTextToPaths = false, debug = false}: {
     template: any,
     textElements: any[],
     orderId: string,
-    format?: 'png' | 'jpeg' | 'svg';
     convertTextToPaths?: boolean;
     debug?: boolean;
   }): Promise<string> {
@@ -130,14 +125,13 @@ export class PythonStampService {
       // Generate unique filename
       const timestamp = Date.now();
       const hash = crypto.createHash('md5').update(`${orderId}-${timestamp}`).digest('hex').substring(0, 8);
-      const fileExt = format === 'svg' ? 'svg' : (format === 'jpeg' ? 'jpg' : 'png');
+      const fileExt = 'svg'
       const filename = `${orderId}_${timestamp}_${hash}.${fileExt}`;
       
       // Prepare data for Python script
       const inputData = {
         template,
         textElements,
-        format,
         convertTextToPaths,
         filename,
         debug

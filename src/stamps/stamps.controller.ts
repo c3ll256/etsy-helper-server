@@ -110,14 +110,11 @@ export class StampsController {
     const buffer = await this.pythonStampService.generateStamp({
       template,
       textElements: previewStampDto.textElements,
-      format: previewStampDto.format || 'svg',
       convertTextToPaths: previewStampDto.convertTextToPaths || false
     });
     
     // 设置响应头
-    const format = previewStampDto.format || 'svg';
-    const contentType = format === 'svg' ? 'image/svg+xml' : 
-                        format === 'jpeg' ? 'image/jpeg' : 'image/png';
+    const contentType = 'image/svg+xml'
     
     res.set({
       'Content-Type': contentType,
@@ -131,14 +128,14 @@ export class StampsController {
   @UseInterceptors(
     FileInterceptor('file', {
       fileFilter: (req, file, callback) => {
-        const allowedMimes = ['image/jpeg', 'image/png', 'image/svg+xml'];
-        const allowedExts = ['.jpg', '.jpeg', '.png', '.svg'];
+        const allowedMimes = ['image/svg+xml'];
+        const allowedExts = ['.svg'];
         
         const ext = path.extname(file.originalname).toLowerCase();
         if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
           callback(null, true);
         } else {
-          callback(new BadRequestException('仅支持 JPG, PNG 和 SVG 格式的图片'), false);
+          callback(new BadRequestException('仅支持 SVG 格式的图片'), false);
         }
       },
       limits: {

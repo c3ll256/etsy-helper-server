@@ -365,7 +365,7 @@ export class OrdersService {
             }
             
             // Add file extension
-            const fileExtension = path.extname(stampPath) || '.png';
+            const fileExtension = path.extname(stampPath);
             stampFileName += fileExtension;
             
             console.log(`添加文件到压缩包: ${stampFileName}`);

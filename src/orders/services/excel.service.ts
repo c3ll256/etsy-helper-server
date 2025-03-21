@@ -46,7 +46,6 @@ export class ExcelService {
               // 使用模板系统生成印章
               const stampResult = await this.orderStampService.generateStampFromOrder({
                 order: result.order,
-                format: 'svg',
                 convertTextToPaths: true
               });
               

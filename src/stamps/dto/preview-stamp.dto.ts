@@ -102,11 +102,6 @@ export class PreviewStampDto {
   @Type(() => PreviewTextElementDto)
   textElements: PreviewTextElementDto[];
 
-  @ApiProperty({ description: 'Output format', default: 'png', enum: ['png', 'jpeg', 'svg'] })
-  @IsString()
-  @IsOptional()
-  format?: 'png' | 'jpeg' | 'svg' = 'png';
-
   @ApiProperty({ description: 'Convert text to paths in SVG output', default: false })
   @IsBoolean()
   @IsOptional()

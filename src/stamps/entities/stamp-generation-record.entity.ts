@@ -74,7 +74,7 @@ export class StampGenerationRecord {
   stampImageUrl: string;
 
   @ApiProperty({ description: '输出格式' })
-  @Column({ default: 'png' })
+  @Column({ default: 'svg' })
   format: string;
 
   @ApiProperty({ description: '创建时间' })
