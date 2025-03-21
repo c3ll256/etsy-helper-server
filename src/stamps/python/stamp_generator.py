@@ -101,11 +101,6 @@ class StampGenerator:
             surface = cairo.SVGSurface(svg_output, self.width, self.height)
             ctx = cairo.Context(surface)
             
-            # 设置白色背景
-            ctx.set_source_rgb(1, 1, 1)  # 白色
-            ctx.rectangle(0, 0, self.width, self.height)
-            ctx.fill()
-            
             # 添加背景图片(如果指定)
             if self.background_image_path:
                 full_bg_path = os.path.join(os.getcwd(), self.background_image_path)
@@ -272,6 +267,45 @@ class StampGenerator:
                 # 计算整体宽度用于对齐
                 total_width = sum(pos.x_advance for pos in positions) / 64.0
                 
+                # 获取可用宽度 - 根据旋转计算
+                padding = 50 # TODO 这里需要改成配置式或者根据字体大小自动计算
+                max_available_width = self.width - padding
+                if rotation % 180 != 0:  # 如果不是0度或180度
+                    # 对于90度和270度附近的旋转，使用高度作为约束
+                    if rotation % 180 > 45 and rotation % 180 < 135:
+                        max_available_width = self.height
+                
+                # 计算缩放比例，如果文本宽度超出可用宽度
+                scale_factor = 1.0
+                if total_width > max_available_width:
+                    scale_factor = max_available_width / total_width
+                    # 应用缩放到字体大小
+                    font_size = font_size * scale_factor
+                    sys.stderr.write(f"Scaling text '{text}' by factor {scale_factor} to fit width {max_available_width}px\n")
+                    
+                    # 创建新的scaled字体
+                    if scale_factor < 1.0:
+                        # 创建新的字体对象
+                        blob = hb.Blob.from_file_path(font_path)
+                        face = hb.Face(blob)
+                        font = hb.Font(face)
+                        font.scale = (int(font_size * 64), int(font_size * 64))
+                        
+                        # 重新排版
+                        buf = hb.Buffer()
+                        buf.add_str(text)
+                        buf.direction = "ltr"
+                        buf.script = "Latn"
+                        buf.language = "en"
+                        hb.shape(font, buf, features)
+                        
+                        # 更新信息
+                        infos = buf.glyph_infos
+                        positions = buf.glyph_positions
+                        
+                        # 重新计算总宽度
+                        total_width = sum(pos.x_advance for pos in positions) / 64.0
+                
                 # 计算定位
                 place_x = x
                 place_y = y
@@ -339,6 +373,25 @@ class StampGenerator:
                 # 获取文本尺寸
                 text_extents = ctx.text_extents(text)
                 text_width = text_extents.width
+                
+                # 检查文本是否超出可用空间并缩放
+                max_available_width = self.width
+                if rotation % 180 != 0:
+                    if rotation % 180 > 45 and rotation % 180 < 135:
+                        max_available_width = self.height
+                
+                # 如果宽度超出，缩放字体大小
+                if text_width > max_available_width:
+                    scale_factor = max_available_width / text_width
+                    font_size = font_size * scale_factor
+                    sys.stderr.write(f"Basic rendering: scaling text '{text}' by factor {scale_factor}\n")
+                    
+                    # 更新字体大小
+                    ctx.set_font_size(font_size)
+                    
+                    # 重新计算尺寸
+                    text_extents = ctx.text_extents(text)
+                    text_width = text_extents.width
                 
                 # 计算定位
                 place_x = x
