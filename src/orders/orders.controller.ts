@@ -57,8 +57,17 @@ export class OrdersController {
             totalOrders: { type: 'number' },
             newOrdersCreated: { type: 'number' },
             duplicateOrdersSkipped: { type: 'number' },
+            skippedReasons: { 
+              type: 'array', 
+              items: { 
+                type: 'object',
+                properties: {
+                  orderId: { type: 'string' },
+                  reason: { type: 'string' }
+                }
+              } 
+            },
             failedOrders: { type: 'number' },
-            templateNotFoundOrders: { type: 'number' },
             generatedStamps: {
               type: 'array',
               items: {
@@ -66,16 +75,6 @@ export class OrdersController {
                 properties: {
                   orderId: { type: 'string' },
                   stampPath: { type: 'string' }
-                }
-              }
-            },
-            skippedStamps: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  orderId: { type: 'string' },
-                  reason: { type: 'string' }
                 }
               }
             }
@@ -103,10 +102,9 @@ export class OrdersController {
           totalOrders: result.total,
           newOrdersCreated: result.created,
           duplicateOrdersSkipped: result.skipped,
+          skippedReasons: result.skippedReasons,
           failedOrders: result.failed,
-          templateNotFoundOrders: result.templateNotFound,
-          generatedStamps: result.stamps,
-          skippedStamps: result.skippedStamps
+          generatedStamps: result.stamps
         }
       };
     } catch (error) {

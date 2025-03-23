@@ -24,10 +24,9 @@ export class ExcelService {
     total: number;
     created: number;
     skipped: number;
+    skippedReasons: { orderId: string; reason: string }[];
     failed: number;
-    templateNotFound: number;
     stamps: { orderId: string; stampPath: string }[];
-    skippedStamps: { orderId: string; reason: string }[];
   }> {
     try {
       const workbook = read(file.buffer, { type: 'buffer' });
@@ -37,107 +36,93 @@ export class ExcelService {
       let created = 0;
       let skipped = 0;
       let failed = 0;
-      let templateNotFound = 0;
       const stamps: { orderId: string; stampPath: string }[] = [];
-      const skippedStamps: { orderId: string; reason: string }[] = [];
+      const skippedReasons: { orderId: string; reason: string }[] = [];
 
       for (const item of data) {
         try {
           const orderId = item['Order ID']?.toString() || '';
-          const sku = item['SKU']?.toString() || '';
           
-          if (!orderId) {
-            this.logger.warn('Skipping row without Order ID');
-            skipped++;
-            continue;
-          }
+          // 创建临时的EtsyOrder对象用于模板匹配和图章生成
+          const tempEtsyOrder = {
+            orderId,
+            transactionId: item['Transaction ID']?.toString(),
+            sku: item['SKU']?.toString(),
+            variations: this.etsyOrderService.parseVariations(item['Variations']),
+            originalVariations: item['Variations']
+          };
 
-          // 检查是否为重复订单 - 检查 orderId 和 sku
-          const existingOrder = await this.etsyOrderRepository.findOne({
-            where: { orderId }
-          });
-
-          // 如果找到相同订单ID，检查SKU是否也相同
-          if (existingOrder) {
-            // 如果SKU相同，跳过导入
-            if (existingOrder.sku === sku) {
-              this.logger.log(`Skipping duplicate order: ${orderId} with same SKU: ${sku}`);
+          // 先尝试生成印章，确认有对应的模板
+          try {
+            const stampResult = await this.orderStampService.generateStampFromOrder({
+              order: tempEtsyOrder,
+              convertTextToPaths: true
+            });
+            
+            // 如果无法生成印章，则跳过该订单
+            if (!stampResult.success) {
               skipped++;
+              skippedReasons.push({
+                orderId,
+                reason: stampResult.error || 'Failed to generate stamp'
+              });
               continue;
             }
-            // 如果SKU不同，继续导入流程
-            this.logger.log(`Found order ${orderId} with different SKU (existing: ${existingOrder.sku}, new: ${sku}), continuing import`);
-          }
 
-          // 在导入订单前，先检查SKU是否有对应的模板
-          const skuBase = sku.split('-').slice(0, 2).join('-');
-          const hasTemplate = await this.orderStampService.hasTemplateForSku(sku, skuBase);
-          
-          if (!hasTemplate) {
-            this.logger.warn(`No template found for SKU ${sku}, skipping order ${orderId}`);
-            templateNotFound++;
-            continue;
-          }
-          
-          // 创建订单
-          const result = await this.etsyOrderService.createFromExcelData(item);
-          
-          if (result.status === 'created') {
-            created++;
-            // 为新创建的订单生成图章
-            try {
-              // 使用模板系统生成印章
-              const stampResult = await this.orderStampService.generateStampFromOrder({
-                order: result.order,
-                convertTextToPaths: true
+            // 印章生成成功，创建订单记录
+            // createFromExcelData 内部会处理所有验证逻辑，比如检查重复订单等
+            const orderResult = await this.etsyOrderService.createFromExcelData(item);
+            
+            if (orderResult.status === 'created') {
+              created++;
+              
+              // 将生成的印章与订单关联
+              const stampImageUrl = stampResult.path.replace('uploads/', '/');
+              
+              // 更新EtsyOrder记录
+              await this.etsyOrderService.updateStampImage(
+                orderResult.order.orderId,
+                stampImageUrl
+              );
+
+              // 更新Order状态为已生成印章待审核
+              if (orderResult.order.order) {
+                await this.orderRepository.update(
+                  { id: orderResult.order.order.id },
+                  { status: 'stamp_generated_pending_review' }
+                );
+              }
+
+              stamps.push({
+                orderId: orderResult.order.orderId,
+                stampPath: stampImageUrl
               });
               
-              // 如果成功生成印章
-              if (stampResult.success && stampResult.path) {
-                // 将文件路径转换为URL路径（去掉uploads前缀）
-                const stampImageUrl = stampResult.path.replace('uploads/', '/');
-                
-                // 更新EtsyOrder记录
-                await this.etsyOrderService.updateStampImage(
-                  result.order.orderId,
-                  stampImageUrl
-                );
-
-                // 更新Order状态为已生成印章待审核
-                if (result.order.order) {
-                  await this.orderRepository.update(
-                    { id: result.order.order.id },
-                    { status: 'stamp_generated_pending_review' }
-                  );
-                }
-
-                stamps.push({
-                  orderId: result.order.orderId,
-                  stampPath: stampImageUrl
-                });
-                
-                this.logger.log(`Generated stamp for order ${result.order.orderId} using template system`);
-              } else {
-                // 如果无法生成印章，记录错误
-                this.logger.warn(`Failed to generate stamp for order ${result.order.orderId}: ${stampResult.error}`);
-                skippedStamps.push({
-                  orderId: result.order.orderId,
-                  reason: stampResult.error
-                });
-              }
-            } catch (stampError) {
-              this.logger.error(`Error generating stamp for order ${result.order.orderId}:`, stampError);
-              skippedStamps.push({
-                orderId: result.order.orderId,
-                reason: stampError.message
+              this.logger.log(`Generated stamp for order ${orderResult.order.orderId} using template system`);
+            } else {
+              // 创建订单过程中出现问题，记录原因
+              skipped++;
+              skippedReasons.push({
+                orderId,
+                reason: orderResult.reason || 'Unknown reason'
               });
             }
-          } else {
+          } catch (stampError) {
+            this.logger.error(`Error generating stamp for order ${orderId}:`, stampError);
             skipped++;
+            skippedReasons.push({
+              orderId,
+              reason: stampError.message
+            });
           }
         } catch (error) {
           this.logger.error(`Failed to process order:`, error);
           failed++;
+          const orderId = item['Order ID']?.toString() || 'Unknown';
+          skippedReasons.push({
+            orderId,
+            reason: error.message
+          });
         }
       }
 
@@ -145,10 +130,9 @@ export class ExcelService {
         total: data.length,
         created,
         skipped,
+        skippedReasons,
         failed,
-        templateNotFound,
-        stamps,
-        skippedStamps
+        stamps
       };
     } catch (error) {
       throw new Error(`Failed to parse Excel file: ${error.message}`);

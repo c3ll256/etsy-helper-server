@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EtsyOrder } from '../entities/etsy-order.entity';
@@ -6,6 +6,8 @@ import { Order } from '../entities/order.entity';
 
 @Injectable()
 export class EtsyOrderService {
+  private readonly logger = new Logger(EtsyOrderService.name);
+
   constructor(
     @InjectRepository(EtsyOrder)
     private etsyOrderRepository: Repository<EtsyOrder>,
@@ -13,19 +15,25 @@ export class EtsyOrderService {
     private orderRepository: Repository<Order>,
   ) {}
 
-  async createFromExcelData(data: any): Promise<{ order: EtsyOrder | null; status: 'created' | 'skipped' }> {
+  async createFromExcelData(data: any): Promise<{ order: EtsyOrder | null; status: 'created' | 'skipped'; reason?: string }> {
     const orderId = data['Order ID']?.toString() || '';
+    const transactionId = data['Transaction ID']?.toString() || '';
+    
     if (!orderId) {
       throw new Error('Order ID is required');
     }
+    
+    if (!transactionId) {
+      throw new Error('Transaction ID is required');
+    }
 
-    // 检查订单是否已存在
+    // 检查订单是否已存在，使用Transaction ID作为唯一判断标准
     const existingOrder = await this.etsyOrderRepository.findOne({
-      where: { orderId }
+      where: { transactionId }
     });
 
     if (existingOrder) {
-      return { order: existingOrder, status: 'skipped' };
+      return { order: existingOrder, status: 'skipped', reason: 'Order with this Transaction ID already exists' };
     }
 
     // 创建基本订单
@@ -106,7 +114,7 @@ export class EtsyOrderService {
     return { order: savedOrder, status: 'created' };
   }
 
-  private parseVariations(variationsString: string): any {
+  public parseVariations(variationsString: string): any {
     if (!variationsString) return null;
     try {
       const variations = {};
