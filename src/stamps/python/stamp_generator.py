@@ -4,6 +4,7 @@ import json
 import os
 import base64
 import time
+import logging
 from io import BytesIO
 import svgwrite
 from svgwrite import Drawing
@@ -15,6 +16,13 @@ from fontTools.pens.svgPathPen import SVGPathPen
 import cairo
 import math
 import uharfbuzz as hb
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s'
+)
+logger = logging.getLogger('stamp_generator')
 
 class StampGenerator:
     def __init__(self, data):
@@ -73,8 +81,8 @@ class StampGenerator:
                             # 将所有 Montserrat 变体注册为 Montserrat 字体
                             font_map['Montserrat'] = font_path
         
-        # 打印字体映射，便于调试（使用stderr而不是stdout）
-        sys.stderr.write(f"Font map built: {list(font_map.keys())}\n")
+        # 简化日志输出
+        logger.debug(f"Available fonts: {list(font_map.keys())}")
         
         return font_map
 
@@ -88,7 +96,7 @@ class StampGenerator:
             if name.lower() == font_family.lower():
                 return self.font_map[name]
                     
-        sys.stderr.write(f"Font not found: {font_family}. Available fonts: {list(self.font_map.keys())}\n")
+        logger.warning(f"Font not found: {font_family}")
         return self.font_map.get('Arial')  # Default fallback
 
     def _generate_svg_cairo(self):
@@ -135,18 +143,15 @@ class StampGenerator:
                                     ctx.paint()
                                     ctx.restore()
                                     
-                                    sys.stderr.write(f"Embedded SVG background directly\n")
+                                    logger.debug("Embedded SVG background directly")
                                 except Exception as inner_e:
-                                    sys.stderr.write(f"Error embedding SVG directly: {inner_e}, adding as link\n")
+                                    logger.debug(f"Using SVG link instead: {inner_e}")
                                     # 如果直接嵌入失败，添加引用
-                                    # 注意: 这个功能需要Cairo SVG后端支持，并不是所有版本都支持
                                     relative_path = os.path.relpath(full_bg_path, os.getcwd())
-                                    # 在输出中写入引用信息
-                                    sys.stderr.write(f"Added SVG reference to: {relative_path}\n")
                         except Exception as e:
-                            sys.stderr.write(f"Error processing SVG background: {e}\n")
+                            logger.error(f"Error processing SVG background: {e}")
                     else:
-                        sys.stderr.write(f"Only SVG backgrounds are supported. Ignoring: {full_bg_path}\n")
+                        logger.warning(f"Only SVG backgrounds supported: {full_bg_path}")
             
             # 绘制文本元素
             for element in self.text_elements:
@@ -188,7 +193,7 @@ class StampGenerator:
                     self._render_with_advanced_cairo(ctx, text, font_family, font_size, x, y, color, rotation, text_align, vert_align)
                     
                 except Exception as e:
-                    sys.stderr.write(f"Error drawing text with Cairo: {e}\n")
+                    logger.error(f"Error drawing text: {e}")
             
             # 完成SVG表面
             surface.finish()
@@ -196,13 +201,13 @@ class StampGenerator:
             # 获取SVG内容
             svg_content = svg_output.getvalue().decode('utf-8')
             
-            # 调试输出
-            sys.stderr.write(f"Generated Cairo SVG size: {len(svg_content)} bytes\n")
+            # 简化的调试输出
+            logger.debug(f"Generated SVG: {len(svg_content)} bytes")
             
             return svg_content, None
             
         except Exception as e:
-            return None, f"Error generating SVG with Cairo: {e}"
+            return None, f"Error generating SVG: {e}"
 
     def _render_with_advanced_cairo(self, ctx, text, font_family, font_size, x, y, color, rotation, text_align, vert_align):
         """使用uharfbuzz处理字体间距并使用Cairo渲染文本"""
@@ -281,7 +286,7 @@ class StampGenerator:
                     scale_factor = max_available_width / total_width
                     # 应用缩放到字体大小
                     font_size = font_size * scale_factor
-                    sys.stderr.write(f"Scaling text '{text}' by factor {scale_factor} to fit width {max_available_width}px\n")
+                    logger.debug(f"Scaling text '{text}' by factor {scale_factor}")
                     
                     # 创建新的scaled字体
                     if scale_factor < 1.0:
@@ -328,8 +333,8 @@ class StampGenerator:
                     place_y = y + (font_extents.ascent - font_extents.descent) / 2
                 # baseline 是默认
                 
-                # 调试输出
-                sys.stderr.write(f"uharfbuzz rendering '{text}' at ({place_x}, {place_y}), total width: {total_width}\n")
+                # 简化调试输出
+                logger.debug(f"Rendering '{text}' at ({place_x:.1f}, {place_y:.1f})")
                 
                 # 使用Cairo渲染每个字形
                 current_x = place_x
@@ -365,7 +370,7 @@ class StampGenerator:
                     current_x += x_advance
                 
             except Exception as hb_error:
-                sys.stderr.write(f"Error with uharfbuzz: {hb_error}, falling back to basic rendering\n")
+                logger.warning(f"Using basic rendering: {hb_error}")
                 # 回退到基本的渲染
                 ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
                 ctx.set_font_size(font_size)
@@ -384,7 +389,7 @@ class StampGenerator:
                 if text_width > max_available_width:
                     scale_factor = max_available_width / text_width
                     font_size = font_size * scale_factor
-                    sys.stderr.write(f"Basic rendering: scaling text '{text}' by factor {scale_factor}\n")
+                    logger.debug(f"Basic scaling by factor {scale_factor}")
                     
                     # 更新字体大小
                     ctx.set_font_size(font_size)
@@ -418,7 +423,7 @@ class StampGenerator:
             ctx.restore()
                 
         except Exception as e:
-            sys.stderr.write(f"Error in advanced Cairo rendering: {e}\n")
+            logger.error(f"Rendering error: {e}")
             # 回退到最基本的文本渲染
             ctx.save()
             ctx.set_source_rgb(color[0], color[1], color[2])
@@ -434,7 +439,7 @@ class StampGenerator:
         data, error = self._generate_svg_cairo()
         if error:
             # 如果出现异常，尝试回退到svgwrite方法 (如果保留了该方法)
-            sys.stderr.write(f"Error in Cairo SVG generation: {error}\n")
+            logger.error(f"SVG generation error: {error}")
             return None, error
         return data, None
 

@@ -1,14 +1,12 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
-import * as path from 'path';
 import * as fs from 'fs';
 
 import { StampsService } from '../stamps.service';
 import { PythonStampService } from './python-stamp.service';
 import { StampTemplate } from '../entities/stamp-template.entity';
 import { StampGenerationRecord } from '../entities/stamp-generation-record.entity';
-import { GenerateStampDto } from '../dto/generate-stamp.dto';
 
 @Injectable()
 export class OrderStampService {
@@ -164,8 +162,8 @@ export class OrderStampService {
       });
       
       // 创建印章生成记录
-      const record = await this.stampGenerationRecordRepository.create({
-        orderId: orderId,
+      const record = this.stampGenerationRecordRepository.create({
+        orderId: order.order_id,
         templateId: template.id,
         textElements: textElements,
         stampImageUrl: stampImageUrl
