@@ -173,17 +173,12 @@ export class OrdersService {
         throw new NotFoundException(`Order with ID ${updateOrderStampDto.orderId} not found`);
       }
 
-      // 检查是否为Etsy订单
-      if (order.orderType !== 'etsy' || !order.etsyOrder) {
-        return {
-          success: false,
-          error: 'Only Etsy orders can have customized stamps'
-        };
-      }
-
       // 使用orderStampService生成印章并创建记录
       const result = await this.orderStampService.generateStampFromOrder({
-        order: order.etsyOrder,
+        order: {
+          ...order.etsyOrder,
+          order_id: order.id
+        },
         customTextElements: updateOrderStampDto.textElements,
         customTemplateId: updateOrderStampDto.templateId,
         convertTextToPaths: true
