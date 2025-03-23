@@ -58,6 +58,7 @@ export class OrdersController {
             newOrdersCreated: { type: 'number' },
             duplicateOrdersSkipped: { type: 'number' },
             failedOrders: { type: 'number' },
+            templateNotFoundOrders: { type: 'number' },
             generatedStamps: {
               type: 'array',
               items: {
@@ -103,6 +104,7 @@ export class OrdersController {
           newOrdersCreated: result.created,
           duplicateOrdersSkipped: result.skipped,
           failedOrders: result.failed,
+          templateNotFoundOrders: result.templateNotFound,
           generatedStamps: result.stamps,
           skippedStamps: result.skippedStamps
         }

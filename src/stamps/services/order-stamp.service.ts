@@ -30,6 +30,32 @@ export class OrderStampService {
   }
 
   /**
+   * 检查是否存在与给定SKU或SKU基础部分匹配的模板
+   * @param sku 完整SKU
+   * @param skuBase SKU基础部分 (如 "AD-110")
+   * @returns 如果有匹配的模板，返回true；否则返回false
+   */
+  async hasTemplateForSku(sku: string, skuBase?: string): Promise<boolean> {
+    if (!sku) return false;
+    
+    // 如果未提供skuBase，则从sku中提取
+    if (!skuBase) {
+      skuBase = sku.split('-').slice(0, 2).join('-');
+    }
+    
+    // 在数据库中查找匹配的模板
+    const count = await this.stampTemplateRepository.count({
+      where: [
+        { sku: sku },          // 精确匹配完整 SKU
+        { sku: skuBase },      // 匹配基础 SKU
+        { sku: Like(`${skuBase}%`) } // 模糊匹配以基础 SKU 开头的模板
+      ]
+    });
+    
+    return count > 0;
+  }
+
+  /**
    * 从 Etsy 订单生成印章
    * @param order Etsy订单
    * @param customTextElements 可选的自定义文本元素，如果提供则使用这些元素而不是从personalization解析

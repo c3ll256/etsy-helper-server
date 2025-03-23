@@ -5,6 +5,7 @@ import { OrderStampService } from '../../stamps/services/order-stamp.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order } from '../entities/order.entity';
+import { EtsyOrder } from '../entities/etsy-order.entity';
 
 @Injectable()
 export class ExcelService {
@@ -15,6 +16,8 @@ export class ExcelService {
     private readonly orderStampService: OrderStampService,
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
+    @InjectRepository(EtsyOrder)
+    private readonly etsyOrderRepository: Repository<EtsyOrder>,
   ) {}
 
   async parseExcelFile(file: Express.Multer.File): Promise<{
@@ -22,6 +25,7 @@ export class ExcelService {
     created: number;
     skipped: number;
     failed: number;
+    templateNotFound: number;
     stamps: { orderId: string; stampPath: string }[];
     skippedStamps: { orderId: string; reason: string }[];
   }> {
@@ -33,12 +37,51 @@ export class ExcelService {
       let created = 0;
       let skipped = 0;
       let failed = 0;
+      let templateNotFound = 0;
       const stamps: { orderId: string; stampPath: string }[] = [];
       const skippedStamps: { orderId: string; reason: string }[] = [];
 
       for (const item of data) {
         try {
+          const orderId = item['Order ID']?.toString() || '';
+          const sku = item['SKU']?.toString() || '';
+          
+          if (!orderId) {
+            this.logger.warn('Skipping row without Order ID');
+            skipped++;
+            continue;
+          }
+
+          // 检查是否为重复订单 - 检查 orderId 和 sku
+          const existingOrder = await this.etsyOrderRepository.findOne({
+            where: { orderId }
+          });
+
+          // 如果找到相同订单ID，检查SKU是否也相同
+          if (existingOrder) {
+            // 如果SKU相同，跳过导入
+            if (existingOrder.sku === sku) {
+              this.logger.log(`Skipping duplicate order: ${orderId} with same SKU: ${sku}`);
+              skipped++;
+              continue;
+            }
+            // 如果SKU不同，继续导入流程
+            this.logger.log(`Found order ${orderId} with different SKU (existing: ${existingOrder.sku}, new: ${sku}), continuing import`);
+          }
+
+          // 在导入订单前，先检查SKU是否有对应的模板
+          const skuBase = sku.split('-').slice(0, 2).join('-');
+          const hasTemplate = await this.orderStampService.hasTemplateForSku(sku, skuBase);
+          
+          if (!hasTemplate) {
+            this.logger.warn(`No template found for SKU ${sku}, skipping order ${orderId}`);
+            templateNotFound++;
+            continue;
+          }
+          
+          // 创建订单
           const result = await this.etsyOrderService.createFromExcelData(item);
+          
           if (result.status === 'created') {
             created++;
             // 为新创建的订单生成图章
@@ -103,6 +146,7 @@ export class ExcelService {
         created,
         skipped,
         failed,
+        templateNotFound,
         stamps,
         skippedStamps
       };
