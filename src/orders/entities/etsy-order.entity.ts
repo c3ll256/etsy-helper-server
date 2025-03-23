@@ -1,11 +1,15 @@
-import { Entity, PrimaryColumn, Column, CreateDateColumn, UpdateDateColumn, OneToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, CreateDateColumn, UpdateDateColumn, OneToOne, JoinColumn, PrimaryGeneratedColumn } from 'typeorm';
 import { Order } from './order.entity';
 import { ApiProperty } from '@nestjs/swagger';
 
 @Entity('etsy_orders')
 export class EtsyOrder {
+  @ApiProperty({ description: '唯一ID', example: 1 })
+  @PrimaryGeneratedColumn()
+  id: number;
+
   @ApiProperty({ description: 'Etsy order ID', example: '1234567890' })
-  @PrimaryColumn('varchar')
+  @Column('varchar')
   orderId: string;
 
   @ApiProperty({ description: 'Etsy transaction ID', example: '9876543210', required: false })

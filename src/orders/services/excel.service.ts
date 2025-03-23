@@ -24,9 +24,9 @@ export class ExcelService {
     total: number;
     created: number;
     skipped: number;
-    skippedReasons: { orderId: string; reason: string }[];
+    skippedReasons: { orderId: string; transactionId: string; reason: string }[];
     failed: number;
-    stamps: { orderId: string; stampPath: string }[];
+    stamps: { orderId: string; transactionId: string; stampPath: string }[];
   }> {
     try {
       const workbook = read(file.buffer, { type: 'buffer' });
@@ -36,17 +36,53 @@ export class ExcelService {
       let created = 0;
       let skipped = 0;
       let failed = 0;
-      const stamps: { orderId: string; stampPath: string }[] = [];
-      const skippedReasons: { orderId: string; reason: string }[] = [];
+      const stamps: { orderId: string; transactionId: string; stampPath: string }[] = [];
+      const skippedReasons: { orderId: string; transactionId: string; reason: string }[] = [];
 
       for (const item of data) {
         try {
           const orderId = item['Order ID']?.toString() || '';
+          const transactionId = item['Transaction ID']?.toString() || '';
+          
+          if (!orderId) {
+            skipped++;
+            skippedReasons.push({ 
+              orderId: 'Unknown', 
+              transactionId: 'Unknown', 
+              reason: 'Order ID is required' 
+            });
+            continue;
+          }
+          
+          if (!transactionId) {
+            skipped++;
+            skippedReasons.push({ 
+              orderId, 
+              transactionId: 'Unknown', 
+              reason: 'Transaction ID is required' 
+            });
+            continue;
+          }
+
+          // 检查是否存在相同的Transaction ID
+          const existingOrder = await this.etsyOrderRepository.findOne({
+            where: { transactionId }
+          });
+
+          if (existingOrder) {
+            skipped++;
+            skippedReasons.push({ 
+              orderId, 
+              transactionId, 
+              reason: 'Order with this Transaction ID already exists' 
+            });
+            continue;
+          }
           
           // 创建临时的EtsyOrder对象用于模板匹配和图章生成
           const tempEtsyOrder = {
             orderId,
-            transactionId: item['Transaction ID']?.toString(),
+            transactionId,
             sku: item['SKU']?.toString(),
             variations: this.etsyOrderService.parseVariations(item['Variations']),
             originalVariations: item['Variations']
@@ -64,6 +100,7 @@ export class ExcelService {
               skipped++;
               skippedReasons.push({
                 orderId,
+                transactionId,
                 reason: stampResult.error || 'Failed to generate stamp'
               });
               continue;
@@ -79,9 +116,9 @@ export class ExcelService {
               // 将生成的印章与订单关联
               const stampImageUrl = stampResult.path.replace('uploads/', '/');
               
-              // 更新EtsyOrder记录
+              // 更新EtsyOrder记录，使用transactionId查询确保更新正确的记录
               await this.etsyOrderService.updateStampImage(
-                orderResult.order.orderId,
+                transactionId,
                 stampImageUrl
               );
 
@@ -95,23 +132,26 @@ export class ExcelService {
 
               stamps.push({
                 orderId: orderResult.order.orderId,
+                transactionId: orderResult.order.transactionId,
                 stampPath: stampImageUrl
               });
               
-              this.logger.log(`Generated stamp for order ${orderResult.order.orderId} using template system`);
+              this.logger.log(`Generated stamp for order ${orderResult.order.orderId} (Transaction ID: ${transactionId}) using template system`);
             } else {
               // 创建订单过程中出现问题，记录原因
               skipped++;
               skippedReasons.push({
                 orderId,
+                transactionId,
                 reason: orderResult.reason || 'Unknown reason'
               });
             }
           } catch (stampError) {
-            this.logger.error(`Error generating stamp for order ${orderId}:`, stampError);
+            this.logger.error(`Error generating stamp for order ${orderId} (Transaction ID: ${transactionId}):`, stampError);
             skipped++;
             skippedReasons.push({
               orderId,
+              transactionId,
               reason: stampError.message
             });
           }
@@ -119,8 +159,10 @@ export class ExcelService {
           this.logger.error(`Failed to process order:`, error);
           failed++;
           const orderId = item['Order ID']?.toString() || 'Unknown';
+          const transactionId = item['Transaction ID']?.toString() || 'Unknown';
           skippedReasons.push({
             orderId,
+            transactionId,
             reason: error.message
           });
         }

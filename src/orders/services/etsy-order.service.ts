@@ -164,9 +164,9 @@ export class EtsyOrderService {
     }
   }
 
-  async updateStampImage(orderId: string, stampImageUrl: string): Promise<void> {
+  async updateStampImage(transactionId: string, stampImageUrl: string): Promise<void> {
     await this.etsyOrderRepository.update(
-      { orderId },
+      { transactionId },
       { stampImageUrl }
     );
   }

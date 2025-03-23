@@ -63,6 +63,7 @@ export class OrdersController {
                 type: 'object',
                 properties: {
                   orderId: { type: 'string' },
+                  transactionId: { type: 'string' },
                   reason: { type: 'string' }
                 }
               } 
@@ -74,6 +75,7 @@ export class OrdersController {
                 type: 'object',
                 properties: {
                   orderId: { type: 'string' },
+                  transactionId: { type: 'string' },
                   stampPath: { type: 'string' }
                 }
               }
