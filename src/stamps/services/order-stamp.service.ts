@@ -139,42 +139,47 @@ export class OrderStampService {
           };
         }
         
-        // 获取个性化文本，现在通过LLM解析的variations可能包含Personalization字段
-        const personalization = order.variations['Personalization'];
+        // 获取个性化信息对象，现在通过LLM解析的结果存储在personalization字段中（小写）
+        const personalizationObj = order.variations.personalization;
         
-        if (!personalization) {
+        if (!personalizationObj) {
+          this.logger.warn(`No personalization object found in order variations: ${JSON.stringify(order.variations)}`);
           return {
             success: false,
             error: 'No personalization data found in order variations'
           };
         }
 
-        // 解析个性化文本行
-        const lines = personalization.split('\n').map(line => line.trim()).filter(line => line);
+        this.logger.log(`Processing personalization object: ${JSON.stringify(personalizationObj)}`);
 
-        if (lines.length < 1) {
-          return {
-            success: false,
-            error: 'Personalization text is empty or invalid'
-          };
-        }
-
-        // 根据模板中的文本元素数量和可用的个性化文本行数动态创建文本元素
+        // 根据模板中的文本元素和个性化信息对象创建文本元素
         if (template.textElements && Array.isArray(template.textElements)) {
-          textElements = template.textElements.map((element, index) => {
-            if (element.id) {
-              // 创建包含完整信息的文本元素
-              return {
-                id: element.id,
-                value: index < lines.length ? lines[index] : '',
-                fontFamily: element.fontFamily,
-                fontSize: element.fontSize,
-                fontWeight: element.fontWeight,
-                fontStyle: element.fontStyle,
-                color: element.color,
-                position: { ...element.position } // 复制位置信息
-              };
+          textElements = template.textElements.map(element => {
+            if (!element.id) return null;
+            
+            // 直接使用textElement的id作为key查找personalizationObj中的值
+            let value = '';
+            
+            // 如果个性化对象中有直接对应的key，使用它
+            if (personalizationObj[element.id] !== undefined) {
+              value = personalizationObj[element.id];
             }
+            // 如果没有找到对应的key，尝试使用默认值
+            else if (element.defaultValue) {
+              value = element.defaultValue;
+            }
+            
+            // 创建包含完整信息的文本元素
+            return {
+              id: element.id,
+              value,
+              fontFamily: element.fontFamily,
+              fontSize: element.fontSize,
+              fontWeight: element.fontWeight,
+              fontStyle: element.fontStyle,
+              color: element.color,
+              position: { ...element.position } // 复制位置信息
+            };
           }).filter(Boolean);
         }
       }

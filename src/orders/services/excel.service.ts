@@ -200,6 +200,9 @@ export class ExcelService {
       // 使用增强的parseVariations方法解析variations和检测多个个性化信息
       const parsedResult = await this.etsyOrderService.parseVariations(originalVariations, templateDescription);
       
+      // 记录解析结果，以便调试
+      this.logger.log(`Parsed variations result: ${JSON.stringify(parsedResult).substring(0, 200)}...`);
+      
       // 创建临时订单ID
       const tempOrderId = uuidv4();
       
@@ -226,12 +229,8 @@ export class ExcelService {
       
       // 处理每个个性化信息，为每个个性化信息生成单独的印章，但关联到同一个订单
       for (let i = 0; i < parsedResult.personalizations.length; i++) {
-        // 准备个性化信息
+        // 准备个性化信息 - 现在是结构化的对象
         const currentPersonalization = parsedResult.personalizations[i];
-        const variationsWithPersonalization = {
-          ...parsedResult.variations,
-          ...currentPersonalization // 直接展开个性化信息对象
-        };
         
         // 创建临时的EtsyOrder对象用于印章生成
         const tempEtsyOrder = {
@@ -239,10 +238,17 @@ export class ExcelService {
           transactionId: baseTransactionId,
           order_id: orderResult.order?.order?.id || tempOrderId,
           sku: mainItem['SKU']?.toString(),
-          variations: variationsWithPersonalization,
-          originalVariations: parsedResult.originalVariations, // 使用原始未处理的变量字符串
+          // 将个性化信息作为一个字段传递，不再展开到顶层
+          variations: {
+            ...parsedResult.variations,
+            personalization: currentPersonalization // 将个性化信息作为personalization字段
+          },
+          originalVariations: parsedResult.originalVariations,
           order: { id: orderResult.order?.order?.id || tempOrderId }
         };
+        
+        // 记录当前正在处理的个性化信息
+        this.logger.log(`Processing personalization #${i+1}: ${JSON.stringify(currentPersonalization)}`);
         
         // 生成印章
         const stampResult = await this.orderStampService.generateStampFromOrder({
