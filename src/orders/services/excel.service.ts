@@ -151,6 +151,7 @@ export class ExcelService {
       // 先查找可能的模板，获取描述信息用于LLM解析
       const sku = item['SKU']?.toString();
       let templateDescription: string | undefined;
+      let templateFound = false;
       
       if (sku) {
         // 从 SKU 中提取基础部分（例如从 "AD-110-XX" 提取 "AD-110"）
@@ -162,6 +163,7 @@ export class ExcelService {
           if (templates && templates.length > 0) {
             // 获取模板描述信息，从textElements中收集
             const template = templates[0];
+            templateFound = true;
             
             // 构建完整的模板描述，包括所有文本元素的信息
             const descriptionParts = [];
@@ -181,10 +183,26 @@ export class ExcelService {
             templateDescription = JSON.stringify(descriptionParts);
 
             this.logger.log(`Found template description for SKU ${sku}: ${templateDescription}`);
+          } else {
+            this.logger.warn(`No template found for SKU ${sku}`);
+            return {
+              success: false,
+              error: `No matching template found for SKU: ${sku}`
+            };
           }
         } catch (error) {
           this.logger.warn(`Could not find template description for SKU ${sku}: ${error.message}`);
+          return {
+            success: false,
+            error: `Error finding template for SKU ${sku}: ${error.message}`
+          };
         }
+      } else {
+        this.logger.warn(`Order ${orderId} has no SKU, cannot find matching template`);
+        return {
+          success: false,
+          error: 'Order has no SKU information, cannot find matching template'
+        };
       }
       
       // 使用增强的parseVariations方法一次性处理所有信息
