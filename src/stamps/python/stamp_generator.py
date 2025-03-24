@@ -172,14 +172,36 @@ class StampGenerator:
             # 保存当前状态用于旋转
             ctx.save()
             
-            # 旋转 (如果需要)
-            if rotation:
-                # 移动到旋转中心
-                ctx.translate(x, y)
-                # 旋转 (需要转换为弧度)
-                ctx.rotate(rotation * (math.pi / 180.0))
-                # 重置位置为原点
-                ctx.translate(-x, -y)
+            # 获取位置属性
+            # 尝试获取circular text属性，如果存在的话
+            circular_text = False
+            radius = 0
+            start_angle = 0
+            end_angle = 360
+            direction = 'clockwise'
+            
+            # 查找当前文本元素的属性
+            for element in self.text_elements:
+                if element.get('value') == text:
+                    position = element.get('position', {})
+                    circular_text = position.get('isCircular', False)
+                    if circular_text:
+                        radius = position.get('radius', 200)
+                        start_angle = position.get('startAngle', 0)
+                        end_angle = position.get('endAngle', 360)
+                        direction = position.get('direction', 'clockwise')
+                    break
+            
+            # 如果是普通文本，按照原来的方式处理
+            if not circular_text:
+                # 旋转 (如果需要)
+                if rotation:
+                    # 移动到旋转中心
+                    ctx.translate(x, y)
+                    # 旋转 (需要转换为弧度)
+                    ctx.rotate(rotation * (math.pi / 180.0))
+                    # 重置位置为原点
+                    ctx.translate(-x, -y)
             
             # 获取字体文件路径
             font_path = self._get_font_path(font_family)
@@ -229,102 +251,166 @@ class StampGenerator:
                 # 计算整体宽度用于对齐
                 total_width = sum(pos.x_advance for pos in positions) / 64.0
                 
-                # 获取可用宽度 - 根据旋转计算
-                padding = 50 # TODO 这里需要改成配置式或者根据字体大小自动计算
-                max_available_width = self.width - padding
-                if rotation % 180 != 0:  # 如果不是0度或180度
-                    # 对于90度和270度附近的旋转，使用高度作为约束
-                    if rotation % 180 > 45 and rotation % 180 < 135:
-                        max_available_width = self.height
-                
-                # 计算缩放比例，如果文本宽度超出可用宽度
-                scale_factor = 1.0
-                if total_width > max_available_width:
-                    scale_factor = max_available_width / total_width
-                    # 应用缩放到字体大小
-                    font_size = font_size * scale_factor
-                    logger.debug(f"Scaling text '{text}' by factor {scale_factor}")
+                # 如果是圆形文本，计算每个字符的间距角度
+                if circular_text:
+                    layout_mode = position.get('layoutMode', 'startAligned')  # 默认为起点对齐模式
+                    base_angle = position.get('baseAngle', 0)  # 基准角度，默认为0度（正上方）
                     
-                    # 创建新的scaled字体
-                    if scale_factor < 1.0:
-                        # 创建新的字体对象
-                        blob = hb.Blob.from_file_path(font_path)
-                        face = hb.Face(blob)
-                        font = hb.Font(face)
-                        font.scale = (int(font_size * 64), int(font_size * 64))
+                    # 根据字体大小计算每个字符的基础弧度间距（弧度 = 字体大小/半径）
+                    char_angle = font_size / radius
+                    
+                    # 计算整体宽度（角度）
+                    total_angle = char_angle * len(text)
+                    
+                    # 根据不同对齐模式确定起始角度
+                    if layout_mode == 'centerAligned':
+                        # 中心对齐模式：以base_angle为中心，向两侧均匀分布
+                        # 计算整体文本角度宽度
+                        total_text_angle = sum(pos.x_advance / 64.0 for pos in positions) / radius * (180 / math.pi)
+                        # 修正：从base_angle减去半个文本宽度作为起始角度
+                        start_angle = (base_angle - total_text_angle/2) % 360
+                    else:
+                        # 起点对齐模式：从base_angle开始
+                        start_angle = base_angle
+                    
+                    # 当前角度
+                    current_angle = start_angle
+                    
+                    # 渲染每个字符
+                    for i, (info, pos) in enumerate(zip(infos, positions)):
+                        # 获取当前字符的进阶量（以角度表示）
+                        x_advance = pos.x_advance / 64.0
+                        char_advance_angle = (x_advance / radius) * (180 / math.pi)
                         
-                        # 重新排版
-                        buf = hb.Buffer()
-                        buf.add_str(text)
-                        buf.direction = "ltr"
-                        buf.script = "Latn"
-                        buf.language = "en"
-                        hb.shape(font, buf, features)
+                        # 计算字符在圆上的位置
+                        angle_rad = current_angle * (math.pi / 180.0)
                         
-                        # 更新信息
-                        infos = buf.glyph_infos
-                        positions = buf.glyph_positions
+                        # 计算字符在圆上的x,y坐标
+                        glyph_x = x + radius * math.cos(angle_rad)
+                        glyph_y = y + radius * math.sin(angle_rad)
                         
-                        # 重新计算总宽度
-                        total_width = sum(pos.x_advance for pos in positions) / 64.0
-                
-                # 计算定位
-                place_x = x
-                place_y = y
-                
-                # 水平对齐
-                if text_align == 'center':
-                    place_x = x - (total_width / 2)
-                elif text_align == 'right':
-                    place_x = x - total_width
-                
-                # 计算垂直位置，需要字体的度量信息
-                ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-                ctx.set_font_size(font_size)
-                font_extents = ctx.font_extents()
-                
-                # 垂直对齐
-                if vert_align == 'top':
-                    place_y = y + font_extents.ascent
-                elif vert_align == 'middle':
-                    place_y = y + (font_extents.ascent - font_extents.descent) / 2
-                # baseline 是默认
-                
-                # 简化调试输出
-                logger.debug(f"Rendering '{text}' at ({place_x:.1f}, {place_y:.1f})")
-                
-                # 使用Cairo渲染每个字形
-                current_x = place_x
-                current_y = place_y
-                
-                # 创建字体上下文用于后续渲染
-                ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-                ctx.set_font_size(font_size)
-                
-                # 遍历所有字形并渲染
-                for i, (info, pos) in enumerate(zip(infos, positions)):
-                    # 获取字符
-                    # uharfbuzz不提供直接的字形到字符串的转换，所以我们使用原始字符
-                    # 我们从文本的字符簇信息中获取对应的字符
-                    cluster = info.cluster
-                    # 根据字符簇找到原始字符（这里简化处理，可能对复杂文本不够准确）
-                    glyph_char = text[cluster] if cluster < len(text) else ' '
+                        # 保存状态以便旋转
+                        ctx.save()
+                        
+                        # 移动到字符位置
+                        ctx.translate(glyph_x, glyph_y)
+                        
+                        # 计算字符旋转角度
+                        rotation_angle = angle_rad + (math.pi / 2)
+                        
+                        # 应用旋转
+                        ctx.rotate(rotation_angle)
+                        
+                        # 获取字符
+                        cluster = info.cluster
+                        glyph_char = text[cluster] if cluster < len(text) else ' '
+                        
+                        # 渲染字符
+                        ctx.move_to(0, 0)
+                        ctx.show_text(glyph_char)
+                        
+                        # 恢复状态
+                        ctx.restore()
+                        
+                        # 更新角度为下一个字符
+                        current_angle += char_advance_angle
+                else:
+                    # 获取可用宽度 - 根据旋转计算
+                    padding = 50 # TODO 这里需要改成配置式或者根据字体大小自动计算
+                    max_available_width = self.width - padding
+                    if rotation % 180 != 0:  # 如果不是0度或180度
+                        # 对于90度和270度附近的旋转，使用高度作为约束
+                        if rotation % 180 > 45 and rotation % 180 < 135:
+                            max_available_width = self.height
                     
-                    # 获取位置偏移 (需要转换单位)
-                    x_offset = pos.x_offset / 64.0
-                    y_offset = pos.y_offset / 64.0
-                    x_advance = pos.x_advance / 64.0
+                    # 计算缩放比例，如果文本宽度超出可用宽度
+                    scale_factor = 1.0
+                    if total_width > max_available_width:
+                        scale_factor = max_available_width / total_width
+                        # 应用缩放到字体大小
+                        font_size = font_size * scale_factor
+                        logger.debug(f"Scaling text '{text}' by factor {scale_factor}")
+                        
+                        # 创建新的scaled字体
+                        if scale_factor < 1.0:
+                            # 创建新的字体对象
+                            blob = hb.Blob.from_file_path(font_path)
+                            face = hb.Face(blob)
+                            font = hb.Font(face)
+                            font.scale = (int(font_size * 64), int(font_size * 64))
+                            
+                            # 重新排版
+                            buf = hb.Buffer()
+                            buf.add_str(text)
+                            buf.direction = "ltr"
+                            buf.script = "Latn"
+                            buf.language = "en"
+                            hb.shape(font, buf, features)
+                            
+                            # 更新信息
+                            infos = buf.glyph_infos
+                            positions = buf.glyph_positions
+                            
+                            # 重新计算总宽度
+                            total_width = sum(pos.x_advance for pos in positions) / 64.0
                     
-                    # 移动到绘制位置
-                    glyph_x = current_x + x_offset
-                    glyph_y = current_y - y_offset
+                    # 计算定位
+                    place_x = x
+                    place_y = y
                     
-                    # 渲染字符
-                    ctx.move_to(glyph_x, glyph_y)
-                    ctx.show_text(glyph_char)
+                    # 水平对齐
+                    if text_align == 'center':
+                        place_x = x - (total_width / 2)
+                    elif text_align == 'right':
+                        place_x = x - total_width
                     
-                    # 更新位置
-                    current_x += x_advance
+                    # 计算垂直位置，需要字体的度量信息
+                    ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+                    ctx.set_font_size(font_size)
+                    font_extents = ctx.font_extents()
+                    
+                    # 垂直对齐
+                    if vert_align == 'top':
+                        place_y = y + font_extents.ascent
+                    elif vert_align == 'middle':
+                        place_y = y + (font_extents.ascent - font_extents.descent) / 2
+                    # baseline 是默认
+                    
+                    # 简化调试输出
+                    logger.debug(f"Rendering '{text}' at ({place_x:.1f}, {place_y:.1f})")
+                    
+                    # 使用Cairo渲染每个字形
+                    current_x = place_x
+                    current_y = place_y
+                    
+                    # 创建字体上下文用于后续渲染
+                    ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+                    ctx.set_font_size(font_size)
+                    
+                    # 遍历所有字形并渲染
+                    for i, (info, pos) in enumerate(zip(infos, positions)):
+                        # 获取字符
+                        # uharfbuzz不提供直接的字形到字符串的转换，所以我们使用原始字符
+                        # 我们从文本的字符簇信息中获取对应的字符
+                        cluster = info.cluster
+                        # 根据字符簇找到原始字符（这里简化处理，可能对复杂文本不够准确）
+                        glyph_char = text[cluster] if cluster < len(text) else ' '
+                        
+                        # 获取位置偏移 (需要转换单位)
+                        x_offset = pos.x_offset / 64.0
+                        y_offset = pos.y_offset / 64.0
+                        x_advance = pos.x_advance / 64.0
+                        
+                        # 移动到绘制位置
+                        glyph_x = current_x + x_offset
+                        glyph_y = current_y - y_offset
+                        
+                        # 渲染字符
+                        ctx.move_to(glyph_x, glyph_y)
+                        ctx.show_text(glyph_char)
+                        
+                        # 更新位置
+                        current_x += x_advance
                 
             except Exception as hb_error:
                 logger.warning(f"Using basic rendering: {hb_error}")
@@ -332,49 +418,115 @@ class StampGenerator:
                 ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
                 ctx.set_font_size(font_size)
                 
-                # 获取文本尺寸
-                text_extents = ctx.text_extents(text)
-                text_width = text_extents.width
-                
-                # 检查文本是否超出可用空间并缩放
-                max_available_width = self.width
-                if rotation % 180 != 0:
-                    if rotation % 180 > 45 and rotation % 180 < 135:
-                        max_available_width = self.height
-                
-                # 如果宽度超出，缩放字体大小
-                if text_width > max_available_width:
-                    scale_factor = max_available_width / text_width
-                    font_size = font_size * scale_factor
-                    logger.debug(f"Basic scaling by factor {scale_factor}")
+                # 检查是否为圆形文本
+                if circular_text:
+                    # 计算字体路径
+                    layout_mode = position.get('layoutMode', 'startAligned')  # 默认为起点对齐模式
+                    base_angle = position.get('baseAngle', 0)  # 基准角度，默认为0度（正上方）
                     
-                    # 更新字体大小
-                    ctx.set_font_size(font_size)
+                    # 计算所有字符的总宽度
+                    total_width = 0
+                    for char in text:
+                        char_extents = ctx.text_extents(char)
+                        total_width += char_extents.x_advance
                     
-                    # 重新计算尺寸
+                    # 计算总弧度（弧度 = 文本总宽度/半径）
+                    total_angle = (total_width / radius) * (180 / math.pi)
+                    
+                    # 根据不同对齐模式确定起始角度
+                    if layout_mode == 'centerAligned':
+                        # 中心对齐模式：以base_angle为中心，向两侧均匀分布
+                        # 计算整体文本角度宽度
+                        total_text_angle = sum(pos.x_advance / 64.0 for pos in positions) / radius * (180 / math.pi)
+                        # 修正：从base_angle减去半个文本宽度作为起始角度
+                        start_angle = (base_angle - total_text_angle/2) % 360
+                    else:
+                        # 起点对齐模式：从base_angle开始
+                        start_angle = base_angle
+                    
+                    # 当前角度
+                    current_angle = start_angle
+                    
+                    # 渲染每个字符
+                    for i, char in enumerate(text):
+                        # 获取当前字符的宽度
+                        char_extents = ctx.text_extents(char)
+                        char_advance = char_extents.x_advance
+                        
+                        # 计算字符在圆上的位置 (使用当前角度 + 字符宽度的一半，让字符居中)
+                        char_half_angle = (char_advance / 2 / radius) * (180 / math.pi)
+                        angle_rad = (current_angle + char_half_angle) * (math.pi / 180.0)
+                        
+                        # 计算字符在圆上的x,y坐标
+                        glyph_x = x + radius * math.cos(angle_rad)
+                        glyph_y = y + radius * math.sin(angle_rad)
+                        
+                        # 保存状态以便旋转
+                        ctx.save()
+                        
+                        # 移动到字符位置
+                        ctx.translate(glyph_x, glyph_y)
+                        
+                        # 计算字符旋转角度
+                        rotation_angle = angle_rad + (math.pi / 2)
+                        
+                        # 应用旋转
+                        ctx.rotate(rotation_angle)
+                        
+                        # 渲染字符 (居中)
+                        ctx.move_to(-char_extents.width / 2, 0)
+                        ctx.show_text(char)
+                        
+                        # 恢复状态
+                        ctx.restore()
+                        
+                        # 更新角度为下一个字符 (当前字符宽度对应的角度)
+                        char_angle = (char_advance / radius) * (180 / math.pi)
+                        current_angle += char_angle
+                else:
+                    # 获取文本尺寸
                     text_extents = ctx.text_extents(text)
                     text_width = text_extents.width
-                
-                # 计算定位
-                place_x = x
-                place_y = y
-                
-                # 水平对齐
-                if text_align == 'center':
-                    place_x = x - (text_width / 2)
-                elif text_align == 'right':
-                    place_x = x - text_width
-                
-                # 垂直对齐
-                font_extents = ctx.font_extents()
-                if vert_align == 'top':
-                    place_y = y + font_extents.ascent
-                elif vert_align == 'middle':
-                    place_y = y + (font_extents.ascent - font_extents.descent) / 2
-                
-                # 简单渲染文本
-                ctx.move_to(place_x, place_y)
-                ctx.show_text(text)
+                    
+                    # 检查文本是否超出可用空间并缩放
+                    max_available_width = self.width
+                    if rotation % 180 != 0:
+                        if rotation % 180 > 45 and rotation % 180 < 135:
+                            max_available_width = self.height
+                    
+                    # 如果宽度超出，缩放字体大小
+                    if text_width > max_available_width:
+                        scale_factor = max_available_width / text_width
+                        font_size = font_size * scale_factor
+                        logger.debug(f"Basic scaling by factor {scale_factor}")
+                        
+                        # 更新字体大小
+                        ctx.set_font_size(font_size)
+                        
+                        # 重新计算尺寸
+                        text_extents = ctx.text_extents(text)
+                        text_width = text_extents.width
+                    
+                    # 计算定位
+                    place_x = x
+                    place_y = y
+                    
+                    # 水平对齐
+                    if text_align == 'center':
+                        place_x = x - (text_width / 2)
+                    elif text_align == 'right':
+                        place_x = x - text_width
+                    
+                    # 垂直对齐
+                    font_extents = ctx.font_extents()
+                    if vert_align == 'top':
+                        place_y = y + font_extents.ascent
+                    elif vert_align == 'middle':
+                        place_y = y + (font_extents.ascent - font_extents.descent) / 2
+                    
+                    # 简单渲染文本
+                    ctx.move_to(place_x, place_y)
+                    ctx.show_text(text)
             
             # 恢复旋转前的状态
             ctx.restore()

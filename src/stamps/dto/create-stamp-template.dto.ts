@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsBoolean, IsOptional, ValidateNested, IsNumber } from 'class-validator';
+import { IsString, IsArray, IsBoolean, IsOptional, ValidateNested, IsNumber, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { TextElement } from '../entities/stamp-template.entity';
@@ -31,6 +31,36 @@ class PositionDto {
   @IsString()
   @IsOptional()
   textAlign?: 'left' | 'center' | 'right';
+  
+  @ApiProperty({ description: 'Vertical alignment', required: false, enum: ['top', 'middle', 'baseline'] })
+  @IsString()
+  @IsOptional()
+  verticalAlign?: 'top' | 'middle' | 'baseline';
+  
+  @ApiProperty({ description: 'Whether the text should be rendered in a circular path', required: false })
+  @IsBoolean()
+  @IsOptional()
+  isCircular?: boolean;
+  
+  @ApiProperty({ description: 'Radius of the circular text path', required: false })
+  @IsNumber()
+  @IsOptional()
+  radius?: number;
+  
+  @ApiProperty({ description: 'Start angle for circular text (in degrees)', required: false })
+  @IsNumber()
+  @IsOptional()
+  startAngle?: number;
+  
+  @ApiProperty({ description: 'End angle for circular text (in degrees)', required: false })
+  @IsNumber()
+  @IsOptional()
+  endAngle?: number;
+  
+  @ApiProperty({ description: 'Direction for circular text', required: false, enum: ['clockwise', 'counterclockwise'] })
+  @IsEnum(['clockwise', 'counterclockwise'])
+  @IsOptional()
+  direction?: 'clockwise' | 'counterclockwise';
 }
 
 class TextElementDto implements TextElement {

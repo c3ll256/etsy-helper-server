@@ -52,5 +52,12 @@ export interface TextElement {
     height?: number;
     rotation?: number;
     textAlign?: 'left' | 'center' | 'right';
+    verticalAlign?: 'top' | 'middle' | 'baseline';
+    // Circular text properties
+    isCircular?: boolean;
+    radius?: number;
+    startAngle?: number;
+    endAngle?: number;
+    direction?: 'clockwise' | 'counterclockwise';
   };
 } 
