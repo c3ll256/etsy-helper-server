@@ -7,7 +7,7 @@ import { Repository } from 'typeorm';
 import { Order } from '../entities/order.entity';
 import { EtsyOrder } from '../entities/etsy-order.entity';
 import { v4 as uuidv4 } from 'uuid';
-import { GlmService } from '../../common/services/glm.service';
+import { JobQueueService } from './job-queue.service';
 
 @Injectable()
 export class ExcelService {
@@ -16,25 +16,48 @@ export class ExcelService {
   constructor(
     private readonly etsyOrderService: EtsyOrderService,
     private readonly orderStampService: OrderStampService,
-    private readonly glmService: GlmService,
+    private readonly jobQueueService: JobQueueService,
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
     @InjectRepository(EtsyOrder)
     private readonly etsyOrderRepository: Repository<EtsyOrder>,
   ) {}
 
-  async parseExcelFile(file: Express.Multer.File): Promise<{
-    total: number;
-    created: number;
-    skipped: number;
-    skippedReasons: { orderId: string; transactionId: string; reason: string }[];
-    failed: number;
-    stamps: { orderId: string; transactionId: string; stampPath: string }[];
-  }> {
+  // New method for asynchronous processing with progress tracking
+  async processExcelFileAsync(file: Express.Multer.File): Promise<string> {
+    const jobId = this.jobQueueService.createJob();
+    
+    // Start processing in background
+    this.processExcelFileWithProgress(file, jobId).catch(error => {
+      this.logger.error(`Error in background processing: ${error.message}`, error.stack);
+      this.jobQueueService.updateJobProgress(jobId, {
+        status: 'failed',
+        progress: 100,
+        message: `Failed to process file: ${error.message}`,
+        error: error.message
+      });
+    });
+    
+    return jobId;
+  }
+
+  // Background processing method
+  private async processExcelFileWithProgress(file: Express.Multer.File, jobId: string): Promise<void> {
     try {
+      this.jobQueueService.updateJobProgress(jobId, {
+        status: 'processing',
+        progress: 5,
+        message: 'Reading Excel file...'
+      });
+
       const workbook = read(file.buffer, { type: 'buffer' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const data = utils.sheet_to_json(worksheet);
+
+      this.jobQueueService.updateJobProgress(jobId, {
+        progress: 10,
+        message: `Found ${data.length} orders to process`
+      });
 
       let created = 0;
       let skipped = 0;
@@ -42,7 +65,16 @@ export class ExcelService {
       const stamps: { orderId: string; transactionId: string; stampPath: string }[] = [];
       const skippedReasons: { orderId: string; transactionId: string; reason: string }[] = [];
 
-      for (const item of data) {
+      // Process each order
+      for (let i = 0; i < data.length; i++) {
+        const item = data[i];
+        const progressPercentage = 10 + Math.floor((i / data.length) * 85); // Progress from 10% to 95%
+        
+        this.jobQueueService.updateJobProgress(jobId, {
+          progress: progressPercentage,
+          message: `Processing order ${i+1} of ${data.length}...`
+        });
+
         try {
           const orderId = item['Order ID']?.toString() || '';
           const transactionId = item['Transaction ID']?.toString() || '';
@@ -115,7 +147,7 @@ export class ExcelService {
         }
       }
 
-      return {
+      const result = {
         total: data.length,
         created,
         skipped,
@@ -123,8 +155,26 @@ export class ExcelService {
         failed,
         stamps
       };
+
+      // Complete the job
+      this.jobQueueService.updateJobProgress(jobId, {
+        status: 'completed',
+        progress: 100,
+        message: `Completed processing ${data.length} orders`,
+        result
+      });
+      
+      // Set cleanup timeout for this job (e.g., 1 hour)
+      this.jobQueueService.startJobCleanup(jobId);
+      
     } catch (error) {
-      throw new Error(`Failed to parse Excel file: ${error.message}`);
+      this.logger.error(`Failed to process Excel file: ${error.message}`, error.stack);
+      this.jobQueueService.updateJobProgress(jobId, {
+        status: 'failed',
+        progress: 100,
+        message: `Failed to process file: ${error.message}`,
+        error: error.message
+      });
     }
   }
 
@@ -334,6 +384,112 @@ export class ExcelService {
         success: false,
         error: error.message
       };
+    }
+  }
+
+  // Keep the original method for backward compatibility
+  async parseExcelFile(file: Express.Multer.File): Promise<{
+    total: number;
+    created: number;
+    skipped: number;
+    skippedReasons: { orderId: string; transactionId: string; reason: string }[];
+    failed: number;
+    stamps: { orderId: string; transactionId: string; stampPath: string }[];
+  }> {
+    try {
+      const workbook = read(file.buffer, { type: 'buffer' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const data = utils.sheet_to_json(worksheet);
+
+      let created = 0;
+      let skipped = 0;
+      let failed = 0;
+      const stamps: { orderId: string; transactionId: string; stampPath: string }[] = [];
+      const skippedReasons: { orderId: string; transactionId: string; reason: string }[] = [];
+
+      for (const item of data) {
+        try {
+          const orderId = item['Order ID']?.toString() || '';
+          const transactionId = item['Transaction ID']?.toString() || '';
+          
+          if (!orderId) {
+            skipped++;
+            skippedReasons.push({ 
+              orderId: 'Unknown', 
+              transactionId: 'Unknown', 
+              reason: 'Order ID is required' 
+            });
+            continue;
+          }
+          
+          if (!transactionId) {
+            skipped++;
+            skippedReasons.push({ 
+              orderId, 
+              transactionId: 'Unknown', 
+              reason: 'Transaction ID is required' 
+            });
+            continue;
+          }
+
+          // 检查是否存在相同的Transaction ID
+          const existingOrder = await this.etsyOrderRepository.findOne({
+            where: { transactionId }
+          });
+
+          if (existingOrder) {
+            skipped++;
+            skippedReasons.push({ 
+              orderId, 
+              transactionId, 
+              reason: 'Order with this Transaction ID already exists' 
+            });
+            continue;
+          }
+
+          // 使用processOrderWithStamp处理订单，现在支持自动检测和处理多个个性化信息
+          const orderResult = await this.processOrderWithStamp(item);
+          
+          if (orderResult.success && orderResult.stamps && orderResult.stamps.length > 0) {
+            // 成功创建了订单和印章
+            created += orderResult.stamps.length;
+            
+            // 将所有生成的印章添加到结果中
+            stamps.push(...orderResult.stamps);
+            
+            this.logger.log(`Successfully processed order ${orderId} with ${orderResult.stamps.length} personalizations`);
+          } else {
+            // 处理失败
+            skipped++;
+            skippedReasons.push({
+              orderId,
+              transactionId,
+              reason: orderResult.error || 'Unknown error during order processing'
+            });
+          }
+        } catch (error) {
+          this.logger.error(`Failed to process order:`, error);
+          failed++;
+          const orderId = item['Order ID']?.toString() || 'Unknown';
+          const transactionId = item['Transaction ID']?.toString() || 'Unknown';
+          skippedReasons.push({
+            orderId,
+            transactionId,
+            reason: error.message
+          });
+        }
+      }
+
+      return {
+        total: data.length,
+        created,
+        skipped,
+        skippedReasons,
+        failed,
+        stamps
+      };
+    } catch (error) {
+      throw new Error(`Failed to parse Excel file: ${error.message}`);
     }
   }
 } 

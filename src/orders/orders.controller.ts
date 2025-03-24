@@ -1,12 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors, UploadedFile, BadRequestException, Query, Put, ParseIntPipe, Res, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors, UploadedFile, BadRequestException, Query, Put, Res, NotFoundException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateOrderStampDto } from './dto/update-order-stamp.dto';
 import { UpdateStampDto } from './dto/update-stamp.dto';
 import { ExportStampsDto } from './dto/export-stamps.dto';
 import { ExcelService } from './services/excel.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { Order } from './entities/order.entity';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
@@ -17,6 +16,7 @@ import { In } from 'typeorm';
 import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { JobQueueService } from './services/job-queue.service';
 
 @ApiTags('orders')
 @Controller('orders')
@@ -24,6 +24,7 @@ export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly excelService: ExcelService,
+    private readonly jobQueueService: JobQueueService,
     @InjectRepository(StampGenerationRecord)
     private readonly stampGenerationRecordRepository: Repository<StampGenerationRecord>,
   ) {}
@@ -37,7 +38,153 @@ export class OrdersController {
   }
 
   @Post('upload')
-  @ApiOperation({ summary: 'Upload Etsy orders from Excel file and generate stamps' })
+  @ApiOperation({ summary: 'Upload Etsy orders from Excel file and generate stamps asynchronously' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Excel file containing Etsy orders'
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: 202,
+    description: 'File accepted for processing',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        jobId: { type: 'string' },
+        status: { type: 'string' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid file or file processing error.' })
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadFile(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    if (!file.originalname.match(/\.(xlsx|xls)$/)) {
+      throw new BadRequestException('Please upload an Excel file');
+    }
+
+    try {
+      // Start asynchronous processing
+      const jobId = await this.excelService.processExcelFileAsync(file);
+      
+      return {
+        message: 'File accepted for processing',
+        jobId,
+        status: 'processing'
+      };
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
+  }
+
+  @Get('upload/:jobId/status')
+  @ApiOperation({ summary: 'Check the status of an Excel file processing job' })
+  @ApiParam({ name: 'jobId', description: 'The ID of the processing job' })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns the current status of the processing job',
+    schema: {
+      type: 'object',
+      properties: {
+        status: { 
+          type: 'string', 
+          enum: ['pending', 'processing', 'completed', 'failed'] 
+        },
+        progress: { 
+          type: 'number', 
+          description: 'Percentage of completion (0-100)' 
+        },
+        message: { 
+          type: 'string' 
+        },
+        result: { 
+          type: 'object',
+          properties: {
+            totalOrders: { type: 'number' },
+            newOrdersCreated: { type: 'number' },
+            duplicateOrdersSkipped: { type: 'number' },
+            skippedReasons: { 
+              type: 'array', 
+              items: { 
+                type: 'object',
+                properties: {
+                  orderId: { type: 'string' },
+                  transactionId: { type: 'string' },
+                  reason: { type: 'string' }
+                }
+              } 
+            },
+            failedOrders: { type: 'number' },
+            generatedStamps: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  orderId: { type: 'string' },
+                  transactionId: { type: 'string' },
+                  stampPath: { type: 'string' }
+                }
+              }
+            }
+          }
+        },
+        error: { 
+          type: 'string',
+          description: 'Error message if the job failed' 
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  checkJobStatus(@Param('jobId') jobId: string) {
+    const jobProgress = this.jobQueueService.getJobProgress(jobId);
+    
+    if (!jobProgress) {
+      throw new NotFoundException(`Job with ID ${jobId} not found`);
+    }
+    
+    // Format the response for the client
+    let response: any = {
+      status: jobProgress.status,
+      progress: jobProgress.progress,
+      message: jobProgress.message
+    };
+    
+    // Add result if available
+    if (jobProgress.result) {
+      response.result = {
+        totalOrders: jobProgress.result.total,
+        newOrdersCreated: jobProgress.result.created,
+        duplicateOrdersSkipped: jobProgress.result.skipped,
+        skippedReasons: jobProgress.result.skippedReasons,
+        failedOrders: jobProgress.result.failed,
+        generatedStamps: jobProgress.result.stamps
+      };
+    }
+    
+    // Add error if available
+    if (jobProgress.error) {
+      response.error = jobProgress.error;
+    }
+    
+    return response;
+  }
+
+  // Kept for backward compatibility - now calls the async version
+  @Post('upload-sync')
+  @ApiOperation({ summary: 'Upload Etsy orders from Excel file and generate stamps (synchronous version)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -94,7 +241,7 @@ export class OrdersController {
   })
   @ApiResponse({ status: 400, description: 'Invalid file or file processing error.' })
   @UseInterceptors(FileInterceptor('file'))
-  async uploadFile(@UploadedFile() file: Express.Multer.File) {
+  async uploadFileSync(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
