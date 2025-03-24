@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { EtsyOrder } from '../entities/etsy-order.entity';
 import { Order } from '../entities/order.entity';
 import { GlmService } from '../../common/services/glm.service';
+import { OllamaService } from '../../common/services/ollama.service';
 
 @Injectable()
 export class EtsyOrderService {
@@ -15,6 +16,7 @@ export class EtsyOrderService {
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
     private readonly glmService: GlmService,
+    private readonly ollamaService: OllamaService,
   ) {}
 
   async createFromExcelData(data: any, tempOrderId: string | undefined): Promise<{ order: EtsyOrder | null; status: 'created' | 'skipped'; reason?: string }> {
@@ -151,10 +153,12 @@ export class EtsyOrderService {
 2. 分析是否包含多个个性化信息（多个印章/地址等），并将每个个性化信息根据模板描述解析为结构化数据
 
 ${templateDescription ? `
-模板描述如下，请根据这个描述来理解和提取相关字段：
+模板如下，请根据模版字段的描述 (description) 来理解和提取相关字段：
 ${templateDescription}
 
-` : ''}原始变量字符串:
+` : ''}
+
+原始变量字符串:
 ${variationsString}
 
 请按照以下格式返回JSON:
@@ -164,16 +168,16 @@ ${variationsString}
     "字段名2": "值2",
     ...
   },
-  "hasMultiple": true/false, // 是否包含多个个性化信息
-  "personalizations": [    // 每个个性化信息段落的结构化数据
+  "hasMultiple": true/false, // 是否包含多个 Personalization 信息
+  "personalizations": [    // 每个 Personalization 的结构化数据
     {
-      "字段名1": "值1",
-      "字段名2": "值2",
+      "字段 ID 1": "值1",
+      "字段 ID 2": "值2",
       ...
     },
     {
-      "字段名1": "值1",
-      "字段名2": "值2",
+      "字段 ID 1": "值1",
+      "字段 ID 2": "值2",
       ...
     }
   ]
@@ -183,8 +187,8 @@ ${variationsString}
 1. 个性化信息("Personalization")是最重要的字段，必须确保100%完整保留，尤其是地址、名称等信息
 2. 如果只有一个个性化信息，hasMultiple 应为 false，personalizations 数组应只包含一项
 3. 保持原始文本的精确性，不要添加或删除内容
-4. 仅输出JSON对象，不要有任何其他文本
-5. 每个个性化信息都应该根据模板描述被解析为结构化的对象，包含所有相关字段
+4. 一定要保证填写每一个字段，根据模版字段的描述 (description) 来匹配信息应该填写到哪个字段
+5. 仅输出JSON对象，不要有任何其他文本
 
 例如，对于如下 Variations:
 
@@ -194,9 +198,10 @@ Manila, UT 84046"
 
 以及如下模版描述:
 [
-  {"key":"name","description":"名字或团体名称","defaultValue":"default"},
-  {"key":"address_line1","description":"地址栏一","defaultValue":"address1"},
-  {"key":"address_line2","description":"地址栏二","defaultValue":"address2"}
+  {"id":"name","description":"名字或团体名称","defaultValue":"default"},
+  {"id":"address_line1","description":"地址栏一","defaultValue":"address1"},
+  {"id":"address_line2","description":"地址栏二","defaultValue":"address2"},
+  ... // 可能还有更多字段
 ]
 
 正确的解析应为:
@@ -210,7 +215,8 @@ Manila, UT 84046"
     {
       "name": "The Bradys",
       "address_line1": "50 South Circle V Drive",
-      "address_line2": "Manila, UT 84046"
+      "address_line2": "Manila, UT 84046",
+      ... // 可能还有更多字段
     }
   ]
 }
@@ -218,7 +224,11 @@ Manila, UT 84046"
 
       // 调用GLM服务的generateJson方法
       try {
-        const parsedResult = await this.glmService.generateJson(prompt, {
+        // const parsedResult = await this.glmService.generateJson(prompt, {
+        //   temperature: 0.1 // 降低温度以获得更确定的结果
+        // });
+
+        const parsedResult = await this.ollamaService.generateJson(prompt, {
           temperature: 0.1 // 降低温度以获得更确定的结果
         });
 

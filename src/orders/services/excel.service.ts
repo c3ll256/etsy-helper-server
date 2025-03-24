@@ -221,7 +221,7 @@ export class ExcelService {
             if (template.textElements && template.textElements.length > 0) {              
               template.textElements.forEach((element, index) => {
                 const elementDesc = {
-                  key: element.id,
+                  id: element.id,
                   description: element.description,
                   defaultValue: element.defaultValue
                 }
@@ -267,9 +267,6 @@ export class ExcelService {
       
       // 使用增强的parseVariations方法解析variations和检测多个个性化信息
       const parsedResult = await this.etsyOrderService.parseVariations(originalVariations, templateDescription);
-      
-      // 记录解析结果，以便调试
-      this.logger.log(`Parsed variations result: ${JSON.stringify(parsedResult).substring(0, 200)}...`);
       
       // 创建临时订单ID
       const tempOrderId = uuidv4();
