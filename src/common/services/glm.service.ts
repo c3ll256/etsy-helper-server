@@ -109,4 +109,54 @@ export class GlmService {
       options,
     );
   }
+
+  /**
+   * 生成JSON格式的输出
+   * 专门用于解析等需要结构化输出的场景
+   * @param prompt 提示词
+   * @param options 选项
+   * @returns 解析好的JSON对象
+   */
+  async generateJson(
+    prompt: string,
+    options: {
+      model?: string;
+      temperature?: number;
+      topP?: number;
+      maxTokens?: number;
+    } = {},
+  ): Promise<any> {
+    try {
+      // 添加指示GLM返回JSON格式的指令
+      const jsonPrompt = `${prompt}\n\n请确保你的响应是有效的JSON格式，不包含任何前言、解释或结束语。`;
+      
+      const response = await this.generateText(jsonPrompt, {
+        ...options,
+        temperature: options.temperature || 0.1, // 降低温度以获得更确定的结果
+      });
+      
+      if (response && response.choices && response.choices[0] && response.choices[0].message) {
+        const content = response.choices[0].message.content;
+        
+        // 尝试提取JSON部分
+        try {
+          // 首先尝试直接解析
+          return JSON.parse(content);
+        } catch (error) {
+          // 如果直接解析失败，尝试提取内容中的JSON部分
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            return JSON.parse(jsonMatch[0]);
+          }
+          // 如果仍然失败，可能需要进一步处理或报错
+          throw new Error('Failed to parse JSON from LLM response');
+        }
+      }
+      
+      throw new Error('LLM response format is invalid');
+    } catch (error) {
+      this.logger.error(`Error generating JSON from GLM: ${error.message}`);
+      throw error;
+    }
+  }
 } 

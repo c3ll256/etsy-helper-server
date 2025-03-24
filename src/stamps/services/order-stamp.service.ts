@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
 import * as fs from 'fs';
 
-import { StampsService } from '../stamps.service';
 import { PythonStampService } from './python-stamp.service';
 import { StampTemplate } from '../entities/stamp-template.entity';
 import { StampGenerationRecord } from '../entities/stamp-generation-record.entity';
@@ -14,17 +13,46 @@ export class OrderStampService {
   private readonly outputDir = 'uploads/stamps';
 
   constructor(
-    private readonly stampsService: StampsService,
     private readonly pythonStampService: PythonStampService,
     @InjectRepository(StampTemplate)
-    private stampTemplateRepository: Repository<StampTemplate>,
+    private readonly stampTemplateRepository: Repository<StampTemplate>,
     @InjectRepository(StampGenerationRecord)
-    private stampGenerationRecordRepository: Repository<StampGenerationRecord>,
+    private readonly stampGenerationRecordRepository: Repository<StampGenerationRecord>,
   ) {
     // 确保输出目录存在
     if (!fs.existsSync(this.outputDir)) {
       fs.mkdirSync(this.outputDir, { recursive: true });
     }
+  }
+
+  /**
+   * 根据SKU查找模板
+   * @param sku 完整SKU
+   * @param skuBase 基础SKU（可选）
+   * @returns 匹配的模板数组
+   */
+  async findTemplatesBySku(sku: string, skuBase?: string): Promise<StampTemplate[]> {
+    const whereConditions = [];
+    
+    // 精确匹配完整SKU
+    whereConditions.push({ sku: sku });
+    
+    // 如果提供了基础SKU，也尝试匹配它
+    if (skuBase) {
+      whereConditions.push({ sku: skuBase });
+      whereConditions.push({ sku: Like(`${skuBase}%`) });
+    }
+    
+    // 查找匹配的模板
+    const templates = await this.stampTemplateRepository.find({
+      where: whereConditions,
+      order: {
+        // 优先使用精确匹配的模板
+        sku: 'DESC'
+      }
+    });
+    
+    return templates;
   }
 
   /**
@@ -83,18 +111,8 @@ export class OrderStampService {
         // 从 SKU 中提取基础部分（例如从 "AD-110-XX" 提取 "AD-110"）
         const skuBase = order.sku.split('-').slice(0, 2).join('-');
         
-        // 在数据库中查找匹配的模板
-        const templates = await this.stampTemplateRepository.find({
-          where: [
-            { sku: order.sku },  // 精确匹配完整 SKU
-            { sku: skuBase },    // 匹配基础 SKU
-            { sku: Like(`${skuBase}%`) } // 模糊匹配以基础 SKU 开头的模板
-          ],
-          order: {
-            // 优先使用精确匹配的模板
-            sku: 'DESC'
-          }
-        });
+        // 查找匹配的模板
+        const templates = await this.findTemplatesBySku(order.sku, skuBase);
 
         if (templates.length === 0) {
           return {
@@ -114,15 +132,24 @@ export class OrderStampService {
       } else {
         // 否则从订单的个性化文本中解析
         // 检查是否有 variations 数据
-        if (!order.variations || !order.variations['Personalization']) {
+        if (!order.variations) {
+          return {
+            success: false,
+            error: 'No variations data found in order'
+          };
+        }
+        
+        // 获取个性化文本，现在通过LLM解析的variations可能包含Personalization字段
+        const personalization = order.variations['Personalization'];
+        
+        if (!personalization) {
           return {
             success: false,
             error: 'No personalization data found in order variations'
           };
         }
 
-        // 解析个性化文本
-        const personalization = order.variations['Personalization'];
+        // 解析个性化文本行
         const lines = personalization.split('\n').map(line => line.trim()).filter(line => line);
 
         if (lines.length < 1) {
@@ -152,8 +179,8 @@ export class OrderStampService {
         }
       }
 
-      // 使用 Python 服务生成印章，而不是之前的 NestJS 方法
-      const orderId = order.order?.id || order.orderId;
+      // 使用 Python 服务生成印章
+      const orderId = order.order?.id || order.order_id || order.orderId;
       const stampImageUrl = await this.pythonStampService.generateAndSaveStamp({
         template,
         textElements,
@@ -163,7 +190,7 @@ export class OrderStampService {
       
       // 创建印章生成记录
       const record = this.stampGenerationRecordRepository.create({
-        orderId: order.order_id,
+        orderId: order.order_id || orderId,
         templateId: template.id,
         textElements: textElements,
         stampImageUrl: stampImageUrl

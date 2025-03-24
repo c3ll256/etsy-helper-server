@@ -11,7 +11,7 @@ import { StampTemplate } from './entities/stamp-template.entity';
 import { StampGenerationRecord } from './entities/stamp-generation-record.entity';
 import { OrderStampService } from './services/order-stamp.service';
 import { PythonStampService } from './services/python-stamp.service';
-import { GlmService } from 'src/common/services/glm.service';
+import { CommonModule } from '../common/common.module';
 import { Font } from '../fonts/entities/font.entity';
 
 // Ensure uploads directory exists
@@ -23,6 +23,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 @Module({
   imports: [
     TypeOrmModule.forFeature([StampTemplate, StampGenerationRecord, Font]),
+    CommonModule,
     MulterModule.register({
       storage: diskStorage({
         destination: (req, file, cb) => {
@@ -37,7 +38,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
     }),
   ],
   controllers: [StampsController],
-  providers: [StampsService, OrderStampService, PythonStampService, GlmService],
+  providers: [StampsService, OrderStampService, PythonStampService],
   exports: [StampsService, OrderStampService, PythonStampService, TypeOrmModule.forFeature([StampGenerationRecord])],
 })
 export class StampsModule {} 

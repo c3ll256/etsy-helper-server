@@ -7,11 +7,13 @@ import { EtsyOrder } from './entities/etsy-order.entity';
 import { ExcelService } from './services/excel.service';
 import { EtsyOrderService } from './services/etsy-order.service';
 import { StampsModule } from '../stamps/stamps.module';
+import { CommonModule } from '../common/common.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Order, EtsyOrder]),
-    StampsModule
+    StampsModule,
+    CommonModule
   ],
   controllers: [OrdersController],
   providers: [OrdersService, ExcelService, EtsyOrderService],
