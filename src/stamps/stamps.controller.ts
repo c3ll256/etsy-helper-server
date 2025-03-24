@@ -11,13 +11,16 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
-  Put
+  Put,
+  Req
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
-import { Response } from 'express';
+import { Response, Request } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as multer from 'multer';
+import { promisify } from 'util';
 
 import { StampsService } from './stamps.service';
 import { PythonStampService } from './services/python-stamp.service';
@@ -56,6 +59,95 @@ export class StampsController {
   @ApiResponse({ status: 200, description: 'Return all stamp templates' })
   async findAll() {
     return this.stampsService.findAll();
+  }
+
+  @Post('upload-background')
+  @ApiOperation({ summary: '上传印章背景图片' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: '印章背景图片文件',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: '背景图片上传成功' })
+  @ApiResponse({ status: 400, description: '无效的文件类型或大小' })
+  async uploadBackground(@Req() req: Request, @Res() res: Response) {
+    // 确保上传目录存在
+    const uploadDir = path.join(process.cwd(), 'uploads', 'backgrounds');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    // 创建 multer 实例，手动处理文件上传
+    const storage = multer.diskStorage({
+      destination: uploadDir,
+      filename: (req, file, cb) => {
+        // 生成唯一文件名
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const extension = path.extname(file.originalname);
+        cb(null, uniqueSuffix + extension);
+      }
+    });
+    
+    const upload = multer({
+      storage: storage,
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB
+      },
+      fileFilter: (req, file, cb) => {
+        const allowedMimes = ['image/svg+xml'];
+        const allowedExts = ['.svg'];
+        
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
+          cb(null, true);
+        } else {
+          // 拒绝文件但不抛出错误
+          cb(null, false);
+          // 在 req 对象中存储错误信息，稍后处理
+          req['fileValidationError'] = '仅支持 SVG 格式的图片';
+        }
+      }
+    }).single('file');
+    
+    // 将回调形式的 upload 转换为 Promise
+    const uploadPromisified = promisify(upload);
+    
+    try {
+      // 执行上传
+      await uploadPromisified(req, res);
+      
+      // 检查自定义验证错误
+      if (req['fileValidationError']) {
+        return res.status(400).json({ 
+          success: false, 
+          message: req['fileValidationError'] 
+        });
+      }
+      
+      if (!req.file) {
+        return res.status(400).json({ message: '未提供文件或文件上传失败' });
+      }
+      
+      // 返回文件信息
+      return res.status(201).json({
+        success: true,
+        filePath: `uploads/backgrounds/${req.file.filename}`,
+        fileName: req.file.originalname,
+      });
+    } catch (error) {
+      return res.status(400).json({ 
+        success: false, 
+        message: error.message || '文件上传失败' 
+      });
+    }
   }
 
   @Get('templates/:id')
@@ -124,62 +216,6 @@ export class StampsController {
     });
     
     return res.status(HttpStatus.OK).send(buffer);
-  }
-
-  @Post('upload-background')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      fileFilter: (req, file, callback) => {
-        const allowedMimes = ['image/svg+xml'];
-        const allowedExts = ['.svg'];
-        
-        const ext = path.extname(file.originalname).toLowerCase();
-        if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
-          callback(null, true);
-        } else {
-          callback(new BadRequestException('仅支持 SVG 格式的图片'), false);
-        }
-      },
-      limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB
-      },
-      dest: 'uploads/backgrounds',
-    }),
-  )
-  @ApiOperation({ summary: '上传印章背景图片' })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        file: {
-          type: 'string',
-          format: 'binary',
-          description: '印章背景图片文件',
-        },
-      },
-    },
-  })
-  @ApiResponse({ status: 201, description: '背景图片上传成功' })
-  @ApiResponse({ status: 400, description: '无效的文件类型或大小' })
-  async uploadBackground(@UploadedFile() file: Express.Multer.File) {
-    if (!file) {
-      throw new BadRequestException('未提供文件或文件上传失败');
-    }
-
-    // 确保目录存在
-    const uploadsDir = path.join(process.cwd(), 'uploads', 'backgrounds');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-
-    // 返回文件相对路径
-    const relativePath = path.join('uploads', 'backgrounds', file.filename);
-    return {
-      success: true,
-      filePath: relativePath,
-      fileName: file.originalname,
-    };
   }
 
   @Post('templates/clone')

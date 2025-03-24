@@ -16,6 +16,7 @@ from fontTools.pens.svgPathPen import SVGPathPen
 import cairo
 import math
 import uharfbuzz as hb
+import re
 
 # Configure logging
 logging.basicConfig(
@@ -108,51 +109,7 @@ class StampGenerator:
             # 创建一个SVG表面
             surface = cairo.SVGSurface(svg_output, self.width, self.height)
             ctx = cairo.Context(surface)
-            
-            # 添加背景图片(如果指定)
-            if self.background_image_path:
-                full_bg_path = os.path.join(os.getcwd(), self.background_image_path)
-                if os.path.exists(full_bg_path):
-                    # 只处理SVG背景图片
-                    if full_bg_path.lower().endswith('.svg'):
-                        try:
-                            # 读取SVG内容
-                            with open(full_bg_path, 'r') as f:
-                                svg_content = f.read()
-                            
-                            # 创建临时SVG表面
-                            temp_surface = cairo.SVGSurface(None, self.width, self.height)
-                            temp_ctx = cairo.Context(temp_surface)
-                            
-                            # 使用librsvg或直接导入SVG (如果可用)
-                            try:
-                                import rsvg
-                                handle = rsvg.Handle(file=full_bg_path)
-                                handle.render_cairo(temp_ctx)
-                            except ImportError:
-                                # 如果librsvg不可用，尝试直接嵌入SVG内容
-                                # 注意：这种方法只在Cairo 1.15.10+版本有效
-                                try:
-                                    # 将SVG嵌入到当前SVG中
-                                    ctx.save()
-                                    # 尝试缩放到适合尺寸
-                                    ctx.scale(self.width / 100, self.height / 100)  # 假设原SVG为100x100单位
-                                    ctx.push_group()
-                                    PangoCairo.error_underline_path(ctx)  # 触发渲染
-                                    ctx.pop_group_to_source()
-                                    ctx.paint()
-                                    ctx.restore()
-                                    
-                                    logger.debug("Embedded SVG background directly")
-                                except Exception as inner_e:
-                                    logger.debug(f"Using SVG link instead: {inner_e}")
-                                    # 如果直接嵌入失败，添加引用
-                                    relative_path = os.path.relpath(full_bg_path, os.getcwd())
-                        except Exception as e:
-                            logger.error(f"Error processing SVG background: {e}")
-                    else:
-                        logger.warning(f"Only SVG backgrounds supported: {full_bg_path}")
-            
+
             # 绘制文本元素
             for element in self.text_elements:
                 try:
@@ -441,6 +398,91 @@ class StampGenerator:
             # 如果出现异常，尝试回退到svgwrite方法 (如果保留了该方法)
             logger.error(f"SVG generation error: {error}")
             return None, error
+            
+        # 如果有背景SVG，进行后期处理合并
+        if self.background_image_path and self.background_image_path.lower().endswith('.svg'):
+            full_bg_path = os.path.join(os.getcwd(), self.background_image_path)
+            if os.path.exists(full_bg_path):
+                try:
+                    # 读取背景SVG
+                    with open(full_bg_path, 'r') as f:
+                        bg_svg = f.read()
+                        
+                    # 读取生成的SVG
+                    svg_content = data
+                    
+                    # 简单合并：提取内容层并嵌入到背景中
+                    # 尝试提取SVG内容中的元素
+                    
+                    # 提取背景SVG的基本信息
+                    bg_width_match = re.search(r'width="([^"]*)"', bg_svg)
+                    bg_height_match = re.search(r'height="([^"]*)"', bg_svg)
+                    bg_width = bg_width_match.group(1) if bg_width_match else self.width
+                    bg_height = bg_height_match.group(1) if bg_height_match else self.height
+                    
+                    # 从背景SVG中提取根元素属性
+                    bg_svg_attrs_match = re.search(r'<svg([^>]*)>', bg_svg, re.DOTALL)
+                    bg_svg_attrs = bg_svg_attrs_match.group(1) if bg_svg_attrs_match else ""
+                    
+                    # 从生成的SVG中提取内容部分 (在<svg>和</svg>之间)
+                    content_match = re.search(r'<svg[^>]*>(.*?)</svg>', svg_content, re.DOTALL)
+                    if content_match:
+                        content = content_match.group(1)
+                        
+                        # 从生成的SVG中提取命名空间和其他属性
+                        content_attrs_match = re.search(r'<svg([^>]*)>', svg_content, re.DOTALL)
+                        content_attrs = content_attrs_match.group(1) if content_attrs_match else ""
+                        
+                        # 合并两个SVG的属性，确保所有命名空间都被包含
+                        # 定义可能需要的命名空间
+                        namespaces = {
+                            'xmlns': 'http://www.w3.org/2000/svg',
+                            'xmlns:xlink': 'http://www.w3.org/1999/xlink', 
+                            'xmlns:svg': 'http://www.w3.org/2000/svg',
+                            'xmlns:sodipodi': 'http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd',
+                            'xmlns:inkscape': 'http://www.inkscape.org/namespaces/inkscape'
+                        }
+                        
+                        # 从背景和内容属性中提取现有的命名空间
+                        existing_namespaces = {}
+                        for attr_str in [bg_svg_attrs, content_attrs]:
+                            for ns, uri in namespaces.items():
+                                ns_match = re.search(rf'{ns}="([^"]*)"', attr_str)
+                                if ns_match:
+                                    existing_namespaces[ns] = ns_match.group(1)
+                                    
+                        # 合并所有命名空间和宽高属性
+                        merged_attrs = ""
+                        for ns, uri in namespaces.items():
+                            if ns in existing_namespaces:
+                                merged_attrs += f' {ns}="{existing_namespaces[ns]}"'
+                            elif (ns == 'xmlns:xlink' and 'xlink:href' in bg_svg + content) or \
+                                 (ns == 'xmlns:sodipodi' and 'sodipodi:' in bg_svg + content) or \
+                                 (ns == 'xmlns:inkscape' and 'inkscape:' in bg_svg + content) or \
+                                 (ns == 'xmlns' or ns == 'xmlns:svg'):
+                                merged_attrs += f' {ns}="{uri}"'
+                        
+                        # 添加宽度和高度属性
+                        merged_attrs += f' width="{self.width}" height="{self.height}"'
+                        
+                        # 使用提取的内容创建一个新的SVG
+                        merged_svg = f'<svg{merged_attrs}>{content}</svg>'
+                        
+                        # 将背景中的内容（不包括svg标签本身）合并到结果中
+                        bg_content_match = re.search(r'<svg[^>]*>(.*?)</svg>', bg_svg, re.DOTALL)
+                        if bg_content_match:
+                            bg_content = bg_content_match.group(1)
+                            # 在新SVG的开头插入背景内容
+                            merged_svg = merged_svg.replace('>', '>' + bg_content, 1)
+                        
+                        # 使用合并后的SVG
+                        data = merged_svg
+                    else:
+                        logger.warning("Could not extract content from generated SVG")
+                except Exception as e:
+                    logger.error(f"Error merging SVG with background: {e}")
+                    # 继续使用原始生成的SVG
+        
         return data, None
 
     def save_to_file(self, filename=None):
