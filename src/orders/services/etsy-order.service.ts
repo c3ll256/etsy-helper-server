@@ -118,165 +118,69 @@ export class EtsyOrderService {
     return { order: savedOrder, status: 'created' };
   }
 
-  // 生成额外的订单（针对多个个性化信息的情况）
-  async createAdditionalOrder(
-    originalOrderData: any, 
-    personalizationText: string, 
-    index: number
-  ): Promise<{ order: EtsyOrder | null; status: 'created' | 'skipped'; reason?: string }> {
-    const orderId = originalOrderData['Order ID']?.toString() || '';
-    // 为额外订单生成唯一的transactionId，添加 -split-{index} 后缀
-    const baseTransactionId = originalOrderData['Transaction ID']?.toString() || '';
-    const transactionId = `${baseTransactionId}-split-${index}`;
-    const tempOrderId = originalOrderData['_tempOrderId']; // Get the tempOrderId if it exists
-    
-    if (!orderId || !baseTransactionId) {
-      return { 
-        order: null, 
-        status: 'skipped', 
-        reason: 'Cannot create additional order without order ID or transaction ID' 
-      };
-    }
-
-    // 检查是否已存在相同的分割订单
-    const existingOrder = await this.etsyOrderRepository.findOne({
-      where: { transactionId }
-    });
-
-    if (existingOrder) {
-      return { 
-        order: existingOrder, 
-        status: 'skipped', 
-        reason: 'Split order with this Transaction ID already exists' 
-      };
-    }
-
-    // 创建新的基本订单
-    const order = this.orderRepository.create({
-      status: 'stamp_not_generated',
-      orderType: 'etsy',
-      platformOrderId: `${orderId}-split-${index}`,
-      platformOrderDate: originalOrderData['Date Paid'] ? new Date(originalOrderData['Date Paid']) : null
-    });
-
-    // If a tempOrderId was provided, use it as the order id
-    if (tempOrderId) {
-      order.id = tempOrderId;
-    }
-    
-    await this.orderRepository.save(order);
-
-    // 准备一个新的变体字符串，保持原始的其他参数，但更新个性化信息
-    let updatedVariations = originalOrderData['Variations'];
-    if (updatedVariations && updatedVariations.includes('Personalization:')) {
-      // 替换原始个性化信息
-      const personalizationPattern = /Personalization:[^,]+(,|$)/;
-      updatedVariations = updatedVariations.replace(
-        personalizationPattern, 
-        `Personalization:${personalizationText.replace(/\n/g, ' ')}$1`
-      );
-    }
-
-    // 创建 Etsy 订单，拷贝原始订单的大部分信息，但修改变体和交易ID
-    const etsyOrder = this.etsyOrderRepository.create({
-      orderId,
-      transactionId,
-      listingId: originalOrderData['Listing ID']?.toString(),
-      itemName: originalOrderData['Item Name'],
-      buyer: originalOrderData['Buyer'],
-      quantity: 1, // 分割后的订单数量始终为1
-      price: originalOrderData['Price'],
-      couponCode: originalOrderData['Coupon Code'],
-      couponDetails: originalOrderData['Coupon Details'],
-      discountAmount: originalOrderData['Discount Amount'],
-      shippingDiscount: originalOrderData['Shipping Discount'],
-      orderShipping: originalOrderData['Order Shipping'],
-      orderSalesTax: originalOrderData['Order Sales Tax'],
-      itemTotal: originalOrderData['Item Total'],
-      currency: originalOrderData['Currency'],
-      datePaid: originalOrderData['Date Paid'] ? new Date(originalOrderData['Date Paid']) : null,
-      shipName: originalOrderData['Ship Name'],
-      shipAddress1: originalOrderData['Ship Address1'],
-      shipCity: originalOrderData['Ship City'],
-      shipState: originalOrderData['Ship State'],
-      shipZipcode: originalOrderData['Ship Zipcode']?.toString(),
-      shipCountry: originalOrderData['Ship Country'],
-      originalVariations: updatedVariations,
-      variations: await this.parseVariations(updatedVariations),
-      orderType: originalOrderData['Order Type'],
-      listingsType: originalOrderData['Listings Type'],
-      paymentType: originalOrderData['Payment Type'],
-      vatPaidByBuyer: originalOrderData['VAT Paid by Buyer'],
-      sku: originalOrderData['SKU'],
-      saleDate: originalOrderData['Sale Date'] ? this.excelDateToJSDate(originalOrderData['Sale Date']) : null,
-      order: order
-    });
-
-    const savedOrder = await this.etsyOrderRepository.save(etsyOrder);
-
-    // 更新Order的searchKey字段
-    const searchKeyParts = [
-      orderId,
-      originalOrderData['Buyer'],
-      originalOrderData['Item Name'],
-      originalOrderData['Ship Name'],
-      originalOrderData['Ship Address1'],
-      originalOrderData['Ship City'],
-      originalOrderData['Ship State'],
-      originalOrderData['Ship Zipcode'],
-      originalOrderData['Ship Country'],
-      originalOrderData['SKU'],
-      updatedVariations,
-      originalOrderData['Date Paid'] ? new Date(originalOrderData['Date Paid']).toISOString().split('T')[0] : null
-    ];
-    
-    const searchKey = searchKeyParts
-      .filter(part => part)
-      .join(' ')
-      .trim();
-    
-    if (searchKey) {
-      await this.orderRepository.update(
-        { id: order.id },
-        { searchKey }
-      );
-    }
-
-    return { order: savedOrder, status: 'created' };
-  }
-
   /**
-   * 使用LLM解析订单变量
-   * 替换原有的正则表达式解析方法，使用LLM进行更智能的解析
+   * 使用LLM解析订单变量和检测多个个性化信息
+   * 一次性处理所有信息，包括：
+   * 1. 解析变量为JSON格式
+   * 2. 检测是否包含多个个性化信息
+   * 3. 提取每个个性化信息段落并解析为结构化数据
    * @param variationsString 原始变量字符串
    * @param templateDescription 可选的模板描述，用于指导LLM解析
-   * @returns 解析后的变量对象
+   * @returns 解析后的结果，包含变量对象和个性化信息数组
    */
-  public async parseVariations(variationsString: string, templateDescription?: string): Promise<any> {
-    if (!variationsString) return null;
+  public async parseVariations(variationsString: string, templateDescription?: string): Promise<{
+    variations: any;
+    hasMultiple: boolean;
+    personalizations: Array<{
+      [key: string]: string;
+    }>;
+  }> {
+    if (!variationsString) return {
+      variations: null,
+      hasMultiple: false,
+      personalizations: []
+    };
     
     try {
       // 构建提示
       const prompt = `
-你是一位解析Etsy订单变量的专家。你需要将原始的变量字符串解析为JSON格式。
+你是一位解析Etsy订单变量的专家。你需要完成两个任务：
+1. 将原始的变量字符串解析为JSON格式
+2. 分析是否包含多个个性化信息（多个印章/地址等），并将每个个性化信息解析为结构化数据
 
 ${templateDescription ? `模板描述: ${templateDescription}
 
 ` : ''}原始变量字符串:
 ${variationsString}
 
-请将上述变量解析为以下JSON格式，保留所有关键信息:
+请按照以下格式返回JSON:
 {
-  "字段名1": "值1",
-  "字段名2": "值2",
-  ...
+  "variations": {
+    "字段名1": "值1",
+    "字段名2": "值2",
+    ...
+  },
+  "hasMultiple": true/false, // 是否包含多个个性化信息
+  "personalizations": [      // 每个个性化信息段落的结构化数据
+    {
+      "字段1": "值1",
+      "字段2": "值2",
+      ...
+    },
+    {
+      "字段1": "值1",
+      "字段2": "值2",
+      ...
+    }
+  ]
 }
 
 特别注意:
 1. 个性化信息("Personalization")是最重要的字段，请确保完整保留
-2. 忽略无关信息，只保留有意义的键值对
+2. 如果只有一个个性化信息，hasMultiple 应为 false，personalizations 数组应只包含一项
 3. 保持原始文本的精确性，不要添加或删除内容
 4. 仅输出JSON对象，不要有任何其他文本
+5. 每个个性化信息都应该被解析为结构化的对象，包含所有相关字段
 `;
 
       // 调用GLM服务的generateJson方法
@@ -303,12 +207,20 @@ ${variationsString}
         }
         
         // 回退方案2：将原始字符串作为单个值返回
-        return { 'Raw Variations': variationsString };
+        return {
+          variations: { 'Raw Variations': variationsString },
+          hasMultiple: false,
+          personalizations: [{ 'Raw Personalization': variationsString }]
+        };
       }
     } catch (error) {
       this.logger.error(`Error parsing variations using LLM: ${error.message}`, error);
       // 回退：将原始字符串作为单个值返回
-      return { 'Raw Variations': variationsString };
+      return {
+        variations: { 'Raw Variations': variationsString },
+        hasMultiple: false,
+        personalizations: [{ 'Raw Personalization': variationsString }]
+      };
     }
   }
 
@@ -325,10 +237,42 @@ ${variationsString}
     }
   }
 
-  async updateStampImage(transactionId: string, stampImageUrl: string): Promise<void> {
-    await this.etsyOrderRepository.update(
-      { transactionId },
-      { stampImageUrl }
-    );
+  /**
+   * 更新Etsy订单的印章图片URL
+   * @param transactionId 交易ID
+   * @param stampImageUrl 印章图片URL
+   * @param recordId 可选，stamp生成记录ID，如果提供则添加到记录ID数组
+   */
+  async updateStampImage(
+    transactionId: string, 
+    stampImageUrl: string,
+    recordId?: number
+  ): Promise<void> {
+    // 查找匹配的订单
+    const order = await this.etsyOrderRepository.findOne({
+      where: { transactionId }
+    });
+    
+    if (!order) {
+      throw new Error(`Order with transaction ID ${transactionId} not found`);
+    }
+    
+    // 更新图片URL
+    order.stampImageUrl = stampImageUrl;
+    
+    // 如果提供了记录ID，添加到数组中
+    if (recordId) {
+      if (!order.stampGenerationRecordIds) {
+        order.stampGenerationRecordIds = [];
+      }
+      
+      // 确保不重复添加
+      if (!order.stampGenerationRecordIds.includes(recordId)) {
+        order.stampGenerationRecordIds.push(recordId);
+      }
+    }
+    
+    // 保存更新
+    await this.etsyOrderRepository.save(order);
   }
 } 

@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStampDto } from './dto/update-order-stamp.dto';
+import { UpdateStampDto } from './dto/update-stamp.dto';
 import { ExportStampsDto } from './dto/export-stamps.dto';
 import { ExcelService } from './services/excel.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery } from '@nestjs/swagger';
@@ -12,6 +13,10 @@ import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
+import { In } from 'typeorm';
+import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 @ApiTags('orders')
 @Controller('orders')
@@ -19,6 +24,8 @@ export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly excelService: ExcelService,
+    @InjectRepository(StampGenerationRecord)
+    private readonly stampGenerationRecordRepository: Repository<StampGenerationRecord>,
   ) {}
 
   @Post()
@@ -209,8 +216,28 @@ export class OrdersController {
     type: Order
   })
   @ApiResponse({ status: 404, description: 'Order not found' })
-  findOne(@Param('id') id: string) {
-    return this.ordersService.findOne(id);
+  async findOne(@Param('id') id: string): Promise<any> {
+    const order = await this.ordersService.findOne(id);
+    if (!order) {
+      throw new NotFoundException(`Order with ID ${id} not found`);
+    }
+
+    // 获取关联的印章生成记录
+    let stampGenerationRecords = [];
+    if (order.etsyOrder && order.etsyOrder.stampGenerationRecordIds && order.etsyOrder.stampGenerationRecordIds.length > 0) {
+      const recordIds = order.etsyOrder.stampGenerationRecordIds;
+      stampGenerationRecords = await this.stampGenerationRecordRepository.find({
+        where: { 
+          id: In(recordIds) 
+        }
+      });
+    }
+
+    // 返回包含印章生成记录的订单详情
+    return {
+      ...order,
+      stampGenerationRecords
+    };
   }
 
   @Put(':id')
@@ -219,37 +246,6 @@ export class OrdersController {
   @ApiResponse({ status: 404, description: 'Order not found.' })
   update(@Param('id') id: string, @Body() updateOrderDto: Partial<CreateOrderDto>) {
     return this.ordersService.update(id, updateOrderDto);
-  }
-
-  @Post('update-stamp')
-  @ApiOperation({ summary: '手动调整订单图章的内容及排布，生成新的印章' })
-  @ApiResponse({
-    status: 200,
-    description: '图章更新成功',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean' },
-        path: { type: 'string' },
-        recordId: { type: 'number' }
-      }
-    }
-  })
-  @ApiResponse({ status: 400, description: '请求处理失败' })
-  @ApiResponse({ status: 404, description: '订单不存在' })
-  @ApiBody({ type: UpdateOrderStampDto })
-  async updateOrderStamp(@Body() updateOrderStampDto: UpdateOrderStampDto) {
-    const result = await this.ordersService.updateOrderStamp(updateOrderStampDto);
-    
-    if (!result.success) {
-      throw new BadRequestException(result.error);
-    }
-    
-    return {
-      success: true,
-      path: result.path,
-      recordId: result.recordId
-    };
   }
 
   @Get(':id/stamp-records')
@@ -287,63 +283,9 @@ export class OrdersController {
   }
 
   @Get(':id/latest-stamp-record')
-  @ApiOperation({ summary: '获取订单的最新一条印章生成记录，包含完整的样式和位置信息' })
-  @ApiResponse({
-    status: 200,
-    description: '返回订单的最新印章生成记录，包含所有文本元素的位置、样式等完整信息',
-    schema: {
-      type: 'object',
-      properties: {
-        id: { type: 'number' },
-        orderId: { type: 'string' },
-        templateId: { type: 'number' },
-        textElements: { 
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              id: { type: 'string', description: '文本元素ID' },
-              value: { type: 'string', description: '文本内容' },
-              fontFamily: { type: 'string', description: '字体' },
-              fontSize: { type: 'number', description: '字体大小' },
-              fontWeight: { type: 'string', description: '字体粗细' },
-              fontStyle: { type: 'string', description: '字体样式' },
-              color: { type: 'string', description: '颜色' },
-              position: {
-                type: 'object',
-                properties: {
-                  x: { type: 'number', description: 'X坐标' },
-                  y: { type: 'number', description: 'Y坐标' },
-                  width: { type: 'number', description: '宽度' },
-                  height: { type: 'number', description: '高度' },
-                  rotation: { type: 'number', description: '旋转角度' },
-                  textAlign: { type: 'string', enum: ['left', 'center', 'right'], description: '文本对齐方式' }
-                }
-              }
-            }
-          }
-        },
-        stampImageUrl: { type: 'string' },
-        format: { type: 'string' },
-        createdAt: { type: 'string', format: 'date-time' },
-        template: {
-          type: 'object',
-          properties: {
-            id: { type: 'number' },
-            name: { type: 'string' },
-            sku: { type: 'string' },
-            textElements: {
-              type: 'array',
-              items: {
-                type: 'object'
-              }
-            }
-          }
-        }
-      }
-    }
-  })
-  @ApiResponse({ status: 404, description: '订单不存在或没有生成记录' })
+  @ApiOperation({ summary: '获取订单最新的印章生成记录' })
+  @ApiResponse({ status: 200, description: '获取成功' })
+  @ApiResponse({ status: 404, description: '订单未找到或无印章记录' })
   async getOrderLatestStampRecord(@Param('id') id: string) {
     return this.ordersService.getOrderLatestStampRecord(id);
   }
@@ -454,6 +396,41 @@ export class OrdersController {
         throw error;
       }
       throw new BadRequestException(error.message);
+    }
+  }
+
+  @ApiOperation({ summary: '更新指定订单的印章' })
+  @ApiResponse({
+    status: 200,
+    description: '印章更新成功',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        path: { type: 'string' },
+        recordId: { type: 'number' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: '请求处理失败' })
+  @ApiResponse({ status: 404, description: '订单不存在' })
+  @ApiBody({ type: UpdateStampDto })
+  @Patch(':id/stamp')
+  async updateOrderStampById(
+    @Param('id') id: string,
+    @Body() updateStampDto: UpdateStampDto
+  ): Promise<any> {
+    try {
+      const result = await this.ordersService.updateOrderStamp(id, updateStampDto);
+      
+      return {
+        success: true,
+        message: 'Order stamp updated successfully',
+        path: result.path,
+        recordId: result.recordId
+      };
+    } catch (error) {
+      throw new BadRequestException(`Failed to update order stamp: ${error.message}`);
     }
   }
 } 

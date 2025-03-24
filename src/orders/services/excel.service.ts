@@ -128,7 +128,7 @@ export class ExcelService {
     }
   }
 
-  // 处理订单及生成印章，支持单个或多个个性化信息
+  // 处理订单及生成印章
   private async processOrderWithStamp(
     item: any, 
     personalizationText?: string
@@ -167,7 +167,7 @@ export class ExcelService {
         }
       }
       
-      // 使用GLM服务解析variations
+      // 使用增强的parseVariations方法一次性处理所有信息
       const originalVariations = personalizationText || item['Variations'];
       
       if (!originalVariations) {
@@ -177,181 +177,113 @@ export class ExcelService {
         };
       }
       
-      // 使用LLM分析是否包含多个个性化信息
-      const multiPersonalizationPrompt = `
-请分析以下Etsy订单的变体信息，判断是否包含多个个性化信息（多个印章/地址等）。
-如果包含多个个性化信息，请提取每个独立的个性化信息段落，并以JSON数组形式返回。
-
-原始变体信息:
-${originalVariations}
-
-请按照以下格式返回JSON:
-{
-  "hasMultiple": true/false, // 是否包含多个个性化信息
-  "personalizations": [      // 每个个性化信息段落
-    "完整的第一个个性化信息", 
-    "完整的第二个个性化信息",
-    ...
-  ]
-}
-
-如果只有一个个性化信息，返回的personalizations数组应只包含一项。
-`;
-
-      // 调用GLM服务分析
-      const multiResult = await this.glmService.generateJson(multiPersonalizationPrompt, {
-        temperature: 0.1
-      });
+      // 使用增强的parseVariations方法解析variations和检测多个个性化信息
+      const parsedResult = await this.etsyOrderService.parseVariations(originalVariations, templateDescription);
       
-      // 获取个性化信息列表
-      const personalizations = multiResult && multiResult.personalizations ? 
-        multiResult.personalizations : [originalVariations];
+      // 创建临时订单ID
+      const tempOrderId = uuidv4();
       
-      // 处理检测到的多个个性化信息
+      // 创建共享的订单记录
       const stamps: Array<{ orderId: string; transactionId: string; stampPath: string }> = [];
       
-      // 处理第一个个性化信息（主订单）
+      // 处理第一个个性化信息
       const mainItem = { ...item };
-      if (personalizations[0] !== originalVariations) {
-        // 更新第一个个性化信息的变体字符串
-        mainItem['Variations'] = personalizations[0];
-      }
+      // 将第一个个性化信息对象转换为字符串格式
+      mainItem['Variations'] = Object.entries(parsedResult.personalizations[0])
+        .map(([key, value]) => `${key}: ${value}`)
+        .join('\n');
       
-      // 创建临时的EtsyOrder对象用于模板匹配和图章生成
-      const tempOrderId = uuidv4();
-      const parsedVariations = await this.etsyOrderService.parseVariations(mainItem['Variations'], templateDescription);
-      
-      const tempEtsyOrder = {
-        orderId,
-        transactionId: baseTransactionId,
-        order_id: tempOrderId,
-        sku: mainItem['SKU']?.toString(),
-        variations: parsedVariations,
-        originalVariations: mainItem['Variations']
-      };
-
-      // 生成印章
-      const stampResult = await this.orderStampService.generateStampFromOrder({
-        order: tempEtsyOrder,
-        convertTextToPaths: true
-      });
-      
-      if (!stampResult.success) {
-        return {
-          success: false,
-          error: stampResult.error || 'Failed to generate stamp'
-        };
-      }
-
-      // 创建订单记录
+      // 创建基础订单
       const orderResult = await this.etsyOrderService.createFromExcelData(mainItem, tempOrderId);
       
       if (orderResult.status !== 'created') {
         return {
           success: false,
-          error: orderResult.reason || 'Unknown reason'
+          error: orderResult.reason || 'Failed to create order'
         };
       }
       
-      // 将生成的印章与订单关联
-      const stampImageUrl = stampResult.path.replace('uploads/', '/');
+      // 存储所有生成记录ID的数组
+      const generatedRecordIds: number[] = [];
       
-      // 更新EtsyOrder记录，使用transactionId查询确保更新正确的记录
-      await this.etsyOrderService.updateStampImage(
-        baseTransactionId,
-        stampImageUrl
-      );
-
-      // 更新Order状态为已生成印章待审核
-      if (orderResult.order.order) {
+      // 处理每个个性化信息，为每个个性化信息生成单独的印章，但关联到同一个订单
+      for (let i = 0; i < parsedResult.personalizations.length; i++) {
+        // 准备个性化信息
+        const currentPersonalization = parsedResult.personalizations[i];
+        const variationsWithPersonalization = {
+          ...parsedResult.variations,
+          ...currentPersonalization // 直接展开个性化信息对象
+        };
+        
+        // 创建临时的EtsyOrder对象用于印章生成
+        const tempEtsyOrder = {
+          orderId,
+          transactionId: baseTransactionId,
+          order_id: orderResult.order?.order?.id || tempOrderId,
+          sku: mainItem['SKU']?.toString(),
+          variations: variationsWithPersonalization,
+          originalVariations: Object.entries(currentPersonalization)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join('\n'),
+          order: { id: orderResult.order?.order?.id || tempOrderId }
+        };
+        
+        // 生成印章
+        const stampResult = await this.orderStampService.generateStampFromOrder({
+          order: tempEtsyOrder,
+          convertTextToPaths: true
+        });
+        
+        if (!stampResult.success) {
+          this.logger.warn(`Failed to generate stamp for personalization #${i + 1}: ${stampResult.error}`);
+          continue; // 继续处理下一个个性化信息
+        }
+        
+        // 记录生成的印章记录ID
+        if (stampResult.recordId) {
+          generatedRecordIds.push(stampResult.recordId);
+        }
+        
+        // 将生成的印章与订单关联
+        const stampImageUrl = stampResult.path.replace('uploads/', '/');
+        
+        // 加入印章结果集
+        stamps.push({
+          orderId: orderResult.order.orderId,
+          transactionId: orderResult.order.transactionId,
+          stampPath: stampImageUrl
+        });
+        
+        // 如果是第一个印章，更新EtsyOrder的stampImageUrl
+        if (i === 0) {
+          // 更新EtsyOrder记录，使用transactionId查询确保更新正确的记录
+          await this.etsyOrderService.updateStampImage(
+            baseTransactionId,
+            stampImageUrl,
+            stampResult.recordId
+          );
+        } else {
+          // 对于后续的印章，只添加记录ID，不更新URL
+          if (stampResult.recordId) {
+            await this.etsyOrderService.updateStampImage(
+              baseTransactionId,
+              orderResult.order.stampImageUrl || stampImageUrl,
+              stampResult.recordId
+            );
+          }
+        }
+      }
+      
+      // 如果成功生成了至少一个印章，则更新订单状态
+      if (stamps.length > 0 && orderResult.order?.order) {
         await this.orderRepository.update(
           { id: orderResult.order.order.id },
           { status: 'stamp_generated_pending_review' }
         );
       }
       
-      // 添加第一个印章到结果集
-      stamps.push({
-        orderId: orderResult.order.orderId,
-        transactionId: orderResult.order.transactionId,
-        stampPath: stampImageUrl
-      });
-      
-      // 如果有多个个性化信息，处理额外的个性化信息
-      if (personalizations.length > 1) {
-        for (let i = 1; i < personalizations.length; i++) {
-          // 为每个额外的个性化信息创建一个分割订单
-          const additionalOrderId = uuidv4();
-          const additionalTransactionId = `${baseTransactionId}-split-${i}`;
-          
-          // 创建带有更新个性化信息的对象
-          const additionalItem = { ...item, '_tempOrderId': additionalOrderId };
-          additionalItem['Variations'] = personalizations[i];
-          
-          // 创建临时的EtsyOrder对象用于模板匹配和图章生成
-          const additionalVariations = await this.etsyOrderService.parseVariations(additionalItem['Variations'], templateDescription);
-          
-          const additionalTempEtsyOrder = {
-            orderId,
-            transactionId: additionalTransactionId,
-            order_id: additionalOrderId,
-            sku: additionalItem['SKU']?.toString(),
-            variations: additionalVariations,
-            originalVariations: additionalItem['Variations'],
-            order: { id: additionalOrderId }
-          };
-
-          // 生成印章
-          const additionalStampResult = await this.orderStampService.generateStampFromOrder({
-            order: additionalTempEtsyOrder,
-            convertTextToPaths: true
-          });
-          
-          if (!additionalStampResult.success) {
-            this.logger.warn(`Failed to generate stamp for additional order: ${additionalStampResult.error}`);
-            continue;
-          }
-
-          // 创建额外订单记录
-          const additionalOrderResult = await this.etsyOrderService.createAdditionalOrder(
-            additionalItem,
-            personalizations[i],
-            i
-          );
-          
-          if (additionalOrderResult.status !== 'created') {
-            this.logger.warn(`Failed to create additional order: ${additionalOrderResult.reason}`);
-            continue;
-          }
-          
-          // 将生成的印章与额外订单关联
-          const additionalStampImageUrl = additionalStampResult.path.replace('uploads/', '/');
-          
-          // 更新EtsyOrder记录
-          await this.etsyOrderService.updateStampImage(
-            additionalTransactionId,
-            additionalStampImageUrl
-          );
-
-          // 更新Order状态为已生成印章待审核
-          if (additionalOrderResult.order.order) {
-            await this.orderRepository.update(
-              { id: additionalOrderResult.order.order.id },
-              { status: 'stamp_generated_pending_review' }
-            );
-          }
-          
-          // 添加额外印章到结果集
-          stamps.push({
-            orderId: additionalOrderResult.order.orderId,
-            transactionId: additionalOrderResult.order.transactionId,
-            stampPath: additionalStampImageUrl
-          });
-        }
-      }
-      
       this.logger.log(`Generated ${stamps.length} stamps for order ${orderId}`);
-
+      
       return {
         success: true,
         stamps

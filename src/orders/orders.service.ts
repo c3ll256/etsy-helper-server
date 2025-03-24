@@ -7,7 +7,6 @@ import * as AdmZip from 'adm-zip';
 import { Order } from './entities/order.entity';
 import { EtsyOrder } from './entities/etsy-order.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateOrderStampDto } from './dto/update-order-stamp.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { StampsService } from '../stamps/stamps.service';
@@ -161,16 +160,22 @@ export class OrdersService {
     }
   }
 
-  async updateOrderStamp(updateOrderStampDto: UpdateOrderStampDto): Promise<{ success: boolean; path?: string; error?: string; recordId?: number }> {
+  /**
+   * 使用指定的ID更新订单印章
+   * @param id 订单ID
+   * @param updateStampDto 更新印章的数据
+   * @returns 包含成功状态、路径和记录ID的结果
+   */
+  async updateOrderStamp(id: string, updateStampDto: any): Promise<{ success: boolean; path?: string; error?: string; recordId?: number }> {
     try {
       // 查找订单
       const order = await this.ordersRepository.findOne({
-        where: { id: updateOrderStampDto.orderId },
+        where: { id },
         relations: ['etsyOrder'],
       });
 
       if (!order) {
-        throw new NotFoundException(`Order with ID ${updateOrderStampDto.orderId} not found`);
+        throw new NotFoundException(`Order with ID ${id} not found`);
       }
 
       // 使用orderStampService生成印章并创建记录
@@ -179,9 +184,9 @@ export class OrdersService {
           ...order.etsyOrder,
           order_id: order.id
         },
-        customTextElements: updateOrderStampDto.textElements,
-        customTemplateId: updateOrderStampDto.templateId,
-        convertTextToPaths: true
+        customTextElements: updateStampDto.customTextElements,
+        customTemplateId: updateStampDto.templateId,
+        convertTextToPaths: updateStampDto.convertTextToPaths || true
       });
 
       if (!result.success) {
@@ -191,11 +196,28 @@ export class OrdersService {
         };
       }
       
-      // 更新EtsyOrder的印章URL
-      await this.etsyOrderRepository.update(
-        { orderId: order.etsyOrder.orderId },
-        { stampImageUrl: result.path }
-      );
+      // 更新EtsyOrder的印章URL和记录ID
+      if (result.recordId) {
+        await this.etsyOrderRepository.update(
+          { orderId: order.etsyOrder.orderId },
+          { 
+            stampImageUrl: result.path,
+            stampGenerationRecordIds: () => {
+              const currentIds = order.etsyOrder.stampGenerationRecordIds || [];
+              if (!currentIds.includes(result.recordId)) {
+                return `array_append(COALESCE("stampGenerationRecordIds", '{}'), ${result.recordId})`;
+              }
+              return '"stampGenerationRecordIds"';
+            }
+          }
+        );
+      } else {
+        // 如果没有记录ID，只更新URL
+        await this.etsyOrderRepository.update(
+          { orderId: order.etsyOrder.orderId },
+          { stampImageUrl: result.path }
+        );
+      }
       
       // 更新订单状态为已生成印章待审核
       await this.ordersRepository.update(
