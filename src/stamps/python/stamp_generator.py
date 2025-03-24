@@ -282,8 +282,9 @@ class StampGenerator:
                         x_advance = pos.x_advance / 64.0
                         char_advance_angle = (x_advance / radius) * (180 / math.pi)
                         
-                        # 计算字符在圆上的位置
-                        angle_rad = current_angle * (math.pi / 180.0)
+                        # 计算每个字符的中心点角度，而不是左边缘
+                        char_half_angle = char_advance_angle / 2
+                        angle_rad = (current_angle + char_half_angle) * (math.pi / 180.0)
                         
                         # 计算字符在圆上的x,y坐标
                         glyph_x = x + radius * math.cos(angle_rad)
@@ -301,12 +302,19 @@ class StampGenerator:
                         # 应用旋转
                         ctx.rotate(rotation_angle)
                         
+                        # 确保正确设置字体和字体大小
+                        ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+                        ctx.set_font_size(font_size)
+                        
                         # 获取字符
                         cluster = info.cluster
                         glyph_char = text[cluster] if cluster < len(text) else ' '
                         
-                        # 渲染字符
-                        ctx.move_to(0, 0)
+                        # 获取字符宽度用于居中
+                        char_extents = ctx.text_extents(glyph_char)
+                        
+                        # 渲染字符 (居中) - 从左边缘向左偏移半个宽度来居中
+                        ctx.move_to(-char_extents.width / 2, 0)
                         ctx.show_text(glyph_char)
                         
                         # 恢复状态
@@ -472,6 +480,10 @@ class StampGenerator:
                         
                         # 应用旋转
                         ctx.rotate(rotation_angle)
+                        
+                        # 确保每个字符都使用正确的字体和大小
+                        ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+                        ctx.set_font_size(font_size)
                         
                         # 渲染字符 (居中)
                         ctx.move_to(-char_extents.width / 2, 0)
