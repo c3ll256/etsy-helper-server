@@ -188,10 +188,8 @@ export class ExcelService {
       
       // 处理第一个个性化信息
       const mainItem = { ...item };
-      // 将第一个个性化信息对象转换为字符串格式
-      mainItem['Variations'] = Object.entries(parsedResult.personalizations[0])
-        .map(([key, value]) => `${key}: ${value}`)
-        .join('\n');
+      // 保留原始的变量字符串
+      mainItem['Variations'] = originalVariations;
       
       // 创建基础订单
       const orderResult = await this.etsyOrderService.createFromExcelData(mainItem, tempOrderId);
@@ -222,9 +220,7 @@ export class ExcelService {
           order_id: orderResult.order?.order?.id || tempOrderId,
           sku: mainItem['SKU']?.toString(),
           variations: variationsWithPersonalization,
-          originalVariations: Object.entries(currentPersonalization)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join('\n'),
+          originalVariations: parsedResult.originalVariations, // 使用原始未处理的变量字符串
           order: { id: orderResult.order?.order?.id || tempOrderId }
         };
         

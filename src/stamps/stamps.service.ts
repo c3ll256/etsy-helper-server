@@ -6,6 +6,7 @@ import { StampTemplate } from './entities/stamp-template.entity';
 import { StampGenerationRecord } from './entities/stamp-generation-record.entity';
 import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
 import { CloneStampTemplateDto } from './dto/clone-stamp-template.dto';
+import { UpdateStampTemplateDto } from './dto/update-stamp-template.dto';
 
 @Injectable()
 export class StampsService {
@@ -144,5 +145,25 @@ export class StampsService {
       order: { createdAt: 'DESC' },
       relations: ['template']
     });
+  }
+
+  async update(id: number, updateStampTemplateDto: UpdateStampTemplateDto): Promise<StampTemplate> {
+    const template = await this.findById(id);
+    
+    // If SKU is being updated, check if it already exists
+    if (updateStampTemplateDto.sku && updateStampTemplateDto.sku !== template.sku) {
+      const existingTemplate = await this.stampTemplateRepository.findOne({ 
+        where: { sku: updateStampTemplateDto.sku }
+      });
+      
+      if (existingTemplate && existingTemplate.id !== id) {
+        throw new BadRequestException(`Template with SKU "${updateStampTemplateDto.sku}" already exists`);
+      }
+    }
+    
+    // Update the template with new values
+    const updatedTemplate = this.stampTemplateRepository.merge(template, updateStampTemplateDto);
+    
+    return this.stampTemplateRepository.save(updatedTemplate);
   }
 }

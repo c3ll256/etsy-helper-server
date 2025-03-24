@@ -10,7 +10,8 @@ import {
   ParseIntPipe,
   UseInterceptors,
   UploadedFile,
-  BadRequestException
+  BadRequestException,
+  Put
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
@@ -24,6 +25,7 @@ import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
 import { GenerateStampDto } from './dto/generate-stamp.dto';
 import { PreviewStampDto } from './dto/preview-stamp.dto';
 import { CloneStampTemplateDto } from './dto/clone-stamp-template.dto';
+import { UpdateStampTemplateDto } from './dto/update-stamp-template.dto';
 import { GlmService } from 'src/common/services/glm.service';
 
 const UPLOAD_DIR = 'uploads/backgrounds';
@@ -194,5 +196,17 @@ export class StampsController {
   @ApiResponse({ status: 200, description: 'Test successful' })
   test() {
     return this.glmService.generateText('你好');
+  }
+
+  @Put('templates/:id')
+  @ApiOperation({ summary: 'Update a stamp template' })
+  @ApiResponse({ status: 200, description: 'The stamp template has been successfully updated' })
+  @ApiResponse({ status: 404, description: 'Stamp template not found' })
+  @ApiResponse({ status: 400, description: 'Invalid data or SKU already exists' })
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateStampTemplateDto: UpdateStampTemplateDto
+  ) {
+    return this.stampsService.update(id, updateStampTemplateDto);
   }
 } 

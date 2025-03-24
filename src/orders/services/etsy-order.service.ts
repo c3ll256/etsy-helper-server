@@ -74,7 +74,7 @@ export class EtsyOrderService {
       shipZipcode: data['Ship Zipcode']?.toString(),
       shipCountry: data['Ship Country'],
       originalVariations: data['Variations'],
-      variations: await this.parseVariations(data['Variations']),
+      variations: await this.parseVariations(data['Variations'], data['Template Description']),
       orderType: data['Order Type'],
       listingsType: data['Listings Type'],
       paymentType: data['Payment Type'],
@@ -123,7 +123,7 @@ export class EtsyOrderService {
    * 一次性处理所有信息，包括：
    * 1. 解析变量为JSON格式
    * 2. 检测是否包含多个个性化信息
-   * 3. 提取每个个性化信息段落并解析为结构化数据
+   * 3. 提取每个个性化信息段落并根据模板描述解析为结构化数据
    * @param variationsString 原始变量字符串
    * @param templateDescription 可选的模板描述，用于指导LLM解析
    * @returns 解析后的结果，包含变量对象和个性化信息数组
@@ -134,11 +134,13 @@ export class EtsyOrderService {
     personalizations: Array<{
       [key: string]: string;
     }>;
+    originalVariations: string; // 保存原始的变量字符串
   }> {
     if (!variationsString) return {
       variations: null,
       hasMultiple: false,
-      personalizations: []
+      personalizations: [],
+      originalVariations: ''
     };
     
     try {
@@ -146,9 +148,11 @@ export class EtsyOrderService {
       const prompt = `
 你是一位解析Etsy订单变量的专家。你需要完成两个任务：
 1. 将原始的变量字符串解析为JSON格式
-2. 分析是否包含多个个性化信息（多个印章/地址等），并将每个个性化信息解析为结构化数据
+2. 分析是否包含多个个性化信息（多个印章/地址等），并将每个个性化信息根据模板描述解析为结构化数据
 
-${templateDescription ? `模板描述: ${templateDescription}
+${templateDescription ? `
+模板描述如下，请根据这个描述来理解和提取相关字段：
+${templateDescription}
 
 ` : ''}原始变量字符串:
 ${variationsString}
@@ -180,7 +184,7 @@ ${variationsString}
 2. 如果只有一个个性化信息，hasMultiple 应为 false，personalizations 数组应只包含一项
 3. 保持原始文本的精确性，不要添加或删除内容
 4. 仅输出JSON对象，不要有任何其他文本
-5. 每个个性化信息都应该被解析为结构化的对象，包含所有相关字段
+5. 每个个性化信息都应该根据模板描述被解析为结构化的对象，包含所有相关字段
 `;
 
       // 调用GLM服务的generateJson方法
@@ -188,7 +192,10 @@ ${variationsString}
         const parsedResult = await this.glmService.generateJson(prompt, {
           temperature: 0.1 // 降低温度以获得更确定的结果
         });
-        return parsedResult;
+        return {
+          ...parsedResult,
+          originalVariations: variationsString // 添加原始变量字符串
+        };
       } catch (jsonError) {
         this.logger.warn(`Failed to parse variations using GLM JSON: ${jsonError.message}`);
         // 回退方案1：尝试使用generateText
@@ -199,7 +206,11 @@ ${variationsString}
           const jsonMatch = content.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             try {
-              return JSON.parse(jsonMatch[0]);
+              const parsed = JSON.parse(jsonMatch[0]);
+              return {
+                ...parsed,
+                originalVariations: variationsString
+              };
             } catch (parseError) {
               this.logger.warn(`Failed to parse extracted JSON: ${parseError.message}`);
             }
@@ -210,7 +221,8 @@ ${variationsString}
         return {
           variations: { 'Raw Variations': variationsString },
           hasMultiple: false,
-          personalizations: [{ 'Raw Personalization': variationsString }]
+          personalizations: [{ 'Raw Personalization': variationsString }],
+          originalVariations: variationsString
         };
       }
     } catch (error) {
@@ -219,7 +231,8 @@ ${variationsString}
       return {
         variations: { 'Raw Variations': variationsString },
         hasMultiple: false,
-        personalizations: [{ 'Raw Personalization': variationsString }]
+        personalizations: [{ 'Raw Personalization': variationsString }],
+        originalVariations: variationsString
       };
     }
   }

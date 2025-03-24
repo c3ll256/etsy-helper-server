@@ -44,6 +44,7 @@ export interface TextElement {
   fontWeight?: string;
   fontStyle?: string;
   color?: string;
+  description?: string;
   position: {
     x: number;
     y: number;
