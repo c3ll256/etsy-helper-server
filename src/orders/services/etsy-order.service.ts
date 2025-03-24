@@ -165,26 +165,55 @@ ${variationsString}
     ...
   },
   "hasMultiple": true/false, // 是否包含多个个性化信息
-  "personalizations": [      // 每个个性化信息段落的结构化数据
+  "personalizations": [    // 每个个性化信息段落的结构化数据
     {
-      "字段1": "值1",
-      "字段2": "值2",
+      "字段名1": "值1",
+      "字段名2": "值2",
       ...
     },
     {
-      "字段1": "值1",
-      "字段2": "值2",
+      "字段名1": "值1",
+      "字段名2": "值2",
       ...
     }
   ]
 }
 
 特别注意:
-1. 个性化信息("Personalization")是最重要的字段，请确保完整保留
+1. 个性化信息("Personalization")是最重要的字段，必须确保100%完整保留，尤其是地址、名称等信息
 2. 如果只有一个个性化信息，hasMultiple 应为 false，personalizations 数组应只包含一项
 3. 保持原始文本的精确性，不要添加或删除内容
 4. 仅输出JSON对象，不要有任何其他文本
 5. 每个个性化信息都应该根据模板描述被解析为结构化的对象，包含所有相关字段
+
+例如，对于如下 Variations:
+
+"Stamp Type:Wood Stamp + ink pad,Design Options:#4,Personalization:The Bradys
+50 South Circle V Drive
+Manila, UT 84046"
+
+以及如下模版描述:
+[
+  {"key":"name","description":"名字或团体名称","defaultValue":"default"},
+  {"key":"address_line1","description":"地址栏一","defaultValue":"address1"},
+  {"key":"address_line2","description":"地址栏二","defaultValue":"address2"}
+]
+
+正确的解析应为:
+{
+  "variations": {
+    "Stamp Type": "Wood Stamp + ink pad",
+    "Design Options": "#4"
+  },
+  "hasMultiple": false,
+  "personalizations": [
+    {
+      "name": "The Bradys",
+      "address_line1": "50 South Circle V Drive",
+      "address_line2": "Manila, UT 84046"
+    }
+  ]
+}
 `;
 
       // 调用GLM服务的generateJson方法
@@ -192,48 +221,19 @@ ${variationsString}
         const parsedResult = await this.glmService.generateJson(prompt, {
           temperature: 0.1 // 降低温度以获得更确定的结果
         });
+
+        this.logger.log(`Parsed result: ${JSON.stringify(parsedResult)}`);
+
         return {
           ...parsedResult,
-          originalVariations: variationsString // 添加原始变量字符串
+          originalVariations: variationsString
         };
       } catch (jsonError) {
         this.logger.warn(`Failed to parse variations using GLM JSON: ${jsonError.message}`);
-        // 回退方案1：尝试使用generateText
-        const response = await this.glmService.generateText(prompt);
-        if (response && response.choices && response.choices[0] && response.choices[0].message) {
-          const content = response.choices[0].message.content;
-          // 尝试提取JSON部分
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            try {
-              const parsed = JSON.parse(jsonMatch[0]);
-              return {
-                ...parsed,
-                originalVariations: variationsString
-              };
-            } catch (parseError) {
-              this.logger.warn(`Failed to parse extracted JSON: ${parseError.message}`);
-            }
-          }
-        }
-        
-        // 回退方案2：将原始字符串作为单个值返回
-        return {
-          variations: { 'Raw Variations': variationsString },
-          hasMultiple: false,
-          personalizations: [{ 'Raw Personalization': variationsString }],
-          originalVariations: variationsString
-        };
       }
     } catch (error) {
       this.logger.error(`Error parsing variations using LLM: ${error.message}`, error);
-      // 回退：将原始字符串作为单个值返回
-      return {
-        variations: { 'Raw Variations': variationsString },
-        hasMultiple: false,
-        personalizations: [{ 'Raw Personalization': variationsString }],
-        originalVariations: variationsString
-      };
+      throw error;
     }
   }
 

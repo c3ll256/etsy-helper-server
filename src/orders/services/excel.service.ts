@@ -160,7 +160,27 @@ export class ExcelService {
         try {
           const templates = await this.orderStampService.findTemplatesBySku(sku, skuBase);
           if (templates && templates.length > 0) {
-            templateDescription = templates[0].description;
+            // 获取模板描述信息，从textElements中收集
+            const template = templates[0];
+            
+            // 构建完整的模板描述，包括所有文本元素的信息
+            const descriptionParts = [];
+            // 从textElements中获取更详细的描述
+            if (template.textElements && template.textElements.length > 0) {              
+              template.textElements.forEach((element, index) => {
+                const elementDesc = {
+                  key: element.id,
+                  description: element.description,
+                  defaultValue: element.defaultValue
+                }
+
+                descriptionParts.push(elementDesc);
+              });
+            }
+            
+            templateDescription = JSON.stringify(descriptionParts);
+
+            this.logger.log(`Found template description for SKU ${sku}: ${templateDescription}`);
           }
         } catch (error) {
           this.logger.warn(`Could not find template description for SKU ${sku}: ${error.message}`);
