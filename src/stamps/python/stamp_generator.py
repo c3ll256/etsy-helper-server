@@ -575,14 +575,29 @@ class StampGenerator:
                     # 读取生成的SVG
                     svg_content = data
                     
-                    # 简单合并：提取内容层并嵌入到背景中
-                    # 尝试提取SVG内容中的元素
-                    
                     # 提取背景SVG的基本信息
                     bg_width_match = re.search(r'width="([^"]*)"', bg_svg)
                     bg_height_match = re.search(r'height="([^"]*)"', bg_svg)
-                    bg_width = bg_width_match.group(1) if bg_width_match else self.width
-                    bg_height = bg_height_match.group(1) if bg_height_match else self.height
+                    bg_width = float(bg_width_match.group(1)) if bg_width_match else self.width
+                    bg_height = float(bg_height_match.group(1)) if bg_height_match else self.height
+                    
+                    # 计算背景缩放和居中位置
+                    target_width = self.width
+                    target_height = self.height
+                    
+                    # 计算缩放比例 - 确保至少一个维度填满空间
+                    scale_x = target_width / bg_width
+                    scale_y = target_height / bg_height
+                    scale = max(scale_x, scale_y)  # 选择较大的缩放比例，确保至少一个维度填满
+                    
+                    # 计算居中偏移量
+                    new_width = bg_width * scale
+                    new_height = bg_height * scale
+                    x_offset = (target_width - new_width) / 2
+                    y_offset = (target_height - new_height) / 2
+                    
+                    # 创建用于背景的变换参数
+                    transform = f'translate({x_offset},{y_offset}) scale({scale})'
                     
                     # 从背景SVG中提取根元素属性
                     bg_svg_attrs_match = re.search(r'<svg([^>]*)>', bg_svg, re.DOTALL)
@@ -630,14 +645,17 @@ class StampGenerator:
                         merged_attrs += f' width="{self.width}" height="{self.height}"'
                         
                         # 使用提取的内容创建一个新的SVG
-                        merged_svg = f'<svg{merged_attrs}>{content}</svg>'
+                        merged_svg = f'<svg{merged_attrs}>'
                         
-                        # 将背景中的内容（不包括svg标签本身）合并到结果中
+                        # 将背景内容放入一个g元素中并应用变换
                         bg_content_match = re.search(r'<svg[^>]*>(.*?)</svg>', bg_svg, re.DOTALL)
                         if bg_content_match:
                             bg_content = bg_content_match.group(1)
-                            # 在新SVG的开头插入背景内容
-                            merged_svg = merged_svg.replace('>', '>' + bg_content, 1)
+                            # 将背景包装在g元素中并应用变换以实现居中和填充
+                            merged_svg += f'<g transform="{transform}">{bg_content}</g>'
+                        
+                        # 添加生成的SVG内容和关闭标签
+                        merged_svg += f'{content}</svg>'
                         
                         # 使用合并后的SVG
                         data = merged_svg
