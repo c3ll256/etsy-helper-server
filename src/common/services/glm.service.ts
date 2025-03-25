@@ -35,21 +35,6 @@ export class GlmService {
     this.defaultMaxTokens = this.configService.get<number>('glm.maxTokens');
   }
 
-  private generateSignature(timestamp: number): string {
-    const apiKey = this.apiKey;
-    if (!apiKey) {
-      throw new Error('GLM API key is not configured');
-    }
-
-    const [id, secret] = apiKey.split('.');
-    const signature = crypto
-      .createHmac('sha256', secret)
-      .update(id + timestamp.toString())
-      .digest('hex');
-
-    return signature;
-  }
-
   private async makeRequest(endpoint: string, body: GlmRequestBody) {
     const headers = {
       'Content-Type': 'application/json',
@@ -130,10 +115,7 @@ export class GlmService {
       // 添加指示GLM返回JSON格式的指令
       const jsonPrompt = `${prompt}\n\n请确保你的响应是有效的JSON格式，不包含任何前言、解释或结束语。`;
       
-      const response = await this.generateText(jsonPrompt, {
-        ...options,
-        temperature: options.temperature || 0.1, // 降低温度以获得更确定的结果
-      });
+      const response = await this.generateText(jsonPrompt, options);
       
       if (response && response.choices && response.choices[0] && response.choices[0].message) {
         const content = response.choices[0].message.content;

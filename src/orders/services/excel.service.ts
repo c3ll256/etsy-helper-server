@@ -278,6 +278,7 @@ export class ExcelService {
       const mainItem = { ...item };
       // 保留原始的变量字符串
       mainItem['Variations'] = originalVariations;
+      mainItem['ParsedVariations'] = parsedResult;
       
       // 创建基础订单
       const orderResult = await this.etsyOrderService.createFromExcelData(mainItem, tempOrderId);
@@ -294,8 +295,8 @@ export class ExcelService {
       
       // 处理每个个性化信息，为每个个性化信息生成单独的印章，但关联到同一个订单
       for (let i = 0; i < parsedResult.personalizations.length; i++) {
-        // 准备个性化信息 - 现在是结构化的对象
-        const currentPersonalization = parsedResult.personalizations[i];
+        // 准备个性化信息 - 现在是数组中的数组
+        const currentPersonalizationGroup = parsedResult.personalizations[i];
         
         // 创建临时的EtsyOrder对象用于印章生成
         const tempEtsyOrder = {
@@ -303,17 +304,19 @@ export class ExcelService {
           transactionId: baseTransactionId,
           order_id: orderResult.order?.order?.id || tempOrderId,
           sku: mainItem['SKU']?.toString(),
-          // 将个性化信息作为一个字段传递，不再展开到顶层
           variations: {
             ...parsedResult.variations,
-            personalization: currentPersonalization // 将个性化信息作为personalization字段
+            personalization: currentPersonalizationGroup.reduce((acc, curr) => {
+              acc[curr.id] = curr.value;
+              return acc;
+            }, {})
           },
           originalVariations: parsedResult.originalVariations,
           order: { id: orderResult.order?.order?.id || tempOrderId }
         };
         
         // 记录当前正在处理的个性化信息
-        this.logger.log(`Processing personalization #${i+1}: ${JSON.stringify(currentPersonalization)}`);
+        this.logger.log(`Processing personalization group #${i+1}: ${JSON.stringify(currentPersonalizationGroup)}`);
         
         // 生成印章
         const stampResult = await this.orderStampService.generateStampFromOrder({
@@ -322,7 +325,7 @@ export class ExcelService {
         });
         
         if (!stampResult.success) {
-          this.logger.warn(`Failed to generate stamp for personalization #${i + 1}: ${stampResult.error}`);
+          this.logger.warn(`Failed to generate stamp for personalization group #${i + 1}: ${stampResult.error}`);
           continue; // 继续处理下一个个性化信息
         }
         

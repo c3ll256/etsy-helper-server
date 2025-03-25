@@ -173,12 +173,12 @@ class StampGenerator:
             ctx.save()
             
             # 获取位置属性
-            # 尝试获取circular text属性，如果存在的话
             circular_text = False
             radius = 0
             start_angle = 0
             end_angle = 360
             direction = 'clockwise'
+            baseline_position = 'inside'  # 新增参数，默认为内圈
             
             # 查找当前文本元素的属性
             for element in self.text_elements:
@@ -190,6 +190,7 @@ class StampGenerator:
                         start_angle = position.get('startAngle', 0)
                         end_angle = position.get('endAngle', 360)
                         direction = position.get('direction', 'clockwise')
+                        baseline_position = position.get('baselinePosition', 'inside')  # 新增参数获取
                     break
             
             # 如果是普通文本，按照原来的方式处理
@@ -296,8 +297,11 @@ class StampGenerator:
                         # 移动到字符位置
                         ctx.translate(glyph_x, glyph_y)
                         
-                        # 计算字符旋转角度
+                        # 计算字符旋转角度，根据baselinePosition调整
                         rotation_angle = angle_rad + (math.pi / 2)
+                        if baseline_position == 'outside':
+                            # 当baseline在外时，额外旋转180度
+                            rotation_angle += math.pi
                         
                         # 应用旋转
                         ctx.rotate(rotation_angle)

@@ -76,7 +76,7 @@ export class EtsyOrderService {
       shipZipcode: data['Ship Zipcode']?.toString(),
       shipCountry: data['Ship Country'],
       originalVariations: data['Variations'],
-      variations: await this.parseVariations(data['Variations'], data['Template Description']),
+      variations: data['ParsedVariations'],
       orderType: data['Order Type'],
       listingsType: data['Listings Type'],
       paymentType: data['Payment Type'],
@@ -131,12 +131,15 @@ export class EtsyOrderService {
    * @returns 解析后的结果，包含变量对象和个性化信息数组
    */
   public async parseVariations(variationsString: string, templateDescription?: string): Promise<{
-    variations: any;
-    hasMultiple: boolean;
-    personalizations: Array<{
+    variations: {
       [key: string]: string;
-    }>;
-    originalVariations: string; // 保存原始的变量字符串
+    };
+    hasMultiple: boolean;
+    personalizations: Array<Array<{
+      id: string;
+      value: string;
+    }>>;
+    originalVariations: string;
   }> {
     if (!variationsString) return {
       variations: null,
@@ -148,18 +151,9 @@ export class EtsyOrderService {
     try {
       // 构建提示
       const prompt = `
-你是一位解析Etsy订单变量的专家。你需要完成两个任务：
+你是一位解析订单的专家。你需要完成两个任务：
 1. 将原始的变量字符串解析为JSON格式
-2. 分析是否包含多个个性化信息（多个印章/地址等），并将每个个性化信息根据模板描述解析为结构化数据
-
-${templateDescription ? `
-模板如下，请根据模版字段的描述 (description) 来理解和提取相关字段：
-${templateDescription}
-
-` : ''}
-
-原始变量字符串:
-${variationsString}
+2. 分析是否包含多个个性化信息，并将每个个性化信息根据模板描述 (description) 解析为结构化数据
 
 请按照以下格式返回JSON:
 {
@@ -170,33 +164,36 @@ ${variationsString}
   },
   "hasMultiple": true/false, // 是否包含多个 Personalization 信息
   "personalizations": [    // 每个 Personalization 的结构化数据
-    {
-      "字段 ID 1": "值1",
-      "字段 ID 2": "值2",
+    [
+      "1": {
+        "id": "id_1",
+        "value": "值1"
+      },
+      "2": {
+        "id": "id_2",
+        "value": "值2"
+      },
       ...
-    },
-    {
-      "字段 ID 1": "值1",
-      "字段 ID 2": "值2",
-      ...
-    }
+    ],
+    ... // 可能还有更多个性化信息
   ]
 }
 
 特别注意:
-1. 个性化信息("Personalization")是最重要的字段，必须确保100%完整保留，尤其是地址、名称等信息
-2. 如果只有一个个性化信息，hasMultiple 应为 false，personalizations 数组应只包含一项
+1. 个性化信息 (personalizations) 是最重要的字段，必须确保100%完整保留，尤其是地址、名称等信息
+2. 如果只有一个个性化信息，hasMultiple 应为 false
 3. 保持原始文本的精确性，不要添加或删除内容
 4. 一定要保证填写每一个字段，根据模版字段的描述 (description) 来匹配信息应该填写到哪个字段
 5. 仅输出JSON对象，不要有任何其他文本
 
-例如，对于如下 Variations:
+注意！！！每个结构化数据的 key-value 的 key 是模版描述中的 id (不要自己编造，严格按照模版描述中的 id)！！！
 
+例如，对于如下原始变量:
 "Stamp Type:Wood Stamp + ink pad,Design Options:#4,Personalization:The Bradys
 50 South Circle V Drive
 Manila, UT 84046"
 
-以及如下模版描述:
+以及如下模版:
 [
   {"id":"name","description":"名字或团体名称","defaultValue":"default"},
   {"id":"address_line1","description":"地址栏一","defaultValue":"address1"},
@@ -204,7 +201,7 @@ Manila, UT 84046"
   ... // 可能还有更多字段
 ]
 
-正确的解析应为:
+正确的解析应为如下:
 {
   "variations": {
     "Stamp Type": "Wood Stamp + ink pad",
@@ -212,25 +209,37 @@ Manila, UT 84046"
   },
   "hasMultiple": false,
   "personalizations": [
-    {
-      "name": "The Bradys",
-      "address_line1": "50 South Circle V Drive",
-      "address_line2": "Manila, UT 84046",
-      ... // 可能还有更多字段
-    }
+    [
+      {
+        "id": "name",
+        "value": "The Bradys"
+      },
+      {
+        "id": "address_line1",
+        "value": "50 South Circle V Drive"
+      },
+      {
+        "id": "address_line2",
+        "value": "Manila, UT 84046"
+      }
+    ]
   ]
 }
+
+${templateDescription ? `
+模版如下，请根据模版字段的描述 (description) 来理解和提取相关字段：
+${templateDescription}
+` : ''}
+
+原始变量字符串:
+${variationsString}
 `;
 
       // 调用GLM服务的generateJson方法
       try {
-        // const parsedResult = await this.glmService.generateJson(prompt, {
-        //   temperature: 0.1 // 降低温度以获得更确定的结果
-        // });
+        // const parsedResult = await this.glmService.generateJson(prompt);
 
-        const parsedResult = await this.ollamaService.generateJson(prompt, {
-          temperature: 0.1 // 降低温度以获得更确定的结果
-        });
+        const parsedResult = await this.ollamaService.generateJson(prompt);
 
         this.logger.log(`Parsed result: ${JSON.stringify(parsedResult)}`);
 
