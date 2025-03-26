@@ -506,7 +506,7 @@ export class ExcelService {
               '解析前的variants': order.etsyOrder.originalVariations || 'N/A',
               '解析后的variants': JSON.stringify(order.etsyOrder.variations) || 'N/A',
               '下单日期': order.etsyOrder.saleDate || order.createdAt,
-              '文件名': `${i + 1}-${stampIndex + 1}${path.extname(stampUrl || '.svg')}`
+              '文件名': `${i + 1}-${stampIndex + 1}${path.extname(stampUrl)}`
             });
           });
         }

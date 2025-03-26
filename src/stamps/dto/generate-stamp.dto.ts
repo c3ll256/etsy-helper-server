@@ -14,7 +14,7 @@ export class GenerateStampDto {
   @Type(() => TextElementDto)
   textElements: TextElementDto[];
 
-  @ApiProperty({ description: 'Convert text to paths in SVG output', default: false })
+  @ApiProperty({ description: 'Convert text to paths in PNG output', default: false })
   @IsBoolean()
   @IsOptional()
   convertTextToPaths?: boolean = false;

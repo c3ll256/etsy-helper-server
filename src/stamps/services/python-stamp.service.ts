@@ -11,7 +11,7 @@ export class PythonStampService {
   private readonly outputDir = 'uploads/stamps';
 
   constructor() {
-    this.pythonScriptPath = path.join(process.cwd(), 'src', 'stamps', 'python', 'stamp_generator.py');
+    this.pythonScriptPath = path.join(process.cwd(), 'src', 'stamps', 'python', 'png_stamp_generator.py');
     
     // Ensure the python script exists and is executable
     if (!fs.existsSync(this.pythonScriptPath)) {
@@ -36,7 +36,7 @@ export class PythonStampService {
    * Generate a stamp using Python
    * @param template The stamp template data
    * @param textElements Text elements with values
-   * @param convertTextToPaths Whether to convert text to paths in SVG
+   * @param convertTextToPaths Whether to convert text to paths in PNG
    * @param debug Whether to enable debug mode with reference points
    * @returns Buffer containing the generated stamp image
    */
@@ -110,7 +110,7 @@ export class PythonStampService {
    * @param template The stamp template data
    * @param textElements Text elements with values
    * @param orderId Order ID for filename
-   * @param convertTextToPaths Whether to convert text to paths in SVG
+   * @param convertTextToPaths Whether to convert text to paths in PNG
    * @param debug Whether to enable debug mode with reference points
    * @returns Path to the saved stamp file
    */
@@ -125,7 +125,7 @@ export class PythonStampService {
       // Generate unique filename
       const timestamp = Date.now();
       const hash = crypto.createHash('md5').update(`${orderId}-${timestamp}`).digest('hex').substring(0, 8);
-      const fileExt = 'svg'
+      const fileExt = 'png'
       const filename = `${orderId}_${timestamp}_${hash}.${fileExt}`;
       
       // Prepare data for Python script

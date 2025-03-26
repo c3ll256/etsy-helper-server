@@ -58,5 +58,6 @@ export interface TextElement {
     startAngle?: number;
     endAngle?: number;
     direction?: 'clockwise' | 'counterclockwise';
+    baselinePosition?: 'inside' | 'outside';
   };
 } 

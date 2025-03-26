@@ -63,6 +63,11 @@ class PositionDto {
   @IsEnum(['clockwise', 'counterclockwise'])
   @IsOptional()
   direction?: 'clockwise' | 'counterclockwise';
+
+  @ApiProperty({ description: 'Baseline position for circular text', required: false, enum: ['inside', 'outside'] })
+  @IsEnum(['inside', 'outside'])  
+  @IsOptional()
+  baselinePosition?: 'inside' | 'outside';
 }
 
 export class TextElementDto implements TextElement {

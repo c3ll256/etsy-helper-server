@@ -102,8 +102,8 @@ export class StampsController {
         fileSize: 5 * 1024 * 1024, // 5MB
       },
       fileFilter: (req, file, cb) => {
-        const allowedMimes = ['image/svg+xml'];
-        const allowedExts = ['.svg'];
+        const allowedMimes = ['image/png', 'image/jpeg', 'image/jpg'];
+        const allowedExts = ['.png', '.jpg', '.jpeg'];
         
         const ext = path.extname(file.originalname).toLowerCase();
         if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
@@ -112,7 +112,7 @@ export class StampsController {
           // 拒绝文件但不抛出错误
           cb(null, false);
           // 在 req 对象中存储错误信息，稍后处理
-          req['fileValidationError'] = '仅支持 SVG 格式的图片';
+          req['fileValidationError'] = '仅支持 PNG 或 JPG 格式的图片';
         }
       }
     }).single('file');
@@ -208,7 +208,7 @@ export class StampsController {
     });
     
     // 设置响应头
-    const contentType = 'image/svg+xml'
+    const contentType = 'image/png'
     
     res.set({
       'Content-Type': contentType,

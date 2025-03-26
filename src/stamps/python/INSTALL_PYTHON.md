@@ -1,13 +1,9 @@
-# 安装 Python 印章生成依赖
-
-本项目使用 Python 脚本生成印章，特别是处理 SVG 格式并将文本转换为路径。请按照以下步骤安装所需的 Python 依赖：
-
-## 先决条件
+## 环境要求
 
 - Python 3.6 或更高版本
 - pip 包管理器
 
-## 安装步骤
+## 部署步骤
 
 1. 确保 Python 已正确安装，可以通过以下命令检查：
 
@@ -26,12 +22,6 @@ pip install -r src/stamps/python/requirements.txt
 ```bash
 chmod +x src/stamps/python/stamp_generator.py
 ```
-
-## 依赖说明
-
-- **Pillow** (PIL Fork): 用于处理 PNG 和 JPEG 图像
-- **svgwrite**: 用于创建和编辑 SVG 文件
-- **fonttools**: 用于处理字体并将文本转换为 SVG 路径
 
 ## 故障排除
 
