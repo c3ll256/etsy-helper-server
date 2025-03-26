@@ -304,6 +304,17 @@ export class OrdersController {
   })
   @ApiResponse({ status: 400, description: '请求处理失败' })
   @ApiResponse({ status: 404, description: '没有找到符合条件的订单印章' })
+  @ApiQuery({ 
+    name: 'search', 
+    required: false, 
+    description: '搜索订单号' 
+  })
+  @ApiQuery({ 
+    name: 'status', 
+    required: false, 
+    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
+    description: '按订单状态筛选' 
+  })
   async exportStamps(
     @Query() exportStampsDto: ExportStampsDto,
     @Res() res: Response
@@ -311,7 +322,9 @@ export class OrdersController {
     try {
       const result = await this.ordersService.exportStampsAsZip(
         exportStampsDto.startDate,
-        exportStampsDto.endDate
+        exportStampsDto.endDate,
+        exportStampsDto.search,
+        exportStampsDto.status
       );
 
       // 确保文件存在且有效

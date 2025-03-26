@@ -272,22 +272,36 @@ export class OrdersService {
     return record;
   }
 
-  async exportStampsAsZip(startDate?: string, endDate?: string): Promise<{
+  async exportStampsAsZip(startDate?: string, endDate?: string, search?: string, status?: string): Promise<{
     filePath: string;
     fileName: string;
     orderCount: number;
   }> {
-    console.log(`开始导出图章: 开始日期=${startDate || '无'}, 结束日期=${endDate || '无'}`);
+    console.log(`开始导出图章: 开始日期=${startDate || '无'}, 结束日期=${endDate || '无'}, 搜索=${search || '无'}, 状态=${status || '全部'}`);
     
     // Create query builder for finding orders with generated stamps
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
-      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
-      .where('order.status IN (:...statuses)', { 
+      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder');
+
+    // Apply status filter if provided, otherwise use default filter for generated stamps
+    if (status) {
+      queryBuilder.where('order.status = :status', { status });
+    } else {
+      queryBuilder.where('order.status IN (:...statuses)', { 
         statuses: ['stamp_generated_pending_review', 'stamp_generated_reviewed'] 
       });
+    }
 
     // Apply date filters
     this.applyDateFilters(queryBuilder, startDate, endDate);
+
+    // Apply search filter if provided
+    if (search) {
+      queryBuilder.andWhere(
+        '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
+        { search: `%${search}%` }
+      );
+    }
 
     // Get the SQL query for debugging
     const sqlQuery = queryBuilder.getSql();
@@ -299,10 +313,16 @@ export class OrdersService {
 
     // First, let's check all orders with their dates, without filtering
     const allOrdersQuery = this.ordersRepository.createQueryBuilder('order')
-      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
-      .where('order.status IN (:...statuses)', { 
+      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder');
+      
+    // If status is provided, use it for the check query as well
+    if (status) {
+      allOrdersQuery.where('order.status = :status', { status });
+    } else {
+      allOrdersQuery.where('order.status IN (:...statuses)', { 
         statuses: ['stamp_generated_pending_review', 'stamp_generated_reviewed'] 
       });
+    }
     
     const allOrders = await allOrdersQuery.getMany();
     console.log(`总共找到 ${allOrders.length} 个状态符合的订单`);
@@ -314,7 +334,7 @@ export class OrdersService {
     const orders = await queryBuilder.getMany();
     
     if (orders.length === 0) {
-      throw new NotFoundException('No orders with generated stamps found in the specified date range');
+      throw new NotFoundException('没有找到符合条件的订单');
     }
 
     console.log(`找到 ${orders.length} 个订单需要导出`);

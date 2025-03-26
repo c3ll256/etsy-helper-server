@@ -254,78 +254,140 @@ class StampGenerator:
                 
                 # 如果是圆形文本，计算每个字符的间距角度
                 if circular_text:
-                    layout_mode = position.get('layoutMode', 'startAligned')  # 默认为起点对齐模式
-                    base_angle = position.get('baseAngle', 0)  # 基准角度，默认为0度（正上方）
+                    layout_mode = position.get('layoutMode', 'startAligned')
+                    base_angle = position.get('baseAngle', 0)
+                    letter_spacing = position.get('letterSpacing', 1.0)  # 新增字符间距调整参数
                     
-                    # 根据字体大小计算每个字符的基础弧度间距（弧度 = 字体大小/半径）
-                    char_angle = font_size / radius
+                    # 当baseline在外时，需要反转文本顺序和调整起始角度
+                    if baseline_position == 'outside':
+                        reversed_text = text[::-1]
+                        buf = hb.Buffer()
+                        buf.add_str(reversed_text)
+                        buf.direction = "ltr"
+                        buf.script = "Latn"
+                        buf.language = "en"
+                        hb.shape(font, buf, features)
+                        infos = buf.glyph_infos
+                        positions = buf.glyph_positions
+                        
+                        # 重新计算总宽度
+                        total_width = sum(pos.x_advance for pos in positions) / 64.0
                     
-                    # 计算整体宽度（角度）
-                    total_angle = char_angle * len(text)
+                    # 计算圆弧总长度和分布比例
+                    circumference = 2 * math.pi * radius  # 圆周长
+                    text_length = total_width  # 文本总宽度
+                    
+                    # 计算文本在圆周上占据的角度范围（以弧度计）
+                    text_arc_ratio = text_length / circumference
+                    
+                    # 根据文本所占圆周比例动态调整字间距
+                    # 对于较短的文本（占圆周小部分），使用更均匀的间距
+                    # 对于较长的文本（占圆周大部分），适当压缩间距
+                    base_spacing = 1.0  # 默认基础间距
+                    
+                    # 应用用户自定义的字符间距
+                    spacing_factor = base_spacing * letter_spacing
+                    
+                    # 对于特殊情况的额外微调
+                    if text_arc_ratio < 0.1:  # 文本很短
+                        spacing_factor *= 1.1  # 略微增加间距
+                    elif text_arc_ratio > 0.5:  # 文本占据圆周大部分
+                        spacing_factor *= 0.95  # 略微减少间距
+                    
+                    # 为特定字体的特殊处理
+                    if font_family.lower() in ['montserrat', 'arial', 'helvetica']:
+                        # 某些字体可能需要特殊调整
+                        spacing_factor *= 1.05
+                    
+                    # 文本总占用角度（弧度）
+                    total_angle_rad = (text_length / radius) * spacing_factor
+                    total_angle_deg = total_angle_rad * (180 / math.pi)
                     
                     # 根据不同对齐模式确定起始角度
                     if layout_mode == 'centerAligned':
-                        # 中心对齐模式：以base_angle为中心，向两侧均匀分布
-                        # 计算整体文本角度宽度
-                        total_text_angle = sum(pos.x_advance / 64.0 for pos in positions) / radius * (180 / math.pi)
-                        # 修正：从base_angle减去半个文本宽度作为起始角度
-                        start_angle = (base_angle - total_text_angle/2) % 360
+                        start_angle = (base_angle - total_angle_deg/2) % 360
                     else:
-                        # 起点对齐模式：从base_angle开始
                         start_angle = base_angle
                     
                     # 当前角度
                     current_angle = start_angle
+                    current_pos = 0  # 追踪文本当前位置
+                    
+                    # 预先计算每个字符的位置和角度
+                    char_positions = []
+                    
+                    for i, (info, pos) in enumerate(zip(infos, positions)):
+                        x_advance = pos.x_advance / 64.0
+                        
+                        # 计算这个字符占用的角度（考虑间距因子）
+                        char_angle_rad = (x_advance / radius) * spacing_factor
+                        char_angle_deg = char_angle_rad * (180 / math.pi)
+                        
+                        # 计算字符的中心位置角度
+                        char_half_angle = char_angle_deg / 2
+                        center_angle_deg = current_angle + char_half_angle
+                        center_angle_rad = center_angle_deg * (math.pi / 180.0)
+                        
+                        # 保存字符位置信息
+                        char_positions.append({
+                            'info': info,
+                            'pos': pos,
+                            'center_angle_rad': center_angle_rad,
+                            'angle_deg': char_angle_deg,
+                            'x_advance': x_advance
+                        })
+                        
+                        # 更新当前角度
+                        current_angle += char_angle_deg
+                        current_pos += x_advance
+                    
+                    # 根据总的角度分布，微调每个字符的位置，使其更加均匀
+                    total_actual_angle = current_angle - start_angle
+                    if total_actual_angle > 10:  # 只有在角度足够大时才进行调整
+                        adjustment_ratio = total_angle_deg / total_actual_angle
+                        
+                        # 应用调整
+                        current_angle = start_angle
+                        for char_pos in char_positions:
+                            char_pos['angle_deg'] *= adjustment_ratio
+                            char_pos['center_angle_rad'] = (current_angle + char_pos['angle_deg']/2) * (math.pi / 180.0)
+                            current_angle += char_pos['angle_deg']
                     
                     # 渲染每个字符
-                    for i, (info, pos) in enumerate(zip(infos, positions)):
-                        # 获取当前字符的进阶量（以角度表示）
-                        x_advance = pos.x_advance / 64.0
-                        char_advance_angle = (x_advance / radius) * (180 / math.pi)
+                    for char_pos in char_positions:
+                        info = char_pos['info']
+                        pos = char_pos['pos']
+                        angle_rad = char_pos['center_angle_rad']
                         
-                        # 计算每个字符的中心点角度，而不是左边缘
-                        char_half_angle = char_advance_angle / 2
-                        angle_rad = (current_angle + char_half_angle) * (math.pi / 180.0)
-                        
-                        # 计算字符在圆上的x,y坐标
+                        # 计算字符在圆上的位置
                         glyph_x = x + radius * math.cos(angle_rad)
                         glyph_y = y + radius * math.sin(angle_rad)
                         
-                        # 保存状态以便旋转
                         ctx.save()
-                        
-                        # 移动到字符位置
                         ctx.translate(glyph_x, glyph_y)
                         
-                        # 计算字符旋转角度，根据baselinePosition调整
+                        # 计算字符旋转角度
                         rotation_angle = angle_rad + (math.pi / 2)
                         if baseline_position == 'outside':
-                            # 当baseline在外时，额外旋转180度
                             rotation_angle += math.pi
                         
-                        # 应用旋转
                         ctx.rotate(rotation_angle)
                         
-                        # 确保正确设置字体和字体大小
+                        # 设置字体
                         ctx.select_font_face(font_family, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
                         ctx.set_font_size(font_size)
                         
                         # 获取字符
                         cluster = info.cluster
-                        glyph_char = text[cluster] if cluster < len(text) else ' '
+                        source_text = reversed_text if baseline_position == 'outside' else text
+                        glyph_char = source_text[cluster] if cluster < len(source_text) else ' '
                         
-                        # 获取字符宽度用于居中
+                        # 获取字符宽度并居中渲染
                         char_extents = ctx.text_extents(glyph_char)
-                        
-                        # 渲染字符 (居中) - 从左边缘向左偏移半个宽度来居中
                         ctx.move_to(-char_extents.width / 2, 0)
                         ctx.show_text(glyph_char)
                         
-                        # 恢复状态
                         ctx.restore()
-                        
-                        # 更新角度为下一个字符
-                        current_angle += char_advance_angle
                 else:
                     # 获取可用宽度 - 根据旋转计算
                     padding = 50 # TODO 这里需要改成配置式或者根据字体大小自动计算

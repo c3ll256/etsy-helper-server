@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsDateString, IsOptional } from 'class-validator';
+import { IsDateString, IsOptional, IsString, IsEnum } from 'class-validator';
 
 export class ExportStampsDto {
   @ApiProperty({
@@ -19,4 +19,23 @@ export class ExportStampsDto {
   @IsDateString()
   @IsOptional()
   endDate?: string;
+
+  @ApiProperty({
+    description: '搜索订单号',
+    required: false
+  })
+  @IsString()
+  @IsOptional()
+  search?: string;
+
+  @ApiProperty({
+    description: '按订单状态筛选',
+    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
+    required: false
+  })
+  @IsEnum(['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'], { 
+    message: 'Status must be one of: stamp_not_generated, stamp_generated_pending_review, stamp_generated_reviewed'
+  })
+  @IsOptional()
+  status?: string;
 } 
