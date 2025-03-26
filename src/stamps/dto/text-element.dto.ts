@@ -49,15 +49,10 @@ class PositionDto {
   @IsOptional()
   radius?: number;
   
-  @ApiProperty({ description: 'Start angle for circular text (in degrees)', required: false })
+  @ApiProperty({ description: 'Base angle for circular text', required: false })
   @IsNumber()
   @IsOptional()
-  startAngle?: number;
-  
-  @ApiProperty({ description: 'End angle for circular text (in degrees)', required: false })
-  @IsNumber()
-  @IsOptional()
-  endAngle?: number;
+  baseAngle?: number;
   
   @ApiProperty({ description: 'Direction for circular text', required: false, enum: ['clockwise', 'counterclockwise'] })
   @IsEnum(['clockwise', 'counterclockwise'])
@@ -68,6 +63,11 @@ class PositionDto {
   @IsEnum(['inside', 'outside'])  
   @IsOptional()
   baselinePosition?: 'inside' | 'outside';
+  
+  @ApiProperty({ description: 'Letter spacing for text', required: false })
+  @IsNumber()
+  @IsOptional()
+  letterSpacing?: number;
 }
 
 export class TextElementDto implements TextElement {
@@ -113,6 +113,16 @@ export class TextElementDto implements TextElement {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiProperty({ description: 'Convert text to uppercase automatically', required: false })
+  @IsBoolean()
+  @IsOptional()
+  isUppercase?: boolean;
+  
+  @ApiProperty({ description: 'Custom padding for text that exceeds canvas boundaries', required: false })
+  @IsNumber()
+  @IsOptional()
+  textPadding?: number;
 
   @ApiProperty({ description: 'Position and dimensions of the text element' })
   @ValidateNested()

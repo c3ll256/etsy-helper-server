@@ -45,6 +45,8 @@ export interface TextElement {
   fontStyle?: string;
   color?: string;
   description?: string;
+  isUppercase?: boolean;
+  textPadding?: number;
   position: {
     x: number;
     y: number;
@@ -55,9 +57,9 @@ export interface TextElement {
     verticalAlign?: 'top' | 'middle' | 'baseline';
     isCircular?: boolean;
     radius?: number;
-    startAngle?: number;
-    endAngle?: number;
+    baseAngle?: number;
     direction?: 'clockwise' | 'counterclockwise';
     baselinePosition?: 'inside' | 'outside';
+    letterSpacing?: number;
   };
 } 

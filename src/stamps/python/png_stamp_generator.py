@@ -161,23 +161,30 @@ class PNGStampGenerator:
             circular_text = False
             radius = 0
             start_angle = 0
-            end_angle = 360
-            direction = 'clockwise'
             baseline_position = 'inside'  # New parameter, default to inside
+            letter_spacing = 1.0  # Default letter spacing (1.0 = normal)
             
-            # Find current text element attributes
+            # Find current text element and its properties
+            current_element = None
             for element in self.text_elements:
                 if element.get('value') == text:
+                    current_element = element
                     position = element.get('position', {})
                     circular_text = position.get('isCircular', False)
                     if circular_text:
                         # 根据缩放比例调整半径
                         radius = position.get('radius', 200) * self.scale_factor
                         start_angle = position.get('startAngle', 0)
-                        end_angle = position.get('endAngle', 360)
-                        direction = position.get('direction', 'clockwise')
                         baseline_position = position.get('baselinePosition', 'inside')
+                        letter_spacing = position.get('letterSpacing', 1.0)
+                    else:
+                        # For non-circular text, get letter spacing from position
+                        letter_spacing = position.get('letterSpacing', 1.0)
                     break
+            
+            # Apply uppercase if specified
+            if current_element and current_element.get('isUppercase', False):
+                text = text.upper()
             
             # Convert color from hex to RGB
             rgb_color = self._hex_to_rgb(color) if isinstance(color, str) else color
@@ -195,8 +202,16 @@ class PNGStampGenerator:
                 bbox = font.getbbox(text)
                 text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
                 
+                # Get custom padding if specified
+                custom_padding = None
+                if current_element:
+                    custom_padding = current_element.get('textPadding')
+                
                 # 检查文本是否超出可用宽度，并考虑缩放后的图像大小
                 padding = int(50 * self.scale_factor)  # 缩放padding以匹配图像大小
+                if custom_padding is not None:
+                    padding = int(custom_padding * self.scale_factor)
+                    
                 max_available_width = self.width - padding
                 if rotation % 180 != 0:
                     if rotation % 180 > 45 and rotation % 180 < 135:
@@ -245,6 +260,10 @@ class PNGStampGenerator:
                         int(scaled_font_size * padding_ratio * text_length_factor * font_size_factor)
                     )
                     
+                    # Apply custom padding if specified
+                    if custom_padding is not None:
+                        adaptive_padding = int(custom_padding * self.scale_factor)
+                    
                     # 创建足够大的文本图像
                     txt_img = Image.new('RGBA', (text_width + 2*adaptive_padding, text_height + 2*adaptive_padding), (0, 0, 0, 0))
                     txt_draw = ImageDraw.Draw(txt_img)
@@ -274,7 +293,12 @@ class PNGStampGenerator:
                     if scaled_font_size > 60:
                         place_y -= int(scaled_font_size * 0.05)  # 大字体额外偏移
                     
-                    draw.text((place_x, place_y), text, font=font, fill=rgb_color)
+                    # 如果不需要字间距调整，直接画文本
+                    if letter_spacing == 1.0:
+                        draw.text((place_x, place_y), text, font=font, fill=rgb_color)
+                    else:
+                        # 实现字间距调整
+                        self._draw_text_with_letter_spacing(draw, text, font, place_x, place_y, rgb_color, letter_spacing)
                 
         except Exception as e:
             logger.error(f"Error drawing text with PIL: {e}")
@@ -285,6 +309,20 @@ class PNGStampGenerator:
                 draw.text((scaled_x, scaled_y), text, font=default_font, fill=rgb_color)
             except Exception as fallback_error:
                 logger.error(f"Fallback text rendering failed: {fallback_error}")
+
+    def _draw_text_with_letter_spacing(self, draw, text, font, x, y, color, spacing):
+        """Draw text with custom letter spacing"""
+        x_offset = 0
+        for char in text:
+            # Get character dimensions
+            bbox = font.getbbox(char)
+            char_width = bbox[2] - bbox[0]
+            
+            # Draw the character
+            draw.text((x + x_offset, y), char, font=font, fill=color)
+            
+            # Move to the next position with spacing
+            x_offset += char_width + (char_width * (spacing - 1.0) * 0.5)
 
     def _draw_circular_text(self, img, text, font, font_size, center_x, center_y, color, radius, 
                           start_angle, baseline_position, position):
@@ -371,6 +409,13 @@ class PNGStampGenerator:
                     pos['center_angle_deg'] = current_angle + pos['angle_deg']/2
                     current_angle += pos['angle_deg']
             
+            # Find current text element to get custom padding
+            custom_padding = None
+            for element in self.text_elements:
+                if element.get('value') == text:
+                    custom_padding = element.get('textPadding')
+                    break
+            
             # Draw each character
             for pos in char_positions:
                 char = pos['char']
@@ -403,6 +448,10 @@ class PNGStampGenerator:
                     base_padding, 
                     int(font_size * padding_ratio * font_size_factor)
                 )
+                
+                # Apply custom padding if specified
+                if custom_padding is not None:
+                    adaptive_padding = int(custom_padding * self.scale_factor)
                 
                 # 确保每个字符有足够的空间，尤其是对于特殊字符
                 char_img = Image.new('RGBA', (char_width + 2*adaptive_padding, char_height + 2*adaptive_padding), (0, 0, 0, 0))
@@ -468,6 +517,10 @@ class PNGStampGenerator:
                     text = element.get('value', '')
                     if not text:
                         continue
+                    
+                    # Apply uppercase if specified
+                    if element.get('isUppercase', False):
+                        text = text.upper()
                     
                     # Get template element if available
                     template_element = next((t for t in self.template.get('textElements', []) 
