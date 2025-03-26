@@ -289,8 +289,15 @@ ${variationsString}
       throw new Error(`Order with transaction ID ${transactionId} not found`);
     }
     
-    // 更新图片URL
-    order.stampImageUrl = stampImageUrl;
+    // 同时添加到图片URL数组
+    if (!order.stampImageUrls) {
+      order.stampImageUrls = [];
+    }
+    
+    // 确保不重复添加URL
+    if (!order.stampImageUrls.includes(stampImageUrl)) {
+      order.stampImageUrls.push(stampImageUrl);
+    }
     
     // 如果提供了记录ID，添加到数组中
     if (recordId) {

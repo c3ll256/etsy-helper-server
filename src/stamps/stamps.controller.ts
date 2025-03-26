@@ -227,13 +227,6 @@ export class StampsController {
     return this.stampsService.cloneTemplate(cloneStampTemplateDto);
   }
 
-  @Get('test')
-  @ApiOperation({ summary: 'Test API' })
-  @ApiResponse({ status: 200, description: 'Test successful' })
-  test() {
-    return this.glmService.generateText('你好');
-  }
-
   @Put('templates/:id')
   @ApiOperation({ summary: 'Update a stamp template' })
   @ApiResponse({ status: 200, description: 'The stamp template has been successfully updated' })

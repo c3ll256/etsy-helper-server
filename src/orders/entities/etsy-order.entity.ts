@@ -149,9 +149,14 @@ export class EtsyOrder {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @ApiProperty({ description: '印章图片URL' })
-  @Column({ nullable: true })
-  stampImageUrl: string;
+  @ApiProperty({ 
+    description: '多个印章图片URL数组，用于存储多个个性化的印章图片',
+    type: 'array',
+    items: { type: 'string' },
+    required: false
+  })
+  @Column('jsonb', { nullable: true, default: [] })
+  stampImageUrls: string[];
 
   @ApiProperty({ 
     description: '印章生成记录ID数组，用于存储多个印章生成记录',

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { read, utils } from 'xlsx';
+import { read, utils, write, WorkSheet, WorkBook } from 'xlsx';
 import { EtsyOrderService } from './etsy-order.service';
 import { OrderStampService } from '../../stamps/services/order-stamp.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -8,6 +8,8 @@ import { Order } from '../entities/order.entity';
 import { EtsyOrder } from '../entities/etsy-order.entity';
 import { v4 as uuidv4 } from 'uuid';
 import { JobQueueService } from './job-queue.service';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @Injectable()
 export class ExcelService {
@@ -344,24 +346,12 @@ export class ExcelService {
           stampPath: stampImageUrl
         });
         
-        // 如果是第一个印章，更新EtsyOrder的stampImageUrl
-        if (i === 0) {
-          // 更新EtsyOrder记录，使用transactionId查询确保更新正确的记录
-          await this.etsyOrderService.updateStampImage(
-            baseTransactionId,
-            stampImageUrl,
-            stampResult.recordId
-          );
-        } else {
-          // 对于后续的印章，只添加记录ID，不更新URL
-          if (stampResult.recordId) {
-            await this.etsyOrderService.updateStampImage(
-              baseTransactionId,
-              orderResult.order.stampImageUrl || stampImageUrl,
-              stampResult.recordId
-            );
-          }
-        }
+        // 更新EtsyOrder的stampImageUrl
+        await this.etsyOrderService.updateStampImage(
+          baseTransactionId,
+          stampImageUrl,
+          stampResult.recordId
+        );
       }
       
       // 如果成功生成了至少一个印章，则更新订单状态
@@ -490,6 +480,76 @@ export class ExcelService {
       };
     } catch (error) {
       throw new Error(`Failed to parse Excel file: ${error.message}`);
+    }
+  }
+
+  /**
+   * 为导出的订单创建Excel文件
+   * @param orders 订单列表
+   * @param outputDir 输出目录
+   * @returns 文件路径
+   */
+  async createOrdersExcelForExport(orders: Order[]): Promise<string> {
+    try {
+      const excelData = [];
+      
+      // Process each order to extract relevant information
+      for (let i = 0; i < orders.length; i++) {
+        const order = orders[i];
+        
+        if (order.orderType === 'etsy' && order.etsyOrder) {
+          order.etsyOrder.stampImageUrls.forEach((stampUrl, stampIndex) => {
+            excelData.push({
+              '序号': `${i + 1}-${stampIndex + 1}`,
+              '订单号': order.etsyOrder.orderId,
+              'SKU': order.etsyOrder.sku || 'N/A',
+              '解析前的variants': order.etsyOrder.originalVariations || 'N/A',
+              '解析后的variants': JSON.stringify(order.etsyOrder.variations) || 'N/A',
+              '下单日期': order.etsyOrder.saleDate || order.createdAt,
+              '文件名': `${i + 1}-${stampIndex + 1}${path.extname(stampUrl || '.svg')}`
+            });
+          });
+        }
+      }
+      
+      // Create workbook and worksheet
+      const worksheet: WorkSheet = utils.json_to_sheet(excelData);
+      const workbook: WorkBook = utils.book_new();
+      utils.book_append_sheet(workbook, worksheet, '订单信息');
+      
+      // Make columns wider
+      const colWidths = [
+        { wch: 10 },  // 序号
+        { wch: 20 },  // 订单号
+        { wch: 15 },  // SKU
+        { wch: 40 },  // 解析前的variants
+        { wch: 40 },  // 解析后的variants
+        { wch: 20 },  // 下单日期
+        { wch: 15 },  // 文件名
+      ];
+      
+      worksheet['!cols'] = colWidths;
+      
+      // Create output directory if it doesn't exist
+      const exportDir = path.join(process.cwd(), 'uploads', 'exports');
+      if (!fs.existsSync(exportDir)) {
+        fs.mkdirSync(exportDir, { recursive: true });
+      }
+      
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const excelFileName = `orders_info_${timestamp}.xlsx`;
+      const excelFilePath = path.join(exportDir, excelFileName);
+      
+      // Write to file
+      const excelBuffer = write(workbook, { bookType: 'xlsx', type: 'buffer' });
+      fs.writeFileSync(excelFilePath, excelBuffer);
+      
+      this.logger.log(`Excel file created at: ${excelFilePath}`);
+      
+      return excelFilePath;
+    } catch (error) {
+      this.logger.error(`Failed to create Excel file: ${error.message}`, error.stack);
+      throw new Error(`Failed to create Excel file: ${error.message}`);
     }
   }
 } 

@@ -54,10 +54,15 @@ export class UpdateStampDto {
   @ValidateNested({ each: true })
   @IsOptional()
   @Type(() => TextElementDto)
-  customTextElements?: TextElementDto[];
+  textElements?: TextElementDto[];
 
   @ApiProperty({ description: '是否转换文本为路径', default: false })
   @IsBoolean()
   @IsOptional()
   convertTextToPaths?: boolean;
+
+  @ApiProperty({ description: '要替换的旧印章记录ID', required: false })
+  @IsNumber()
+  @IsOptional()
+  oldRecordId?: number;
 } 

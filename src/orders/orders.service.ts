@@ -11,6 +11,8 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { StampsService } from '../stamps/stamps.service';
 import { OrderStampService } from '../stamps/services/order-stamp.service';
+import { ExcelService } from './services/excel.service';
+import { UpdateStampDto } from './dto/update-stamp.dto';
 
 @Injectable()
 export class OrdersService {
@@ -24,6 +26,7 @@ export class OrdersService {
     private etsyOrderRepository: Repository<EtsyOrder>,
     private readonly stampsService: StampsService,
     private readonly orderStampService: OrderStampService,
+    private readonly excelService: ExcelService,
   ) {
     // 确保输出目录存在
     if (!fs.existsSync(this.stampsOutputDir)) {
@@ -166,7 +169,7 @@ export class OrdersService {
    * @param updateStampDto 更新印章的数据
    * @returns 包含成功状态、路径和记录ID的结果
    */
-  async updateOrderStamp(id: string, updateStampDto: any): Promise<{ success: boolean; path?: string; error?: string; recordId?: number }> {
+  async updateOrderStamp(id: string, updateStampDto: UpdateStampDto): Promise<{ success: boolean; path?: string; error?: string; recordId?: number }> {
     try {
       // 查找订单
       const order = await this.ordersRepository.findOne({
@@ -178,13 +181,25 @@ export class OrdersService {
         throw new NotFoundException(`Order with ID ${id} not found`);
       }
 
+      // 创建适合印章生成的临时订单对象
+      // 当使用textElements时，确保准备一个空的personalization对象，防止警告
+      const orderForStampGeneration = {
+        ...order.etsyOrder,
+        order_id: order.id,
+        // 确保variations存在，即使是空对象
+        variations: order.etsyOrder.variations || {}
+      };
+
+      // 如果提供了自定义文本元素，为了防止警告，我们添加一个空的personalization对象
+      if (updateStampDto.textElements && updateStampDto.textElements.length > 0) {
+        // 确保variations有一个空的personalization对象，这样不会触发警告
+        orderForStampGeneration.variations.personalization = {};
+      }
+
       // 使用orderStampService生成印章并创建记录
       const result = await this.orderStampService.generateStampFromOrder({
-        order: {
-          ...order.etsyOrder,
-          order_id: order.id
-        },
-        customTextElements: updateStampDto.customTextElements,
+        order: orderForStampGeneration,
+        customTextElements: updateStampDto.textElements,
         customTemplateId: updateStampDto.templateId,
         convertTextToPaths: updateStampDto.convertTextToPaths || true
       });
@@ -196,26 +211,64 @@ export class OrdersService {
         };
       }
       
-      // 更新EtsyOrder的印章URL和记录ID
-      if (result.recordId) {
+      // 获取当前的印章记录ID列表
+      const currentRecordIds = order.etsyOrder.stampGenerationRecordIds || [];
+      const currentStampUrls = order.etsyOrder.stampImageUrls || [];
+      
+      // 如果提供了oldRecordId，替换对应的记录ID和URL
+      if (updateStampDto.oldRecordId && result.recordId) {
+        const oldRecordId = updateStampDto.oldRecordId;
+        
+        // 找到旧记录ID的索引
+        const oldIndex = currentRecordIds.indexOf(oldRecordId);
+        
+        if (oldIndex !== -1) {
+          // 如果找到了旧记录ID，替换它和对应的URL
+          const updatedRecordIds = [...currentRecordIds];
+          updatedRecordIds[oldIndex] = result.recordId;
+          
+          // 同时更新URL列表
+          const updatedStampUrls = [...currentStampUrls];
+          if (oldIndex < updatedStampUrls.length) {
+            updatedStampUrls[oldIndex] = result.path;
+          } else {
+            updatedStampUrls.push(result.path);
+          }
+          
+          // 更新EtsyOrder的印章URL和记录ID（替换模式）
+          await this.etsyOrderRepository.update(
+            { orderId: order.etsyOrder.orderId },
+            { 
+              stampImageUrls: updatedStampUrls,
+              stampGenerationRecordIds: updatedRecordIds
+            }
+          );
+        } else {
+          // 如果没找到旧记录ID，追加新记录ID和URL
+          await this.etsyOrderRepository.update(
+            { orderId: order.etsyOrder.orderId },
+            { 
+              stampImageUrls: [...currentStampUrls, result.path],
+              stampGenerationRecordIds: [...currentRecordIds, result.recordId]
+            }
+          );
+        }
+      } else if (result.recordId) {
+        // 没有提供oldRecordId，追加新记录ID和URL
         await this.etsyOrderRepository.update(
           { orderId: order.etsyOrder.orderId },
           { 
-            stampImageUrl: result.path,
-            stampGenerationRecordIds: () => {
-              const currentIds = order.etsyOrder.stampGenerationRecordIds || [];
-              if (!currentIds.includes(result.recordId)) {
-                return `array_append(COALESCE("stampGenerationRecordIds", '{}'), ${result.recordId})`;
-              }
-              return '"stampGenerationRecordIds"';
-            }
+            stampImageUrls: [...currentStampUrls, result.path],
+            stampGenerationRecordIds: [...currentRecordIds, result.recordId]
           }
         );
       } else {
-        // 如果没有记录ID，只更新URL
+        // 如果没有记录ID，只更新最新的URL（追加）
         await this.etsyOrderRepository.update(
           { orderId: order.etsyOrder.orderId },
-          { stampImageUrl: result.path }
+          { 
+            stampImageUrls: [...currentStampUrls, result.path]
+          }
         );
       }
       
@@ -250,26 +303,6 @@ export class OrdersService {
 
     // 从StampService获取记录
     return this.stampsService.getGenerationRecordsByOrderId(orderId);
-  }
-
-  async getOrderLatestStampRecord(orderId: string) {
-    // 首先确认订单存在
-    const order = await this.ordersRepository.findOne({
-      where: { id: orderId }
-    });
-
-    if (!order) {
-      throw new NotFoundException(`Order with ID ${orderId} not found`);
-    }
-
-    // 获取订单的最新印章生成记录
-    const record = await this.stampsService.getLatestGenerationRecordByOrderId(orderId);
-    
-    if (!record) {
-      throw new NotFoundException(`No stamp generation records found for order ${orderId}`);
-    }
-    
-    return record;
   }
 
   async exportStampsAsZip(startDate?: string, endDate?: string, search?: string, status?: string): Promise<{
@@ -353,22 +386,43 @@ export class OrdersService {
     
     console.log(`将创建压缩包: ${filePath}`);
 
+    // First, generate the Excel file with order information
+    try {
+      // Create Excel file with order info
+      const excelFilePath = await this.excelService.createOrdersExcelForExport(orders);
+      
+      // Add Excel file to the zip
+      if (fs.existsSync(excelFilePath)) {
+        zip.addLocalFile(excelFilePath, '', 'orders_info.xlsx');
+        console.log(`已添加订单信息Excel文件到压缩包`);
+      } else {
+        console.log(`警告: 无法找到订单信息Excel文件: ${excelFilePath}`);
+      }
+    } catch (error) {
+      console.error(`生成Excel文件时出错: ${error.message}`);
+      // Continue even if Excel file generation fails
+    }
+
     // Keep track of files added to the zip
     let addedFilesCount = 0;
 
     // Process each order
-    for (const order of orders) {
+    for (let i = 0; i < orders.length; i++) {
       try {
+        const order = orders[i];
         console.log(`处理订单 ${order.id} (platformOrderId: ${order.platformOrderId || 'N/A'})`);
         
-        // 首先检查关联的 EtsyOrder 是否存在且有 stampImageUrl
-        if (order.etsyOrder && order.etsyOrder.stampImageUrl) {
-          console.log(`订单 ${order.id} 有关联的 EtsyOrder, stampImageUrl: ${order.etsyOrder.stampImageUrl}`);
+        // 首先检查关联的 EtsyOrder 是否存在且有 stampImageUrls
+        if (order.etsyOrder && order.etsyOrder.stampImageUrls && order.etsyOrder.stampImageUrls.length > 0) {
+          console.log(`订单 ${order.id} 有关联的 EtsyOrder, stampImageUrls: ${JSON.stringify(order.etsyOrder.stampImageUrls)}`);
+          
+          // 获取最新的印章URL（数组的最后一个元素）
+          const latestStampUrl = order.etsyOrder.stampImageUrls[order.etsyOrder.stampImageUrls.length - 1];
           
           // Get absolute path to the stamp file
-          let relativePath = order.etsyOrder.stampImageUrl.startsWith('/') 
-            ? order.etsyOrder.stampImageUrl.substring(1) 
-            : order.etsyOrder.stampImageUrl;
+          let relativePath = latestStampUrl.startsWith('/') 
+            ? latestStampUrl.substring(1) 
+            : latestStampUrl;
           
           // If the path doesn't already include uploads/stamps, use the stampsOutputDir
           if (!relativePath.includes('uploads/stamps')) {
@@ -391,33 +445,23 @@ export class OrdersService {
               continue;
             }
             
-            // Create meaningful filename for the stamp in the zip
-            let stampFileName = '';
-            
-            // Add order ID/platform order ID to filename for easy identification
-            if (order.platformOrderId) {
-              stampFileName = `${order.platformOrderId}`;
-            } else {
-              stampFileName = `${order.id}`;
-            }
-            
-            // Add file extension
+            // Use index number (1-based) as filename with original extension
             const fileExtension = path.extname(stampPath);
-            stampFileName += fileExtension;
+            const numberedFileName = `${i + 1}${fileExtension}`;
             
-            console.log(`添加文件到压缩包: ${stampFileName}`);
+            console.log(`添加文件到压缩包: ${numberedFileName}`);
             
             // Add the file to the zip
-            zip.addLocalFile(stampPath, '', stampFileName);
+            zip.addLocalFile(stampPath, '', numberedFileName);
             addedFilesCount++;
           } else {
             console.log(`错误: 文件不存在 ${stampPath}`);
           }
         } else {
-          console.log(`订单 ${order.id} 没有关联的 EtsyOrder 或没有 stampImageUrl`);
+          console.log(`订单 ${order.id} 没有关联的 EtsyOrder 或没有 stampImageUrls`);
         }
       } catch (error) {
-        console.error(`处理订单 ${order.id} 时发生错误:`, error);
+        console.error(`处理订单时发生错误:`, error);
         // Continue with other orders even if one fails
       }
     }

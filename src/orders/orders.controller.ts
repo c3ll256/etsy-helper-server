@@ -182,92 +182,6 @@ export class OrdersController {
     return response;
   }
 
-  // Kept for backward compatibility - now calls the async version
-  @Post('upload-sync')
-  @ApiOperation({ summary: 'Upload Etsy orders from Excel file and generate stamps (synchronous version)' })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        file: {
-          type: 'string',
-          format: 'binary',
-          description: 'Excel file containing Etsy orders'
-        }
-      }
-    }
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'File processed successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        message: { type: 'string' },
-        details: {
-          type: 'object',
-          properties: {
-            totalOrders: { type: 'number' },
-            newOrdersCreated: { type: 'number' },
-            duplicateOrdersSkipped: { type: 'number' },
-            skippedReasons: { 
-              type: 'array', 
-              items: { 
-                type: 'object',
-                properties: {
-                  orderId: { type: 'string' },
-                  transactionId: { type: 'string' },
-                  reason: { type: 'string' }
-                }
-              } 
-            },
-            failedOrders: { type: 'number' },
-            generatedStamps: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  orderId: { type: 'string' },
-                  transactionId: { type: 'string' },
-                  stampPath: { type: 'string' }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  })
-  @ApiResponse({ status: 400, description: 'Invalid file or file processing error.' })
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadFileSync(@UploadedFile() file: Express.Multer.File) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
-
-    if (!file.originalname.match(/\.(xlsx|xls)$/)) {
-      throw new BadRequestException('Please upload an Excel file');
-    }
-
-    try {
-      const result = await this.excelService.parseExcelFile(file);
-      return {
-        message: 'File processed successfully',
-        details: {
-          totalOrders: result.total,
-          newOrdersCreated: result.created,
-          duplicateOrdersSkipped: result.skipped,
-          skippedReasons: result.skippedReasons,
-          failedOrders: result.failed,
-          generatedStamps: result.stamps
-        }
-      };
-    } catch (error) {
-      throw new BadRequestException(error.message);
-    }
-  }
-
   @Get()
   @ApiOperation({ summary: 'Get all orders' })
   @ApiResponse({
@@ -442,14 +356,6 @@ export class OrdersController {
     return this.ordersService.getOrderStampRecords(id);
   }
 
-  @Get(':id/latest-stamp-record')
-  @ApiOperation({ summary: '获取订单最新的印章生成记录' })
-  @ApiResponse({ status: 200, description: '获取成功' })
-  @ApiResponse({ status: 404, description: '订单未找到或无印章记录' })
-  async getOrderLatestStampRecord(@Param('id') id: string) {
-    return this.ordersService.getOrderLatestStampRecord(id);
-  }
-
   @Delete(':id')
   @ApiOperation({ summary: 'Delete an order' })
   @ApiResponse({ status: 200, description: 'The order has been successfully deleted.' })
@@ -592,5 +498,46 @@ export class OrdersController {
     } catch (error) {
       throw new BadRequestException(`Failed to update order stamp: ${error.message}`);
     }
+  }
+
+  @Get('stamp-records/:recordId')
+  @ApiOperation({ summary: '通过印章生成ID获取印章生成记录' })
+  @ApiParam({ name: 'recordId', description: '印章生成记录ID' })
+  @ApiResponse({
+    status: 200,
+    description: '返回印章生成记录',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number' },
+        orderId: { type: 'string' },
+        templateId: { type: 'number' },
+        textElements: { type: 'array' },
+        stampImageUrl: { type: 'string' },
+        format: { type: 'string' },
+        createdAt: { type: 'string', format: 'date-time' },
+        template: { 
+          type: 'object',
+          properties: {
+            id: { type: 'number' },
+            name: { type: 'string' },
+            sku: { type: 'string' }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: '印章生成记录不存在' })
+  async getStampRecordById(@Param('recordId') recordId: string) {
+    const record = await this.stampGenerationRecordRepository.findOne({
+      where: { id: +recordId },
+      relations: ['template']
+    });
+    
+    if (!record) {
+      throw new NotFoundException(`Stamp generation record with ID ${recordId} not found`);
+    }
+    
+    return record;
   }
 } 
