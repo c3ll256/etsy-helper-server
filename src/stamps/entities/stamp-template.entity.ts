@@ -37,10 +37,10 @@ export class StampTemplate {
 }
 
 export interface TextElement {
-  id: string;
-  defaultValue: string;
-  fontFamily: string;
-  fontSize: number;
+  id?: string;
+  defaultValue?: string;
+  fontFamily?: string;
+  fontSize?: number;
   fontWeight?: string;
   fontStyle?: string;
   color?: string;
@@ -53,7 +53,6 @@ export interface TextElement {
     rotation?: number;
     textAlign?: 'left' | 'center' | 'right';
     verticalAlign?: 'top' | 'middle' | 'baseline';
-    // Circular text properties
     isCircular?: boolean;
     radius?: number;
     startAngle?: number;

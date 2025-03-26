@@ -1,109 +1,7 @@
 import { IsArray, IsNumber, IsOptional, IsString, ValidateNested, IsBoolean, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-
-class TextPositionDto {
-  @ApiProperty({ description: 'X coordinate of the text element' })
-  @IsNumber()
-  @IsOptional()
-  x?: number;
-
-  @ApiProperty({ description: 'Y coordinate of the text element' })
-  @IsNumber()
-  @IsOptional()
-  y?: number;
-
-  @ApiProperty({ description: 'Width of the text element', required: false })
-  @IsNumber()
-  @IsOptional()
-  width?: number;
-
-  @ApiProperty({ description: 'Height of the text element', required: false })
-  @IsNumber()
-  @IsOptional()
-  height?: number;
-
-  @ApiProperty({ description: 'Rotation angle in degrees', required: false })
-  @IsNumber()
-  @IsOptional()
-  rotation?: number;
-  
-  @ApiProperty({ description: 'Text alignment (left, center, right)', required: false })
-  @IsString()
-  @IsOptional()
-  textAlign?: string;
-  
-  @ApiProperty({ description: 'Vertical alignment (top, middle, baseline)', required: false })
-  @IsString()
-  @IsOptional()
-  verticalAlign?: string;
-  
-  @ApiProperty({ description: 'Whether the text should be rendered in a circular path', required: false })
-  @IsBoolean()
-  @IsOptional()
-  isCircular?: boolean;
-  
-  @ApiProperty({ description: 'Radius of the circular text path', required: false })
-  @IsNumber()
-  @IsOptional()
-  radius?: number;
-  
-  @ApiProperty({ description: 'Start angle for circular text (in degrees)', required: false })
-  @IsNumber()
-  @IsOptional()
-  startAngle?: number;
-  
-  @ApiProperty({ description: 'End angle for circular text (in degrees)', required: false })
-  @IsNumber()
-  @IsOptional()
-  endAngle?: number;
-  
-  @ApiProperty({ description: 'Direction for circular text', required: false, enum: ['clockwise', 'counterclockwise'] })
-  @IsEnum(['clockwise', 'counterclockwise'])
-  @IsOptional()
-  direction?: 'clockwise' | 'counterclockwise';
-}
-
-class PreviewTextElementDto {
-  @ApiProperty({ description: 'ID of the text element' })
-  @IsString()
-  id: string;
-
-  @ApiProperty({ description: 'Text value' })
-  @IsString()
-  value: string;
-
-  @ApiProperty({ description: 'Font family', required: false })
-  @IsString()
-  @IsOptional()
-  fontFamily?: string;
-
-  @ApiProperty({ description: 'Font size', required: false })
-  @IsNumber()
-  @IsOptional()
-  fontSize?: number;
-
-  @ApiProperty({ description: 'Font weight', required: false })
-  @IsString()
-  @IsOptional()
-  fontWeight?: string;
-
-  @ApiProperty({ description: 'Font style', required: false })
-  @IsString()
-  @IsOptional()
-  fontStyle?: string;
-
-  @ApiProperty({ description: 'Text color', required: false })
-  @IsString()
-  @IsOptional()
-  color?: string;
-
-  @ApiProperty({ description: 'Position and dimensions of the text element', required: false })
-  @ValidateNested()
-  @Type(() => TextPositionDto)
-  @IsOptional()
-  position?: TextPositionDto;
-}
+import { TextElementDto } from './text-element.dto';
 
 export class PreviewStampDto {
   @ApiProperty({ description: 'Template ID (optional if creating a new template)', required: false })
@@ -126,11 +24,11 @@ export class PreviewStampDto {
   @IsOptional()
   backgroundImagePath?: string;
 
-  @ApiProperty({ description: 'Text elements with values and styling', type: [PreviewTextElementDto] })
+  @ApiProperty({ description: 'Text elements with values and styling', type: [TextElementDto] })
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => PreviewTextElementDto)
-  textElements: PreviewTextElementDto[];
+  @Type(() => TextElementDto)
+  textElements: TextElementDto[];
 
   @ApiProperty({ description: 'Convert text to paths in SVG output', default: false })
   @IsBoolean()
