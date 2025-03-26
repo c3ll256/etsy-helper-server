@@ -11,7 +11,6 @@ import { Order } from './entities/order.entity';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { Response } from 'express';
 import * as fs from 'fs';
-import * as path from 'path';
 import { In } from 'typeorm';
 import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -362,107 +361,6 @@ export class OrdersController {
   @ApiResponse({ status: 404, description: 'Order not found.' })
   remove(@Param('id') id: string) {
     return this.ordersService.remove(id);
-  }
-
-  @Get('exports')
-  @ApiOperation({ summary: '列出所有已导出的图章包' })
-  @ApiResponse({
-    status: 200,
-    description: '返回所有导出的文件列表',
-    schema: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          fileName: { type: 'string' },
-          fileSize: { type: 'number' },
-          createdAt: { type: 'string', format: 'date-time' },
-          downloadUrl: { type: 'string' }
-        }
-      }
-    }
-  })
-  listExports() {
-    try {
-      const exportDir = path.join(process.cwd(), 'uploads', 'exports');
-      
-      // 确保目录存在
-      if (!fs.existsSync(exportDir)) {
-        fs.mkdirSync(exportDir, { recursive: true });
-        return [];
-      }
-      
-      // 读取目录下所有文件
-      const files = fs.readdirSync(exportDir)
-        .filter(file => file.endsWith('.zip'))
-        .map(file => {
-          const filePath = path.join(exportDir, file);
-          const stats = fs.statSync(filePath);
-          
-          return {
-            fileName: file,
-            fileSize: stats.size,
-            createdAt: stats.mtime,
-            downloadUrl: `/uploads/exports/${file}`
-          };
-        })
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); // 按修改时间降序排序
-      
-      return files;
-    } catch (error) {
-      console.error('Error listing exports:', error);
-      return [];
-    }
-  }
-  
-  @Get('exports/:fileName')
-  @ApiOperation({ summary: '下载指定的导出文件' })
-  @ApiResponse({
-    status: 200,
-    description: '返回导出的文件',
-    schema: {
-      type: 'string',
-      format: 'binary'
-    }
-  })
-  @ApiResponse({ status: 404, description: '文件不存在' })
-  downloadExport(@Param('fileName') fileName: string, @Res() res: Response) {
-    try {
-      // 确保文件名不包含路径攻击
-      const sanitizedFileName = path.basename(fileName);
-      const filePath = path.join(process.cwd(), 'uploads', 'exports', sanitizedFileName);
-      
-      if (!fs.existsSync(filePath)) {
-        throw new NotFoundException(`File ${sanitizedFileName} not found`);
-      }
-      
-      const stats = fs.statSync(filePath);
-      if (stats.size === 0) {
-        throw new BadRequestException(`File ${sanitizedFileName} is empty`);
-      }
-      
-      // 设置响应头
-      res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFileName}"`);
-      res.setHeader('Content-Length', stats.size);
-      
-      // 创建文件流并发送文件
-      const fileStream = fs.createReadStream(filePath);
-      fileStream.pipe(res);
-      
-      // 处理错误
-      fileStream.on('error', (err) => {
-        console.error(`Error sending file: ${err.message}`);
-        if (!res.headersSent) {
-          res.status(500).send(`Error sending file: ${err.message}`);
-        }
-      });
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new BadRequestException(error.message);
-    }
   }
 
   @ApiOperation({ summary: '更新指定订单的印章' })

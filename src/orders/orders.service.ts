@@ -412,50 +412,53 @@ export class OrdersService {
         const order = orders[i];
         console.log(`处理订单 ${order.id} (platformOrderId: ${order.platformOrderId || 'N/A'})`);
         
-        // 首先检查关联的 EtsyOrder 是否存在且有 stampImageUrls
+        // 检查关联的 EtsyOrder 是否存在且有 stampImageUrls
         if (order.etsyOrder && order.etsyOrder.stampImageUrls && order.etsyOrder.stampImageUrls.length > 0) {
           console.log(`订单 ${order.id} 有关联的 EtsyOrder, stampImageUrls: ${JSON.stringify(order.etsyOrder.stampImageUrls)}`);
           
-          // 获取最新的印章URL（数组的最后一个元素）
-          const latestStampUrl = order.etsyOrder.stampImageUrls[order.etsyOrder.stampImageUrls.length - 1];
-          
-          // Get absolute path to the stamp file
-          let relativePath = latestStampUrl.startsWith('/') 
-            ? latestStampUrl.substring(1) 
-            : latestStampUrl;
-          
-          // If the path doesn't already include uploads/stamps, use the stampsOutputDir
-          if (!relativePath.includes('uploads/stamps')) {
-            // Extract just the filename from the path
-            const fileName = path.basename(relativePath);
-            relativePath = path.join(this.stampsOutputDir, fileName);
-          }
-          
-          const stampPath = path.join(process.cwd(), relativePath);
-          
-          console.log(`检查文件路径: ${stampPath}, 存在: ${fs.existsSync(stampPath)}`);
-          
-          if (fs.existsSync(stampPath)) {
-            // 获取文件大小
-            const stats = fs.statSync(stampPath);
-            console.log(`文件大小: ${stats.size} 字节`);
+          // 导出该订单的所有印章，而不仅仅是最新的
+          for (let stampIndex = 0; stampIndex < order.etsyOrder.stampImageUrls.length; stampIndex++) {
+            const stampUrl = order.etsyOrder.stampImageUrls[stampIndex];
             
-            if (stats.size === 0) {
-              console.log(`警告: 文件 ${stampPath} 大小为0`);
-              continue;
+            // Get absolute path to the stamp file
+            let relativePath = stampUrl.startsWith('/') 
+              ? stampUrl.substring(1) 
+              : stampUrl;
+            
+            // If the path doesn't already include uploads/stamps, use the stampsOutputDir
+            if (!relativePath.includes('uploads/stamps')) {
+              // Extract just the filename from the path
+              const fileName = path.basename(relativePath);
+              relativePath = path.join(this.stampsOutputDir, fileName);
             }
             
-            // Use index number (1-based) as filename with original extension
-            const fileExtension = path.extname(stampPath);
-            const numberedFileName = `${i + 1}${fileExtension}`;
+            const stampPath = path.join(process.cwd(), relativePath);
             
-            console.log(`添加文件到压缩包: ${numberedFileName}`);
+            console.log(`检查文件路径: ${stampPath}, 存在: ${fs.existsSync(stampPath)}`);
             
-            // Add the file to the zip
-            zip.addLocalFile(stampPath, '', numberedFileName);
-            addedFilesCount++;
-          } else {
-            console.log(`错误: 文件不存在 ${stampPath}`);
+            if (fs.existsSync(stampPath)) {
+              // 获取文件大小
+              const stats = fs.statSync(stampPath);
+              console.log(`文件大小: ${stats.size} 字节`);
+              
+              if (stats.size === 0) {
+                console.log(`警告: 文件 ${stampPath} 大小为0`);
+                continue;
+              }
+              
+              // Use Excel row index and stamp index for filename
+              const fileExtension = path.extname(stampPath);
+              // Match the exact filename pattern used in Excel - order index (1-based) followed by stamp index (1-based)
+              const numberedFileName = `${i + 1}-${stampIndex + 1}${fileExtension}`;
+              
+              console.log(`添加文件到压缩包: ${numberedFileName}`);
+              
+              // Add the file to the zip
+              zip.addLocalFile(stampPath, '', numberedFileName);
+              addedFilesCount++;
+            } else {
+              console.log(`错误: 文件不存在 ${stampPath}`);
+            }
           }
         } else {
           console.log(`订单 ${order.id} 没有关联的 EtsyOrder 或没有 stampImageUrls`);
