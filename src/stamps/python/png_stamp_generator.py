@@ -10,6 +10,8 @@ import math
 import cairo
 import uharfbuzz as hb
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from fontTools.ttLib import TTFont
+from fontTools.varLib import instancer
 
 # Configure logging
 logging.basicConfig(
@@ -56,14 +58,14 @@ class PNGStampGenerator:
         # Map font families to font files
         self.font_map = self._build_font_map()
         
-        # Initialize uharfbuzz cache
-        self.hb_fonts = {}
+        # Initialize font cache
+        self.font_cache = {}
         
-        # Initialize PIL fonts cache
-        self.pil_fonts = {}
+        # Initialize variable font information cache
+        self.variable_font_info = {}
 
     def _build_font_map(self):
-        """Build a mapping of font family names to font file paths"""
+        """Build a mapping of font family names to font file paths and metadata"""
         font_map = {}
         
         # Default font as fallback
@@ -76,7 +78,11 @@ class PNGStampGenerator:
         # Find a working default font
         for font_path in default_fonts:
             if os.path.exists(font_path):
-                font_map['Arial'] = font_path
+                font_map['Arial'] = {
+                    'path': font_path,
+                    'isVariableFont': False,
+                    'variableAxes': None
+                }
                 break
         
         # Scan the fonts directory for custom fonts
@@ -86,25 +92,56 @@ class PNGStampGenerator:
                 if file.lower().endswith(('.ttf', '.otf')):
                     font_path = os.path.join(fonts_dir, file)
                     font_family = os.path.splitext(file)[0]
-                    font_map[font_family] = font_path
+                    
+                    # 检查是否为可变字体并提取变量轴信息
+                    is_variable, axes_info = self._analyze_font(font_path)
+                    
+                    font_map[font_family] = {
+                        'path': font_path,
+                        'isVariableFont': is_variable,
+                        'variableAxes': axes_info
+                    }
                     
                     # Also register without hyphens if the name contains them
                     if '-' in font_family:
                         no_hyphen_name = font_family.replace('-', '')
-                        font_map[no_hyphen_name] = font_path
+                        font_map[no_hyphen_name] = font_map[font_family]
                         
                         # Special handling for Montserrat font family
                         if font_family.startswith('Montserrat-'):
                             # Register all Montserrat variants as Montserrat font
-                            font_map['Montserrat'] = font_path
+                            font_map['Montserrat'] = font_map[font_family]
         
         # Simplified log output
         logger.debug(f"Available fonts: {list(font_map.keys())}")
         
         return font_map
 
-    def _get_font_path(self, font_family):
-        """Get the font file path for a given font family"""
+    def _analyze_font(self, font_path):
+        """Analyze font file to determine if it's a variable font and extract axes information"""
+        try:
+            font = TTFont(font_path)
+            is_variable = 'fvar' in font.tables
+            
+            axes_info = None
+            if is_variable:
+                # 提取可变字体轴信息
+                axes_info = {}
+                for axis in font.tables['fvar'].axes:
+                    axes_info[axis.axisTag] = {
+                        'min': float(axis.minValue),
+                        'max': float(axis.maxValue),
+                        'default': float(axis.defaultValue)
+                    }
+                logger.info(f"Variable font detected: {font_path} with axes: {axes_info}")
+            
+            return is_variable, axes_info
+        except Exception as e:
+            logger.error(f"Error analyzing font {font_path}: {e}")
+            return False, None
+
+    def _get_font_info(self, font_family):
+        """Get font info for a given font family"""
         if font_family in self.font_map:
             return self.font_map[font_family]
             
@@ -116,28 +153,89 @@ class PNGStampGenerator:
         logger.warning(f"Font not found: {font_family}")
         return self.font_map.get('Arial')  # Default fallback
 
-    def _get_pil_font(self, font_family, font_size):
-        """Get a PIL ImageFont object for the specified font family and size"""
-        key = (font_family, font_size)
-        if key in self.pil_fonts:
-            return self.pil_fonts[key]
+    def _get_pil_font(self, font_family, font_size, variable_settings=None):
+        """
+        Get a PIL ImageFont object for the specified font family and size
+        
+        Parameters:
+            font_family (str): The font family name
+            font_size (int): The font size in points
+            variable_settings (dict, optional): Settings for variable font axes, e.g. {'wght': 700}
+        """
+        # 创建缓存键，包含字体名称、大小和变量设置
+        cache_key = (font_family, font_size, str(variable_settings) if variable_settings else "default")
+        
+        if cache_key in self.font_cache:
+            return self.font_cache[cache_key]
         
         try:
-            font_path = self._get_font_path(font_family)
-            font = ImageFont.truetype(font_path, int(font_size))
-            self.pil_fonts[key] = font
+            # 获取字体信息
+            font_info = self._get_font_info(font_family)
+            font_path = font_info.get('path')
+            is_variable = font_info.get('isVariableFont', False)
+            
+            if is_variable and variable_settings:
+                # 处理可变字体设置
+                temp_font_path = self._create_instance_of_variable_font(font_path, variable_settings)
+                if temp_font_path:
+                    font = ImageFont.truetype(temp_font_path, int(font_size))
+                else:
+                    # 如果无法创建实例，使用原始字体
+                    font = ImageFont.truetype(font_path, int(font_size))
+            else:
+                # 使用常规字体
+                font = ImageFont.truetype(font_path, int(font_size))
+                
+            self.font_cache[cache_key] = font
             return font
         except Exception as e:
             logger.error(f"Error loading font {font_family}: {e}")
             # Fallback to default font
             try:
-                default_font_path = self._get_font_path('Arial')
+                default_font_info = self._get_font_info('Arial')
+                default_font_path = default_font_info.get('path')
                 font = ImageFont.truetype(default_font_path, int(font_size))
-                self.pil_fonts[key] = font
+                self.font_cache[cache_key] = font
                 return font
             except:
                 # Last resort fallback
                 return ImageFont.load_default()
+
+    def _create_instance_of_variable_font(self, font_path, axis_values):
+        """
+        创建变量字体的特定实例
+        
+        Parameters:
+            font_path (str): 原始可变字体文件路径
+            axis_values (dict): 轴值映射，e.g. {'wght': 700, 'wdth': 80}
+            
+        Returns:
+            str: 临时字体实例的文件路径，如果失败则返回None
+        """
+        try:
+            # 创建临时目录（如果不存在）
+            temp_dir = os.path.join(os.getcwd(), 'uploads', 'temp_fonts')
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            # 计算唯一的输出文件名
+            font_name = os.path.basename(font_path)
+            basename, ext = os.path.splitext(font_name)
+            instance_name = f"{basename}-{''.join(f'{tag}{val}' for tag, val in axis_values.items())}{ext}"
+            output_path = os.path.join(temp_dir, instance_name)
+            
+            # 如果实例已经存在，直接返回
+            if os.path.exists(output_path):
+                return output_path
+                
+            # 使用fontTools创建指定实例
+            font = TTFont(font_path)
+            instance_font = instancer.instantiateVariableFont(font, axis_values)
+            instance_font.save(output_path)
+            
+            return output_path
+        except Exception as e:
+            logger.error(f"Error creating variable font instance: {e}")
+            return None
 
     def _hex_to_rgb(self, hex_color):
         """Convert hex color string to RGB tuple"""
@@ -155,7 +253,22 @@ class PNGStampGenerator:
             
             # 根据缩放比例调整字体大小
             scaled_font_size = int(font_size * self.scale_factor)
-            font = self._get_pil_font(font_family, scaled_font_size)
+            
+            # 获取当前文本元素及其属性
+            current_element = None
+            variable_settings = None
+            for element in self.text_elements:
+                if element.get('value') == text:
+                    current_element = element
+                    position = element.get('position', {})
+                    
+                    # 检查是否有可变字体设置
+                    if 'variableFontSettings' in element:
+                        variable_settings = element.get('variableFontSettings')
+                    break
+            
+            # 获取字体，应用可变字体设置（如果有）
+            font = self._get_pil_font(font_family, scaled_font_size, variable_settings)
             
             # Get position attributes
             circular_text = False
@@ -164,23 +277,19 @@ class PNGStampGenerator:
             baseline_position = 'inside'  # New parameter, default to inside
             letter_spacing = 1.0  # Default letter spacing (1.0 = normal)
             
-            # Find current text element and its properties
-            current_element = None
-            for element in self.text_elements:
-                if element.get('value') == text:
-                    current_element = element
-                    position = element.get('position', {})
-                    circular_text = position.get('isCircular', False)
-                    if circular_text:
-                        # 根据缩放比例调整半径
-                        radius = position.get('radius', 200) * self.scale_factor
-                        start_angle = position.get('startAngle', 0)
-                        baseline_position = position.get('baselinePosition', 'inside')
-                        letter_spacing = position.get('letterSpacing', 1.0)
-                    else:
-                        # For non-circular text, get letter spacing from position
-                        letter_spacing = position.get('letterSpacing', 1.0)
-                    break
+            # Find position attributes from current element
+            if current_element:
+                position = current_element.get('position', {})
+                circular_text = position.get('isCircular', False)
+                if circular_text:
+                    # 根据缩放比例调整半径
+                    radius = position.get('radius', 200) * self.scale_factor
+                    start_angle = position.get('startAngle', 0)
+                    baseline_position = position.get('baselinePosition', 'inside')
+                    letter_spacing = position.get('letterSpacing', 1.0)
+                else:
+                    # For non-circular text, get letter spacing from position
+                    letter_spacing = position.get('letterSpacing', 1.0)
             
             # Apply uppercase if specified
             if current_element and current_element.get('isUppercase', False):
@@ -222,7 +331,7 @@ class PNGStampGenerator:
                 if text_width > max_available_width:
                     text_scale_factor = max_available_width / text_width
                     adjusted_font_size = int(scaled_font_size * text_scale_factor)
-                    font = self._get_pil_font(font_family, adjusted_font_size)
+                    font = self._get_pil_font(font_family, adjusted_font_size, variable_settings)
                     # Recalculate text dimensions
                     bbox = font.getbbox(text)
                     text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -270,9 +379,6 @@ class PNGStampGenerator:
                     
                     # 在文本图像中心绘制文本
                     txt_draw.text((adaptive_padding, adaptive_padding), text, font=font, fill=rgb_color)
-                    
-                    # 添加调试边框来确认文本边界（可选，最终可删除）
-                    # txt_draw.rectangle([0, 0, txt_img.width-1, txt_img.height-1], outline=(255, 0, 0, 128))
                     
                     # 旋转文本图像
                     rotated_txt = txt_img.rotate(-rotation, expand=True, resample=Image.BICUBIC)

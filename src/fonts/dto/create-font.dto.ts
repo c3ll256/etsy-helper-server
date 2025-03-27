@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateFontDto {
   @ApiProperty({ description: 'Name of the font' })
@@ -10,12 +10,17 @@ export class CreateFontDto {
   @ApiProperty({ description: 'Font weight (e.g., regular, bold, 700)', required: false })
   @IsOptional()
   @IsString()
-  fontWeight?: string;
+  fontWeight?: string = 'regular';
 
-  @ApiProperty({ description: 'Font style (e.g., normal, italic)', required: false })
+  @ApiProperty({ description: 'Whether this is a variable font', required: false })
+  @IsOptional()
+  @IsBoolean()
+  isVariableFont?: boolean = false;
+
+  @ApiProperty({ description: 'Variable font axes', required: false })
   @IsOptional()
   @IsString()
-  fontStyle?: string;
+  variableAxes?: Record<string, any> | string;
 
   @ApiProperty({ description: 'Description of the font', required: false })
   @IsOptional()

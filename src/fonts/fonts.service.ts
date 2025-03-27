@@ -27,10 +27,6 @@ export class FontsService {
       font.fontWeight = createFontDto.fontWeight;
     }
     
-    if (createFontDto.fontStyle) {
-      font.fontStyle = createFontDto.fontStyle;
-    }
-    
     if (createFontDto.description) {
       font.description = createFontDto.description;
     }

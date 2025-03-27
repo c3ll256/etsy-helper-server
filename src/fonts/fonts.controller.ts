@@ -10,7 +10,8 @@ import {
   ParseIntPipe,
   BadRequestException,
   Patch,
-  Query
+  Query,
+  Req
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery } from '@nestjs/swagger';
@@ -36,30 +37,6 @@ export class FontsController {
   @Post()
   @ApiOperation({ summary: 'Upload a new font' })
   @ApiResponse({ status: 201, description: 'The font has been successfully uploaded.' })
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: UPLOADS_DIR,
-        filename: (req, file, cb) => {
-          // Create a unique filename
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          const ext = path.extname(file.originalname);
-          const filename = `font-${uniqueSuffix}${ext}`;
-          cb(null, filename);
-        },
-      }),
-      fileFilter: (req, file, cb) => {
-        // Accept only font files
-        const validExt = ['.ttf', '.otf', '.woff', '.woff2'];
-        const ext = path.extname(file.originalname).toLowerCase();
-        if (validExt.includes(ext)) {
-          cb(null, true);
-        } else {
-          cb(new BadRequestException('Invalid file type. Only .ttf, .otf, .woff, and .woff2 files are allowed.'), false);
-        }
-      },
-    }),
-  )
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -78,9 +55,13 @@ export class FontsController {
           type: 'string',
           description: 'Font weight (e.g., regular, bold, 700)',
         },
-        fontStyle: {
+        isVariableFont: {
+          type: 'boolean',
+          description: 'Whether this is a variable font',
+        },
+        variableAxes: {
           type: 'string',
-          description: 'Font style (e.g., normal, italic)',
+          description: 'JSON string of variable font axes (e.g., {"wght": {"min": 100, "max": 900}})',
         },
         description: {
           type: 'string',
@@ -90,13 +71,60 @@ export class FontsController {
       required: ['file', 'name'],
     },
   })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: UPLOADS_DIR,
+        filename: (req, file, cb) => {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          const ext = path.extname(file.originalname);
+          const filename = `font-${uniqueSuffix}${ext}`;
+          cb(null, filename);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        const validExt = ['.ttf', '.otf', '.woff', '.woff2'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (validExt.includes(ext)) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException('Invalid file type. Only .ttf, .otf, .woff, and .woff2 files are allowed.'), false);
+        }
+      },
+    }),
+  )
   async uploadFont(
     @UploadedFile() file: Express.Multer.File,
-    @Body() createFontDto: CreateFontDto,
+    @Body('name') name: string,
+    @Body('fontWeight') fontWeight?: string,
+    @Body('isVariableFont') isVariableFontStr?: string,
+    @Body('description') description?: string,
+    @Body('variableAxes') variableAxesStr?: string,
   ) {
     if (!file) {
       throw new BadRequestException('Font file is required');
     }
+    
+    if (!name) {
+      throw new BadRequestException('Font name is required');
+    }
+    
+    // 创建 DTO 对象
+    const createFontDto = new CreateFontDto();
+    createFontDto.name = name;
+    createFontDto.fontWeight = fontWeight;
+    createFontDto.isVariableFont = isVariableFontStr === 'true';
+    createFontDto.description = description;
+    
+    // 处理 variableAxes JSON 字符串
+    if (variableAxesStr) {
+      try {
+        createFontDto.variableAxes = JSON.parse(variableAxesStr);
+      } catch (e) {
+        throw new BadRequestException('Invalid variableAxes JSON format');
+      }
+    }
+    
     return this.fontsService.create(createFontDto, file);
   }
 
@@ -165,7 +193,8 @@ export class FontsController {
         id: font.id,
         name: font.name,
         fontWeight: font.fontWeight,
-        fontStyle: font.fontStyle,
+        isVariableFont: font.isVariableFont,
+        variableAxes: font.variableAxes,
         description: font.description,
         url: `/${relativePath}` // Add leading slash to make it a proper URL
       };

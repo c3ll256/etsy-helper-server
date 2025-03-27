@@ -17,8 +17,11 @@ export class Font {
   @Column({ default: 'regular' })
   fontWeight: string;
 
-  @Column({ default: 'normal' })
-  fontStyle: string;
+  @Column({ default: false })
+  isVariableFont: boolean;
+
+  @Column({ type: 'json', nullable: true })
+  variableAxes: Record<string, any>;
 
   @Column({ nullable: true })
   description: string;
