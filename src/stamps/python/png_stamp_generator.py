@@ -374,7 +374,7 @@ class PNGStampGenerator:
         """Create a transparent RGBA image"""
         return Image.new('RGBA', (self.width, self.height), (0, 0, 0, 0))
 
-    def _draw_text_with_pil(self, img, text, font_family, font_size, x, y, color, rotation, text_align, vert_align):
+    def _draw_text_with_pil(self, img, text, font_family, font_size, x, y, color, rotation, text_align, vert_align, original_text=None):
         """Draw text on the image using PIL"""
         try:
             draw = ImageDraw.Draw(img)
@@ -387,8 +387,11 @@ class PNGStampGenerator:
             variable_settings = None
             font_weight = None
             
+            # 使用原始文本或转换后的文本来查找元素
+            lookup_text = original_text if original_text is not None else text
+            
             for element in self.text_elements:
-                if element.get('value') == text:
+                if element.get('value') == lookup_text:
                     current_element = element
                     position = element.get('position', {})
                     
@@ -522,10 +525,6 @@ class PNGStampGenerator:
                     # For non-circular text, get letter spacing from position
                     letter_spacing = position.get('letterSpacing', 1.0)
             
-            # Apply uppercase if specified
-            if current_element and current_element.get('isUppercase', False):
-                text = text.upper()
-            
             # Convert color from hex to RGB
             rgb_color = self._hex_to_rgb(color) if isinstance(color, str) else color
             
@@ -536,7 +535,7 @@ class PNGStampGenerator:
             if circular_text:
                 # Handle circular text rendering with scaled parameters
                 self._draw_circular_text(img, text, font, scaled_font_size, scaled_x, scaled_y, rgb_color, radius, 
-                                       start_angle, baseline_position, position)
+                                       start_angle, baseline_position, position, original_text)
             else:
                 # Handle regular text rendering
                 bbox = font.getbbox(text)
@@ -662,7 +661,7 @@ class PNGStampGenerator:
             x_offset += char_width + (char_width * (spacing - 1.0) * 0.5)
 
     def _draw_circular_text(self, img, text, font, font_size, center_x, center_y, color, radius, 
-                          start_angle, baseline_position, position):
+                          start_angle, baseline_position, position, original_text=None):
         """Draw text in a circular path"""
         try:
             draw = ImageDraw.Draw(img)
@@ -748,8 +747,10 @@ class PNGStampGenerator:
             
             # Find current text element to get custom padding
             custom_padding = None
+            # 使用原始文本或转换后的文本来查找元素
+            lookup_text = original_text if original_text is not None else text
             for element in self.text_elements:
-                if element.get('value') == text:
+                if element.get('value') == lookup_text:
                     custom_padding = element.get('textPadding')
                     break
             
@@ -855,6 +856,9 @@ class PNGStampGenerator:
                     if not text:
                         continue
                     
+                    # 保存原始文本，用于在_draw_text_with_pil中匹配元素
+                    original_text = text
+                    
                     # Apply uppercase if specified
                     if element.get('isUppercase', False):
                         text = text.upper()
@@ -882,7 +886,7 @@ class PNGStampGenerator:
                     vert_align = position.get('verticalAlign', 'baseline')
                     
                     # Draw the text
-                    self._draw_text_with_pil(img, text, font_family, font_size, x, y, color_str, rotation, text_align, vert_align)
+                    self._draw_text_with_pil(img, text, font_family, font_size, x, y, color_str, rotation, text_align, vert_align, original_text)
                     
                 except Exception as e:
                     logger.error(f"Error drawing text element: {e}")
