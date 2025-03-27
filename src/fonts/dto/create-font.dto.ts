@@ -17,11 +17,6 @@ export class CreateFontDto {
   @IsBoolean()
   isVariableFont?: boolean = false;
 
-  @ApiProperty({ description: 'Variable font axes', required: false })
-  @IsOptional()
-  @IsString()
-  variableAxes?: Record<string, any> | string;
-
   @ApiProperty({ description: 'Description of the font', required: false })
   @IsOptional()
   @IsString()

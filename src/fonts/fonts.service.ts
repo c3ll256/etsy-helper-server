@@ -27,6 +27,10 @@ export class FontsService {
       font.fontWeight = createFontDto.fontWeight;
     }
     
+    if (createFontDto.isVariableFont !== undefined) {
+      font.isVariableFont = createFontDto.isVariableFont;
+    }
+    
     if (createFontDto.description) {
       font.description = createFontDto.description;
     }

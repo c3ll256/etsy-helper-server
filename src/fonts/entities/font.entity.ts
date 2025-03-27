@@ -20,9 +20,6 @@ export class Font {
   @Column({ default: false })
   isVariableFont: boolean;
 
-  @Column({ type: 'json', nullable: true })
-  variableAxes: Record<string, any>;
-
   @Column({ nullable: true })
   description: string;
 

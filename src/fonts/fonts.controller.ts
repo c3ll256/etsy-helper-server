@@ -59,10 +59,6 @@ export class FontsController {
           type: 'boolean',
           description: 'Whether this is a variable font',
         },
-        variableAxes: {
-          type: 'string',
-          description: 'JSON string of variable font axes (e.g., {"wght": {"min": 100, "max": 900}})',
-        },
         description: {
           type: 'string',
           description: 'Description of the font',
@@ -99,7 +95,6 @@ export class FontsController {
     @Body('fontWeight') fontWeight?: string,
     @Body('isVariableFont') isVariableFontStr?: string,
     @Body('description') description?: string,
-    @Body('variableAxes') variableAxesStr?: string,
   ) {
     if (!file) {
       throw new BadRequestException('Font file is required');
@@ -115,15 +110,6 @@ export class FontsController {
     createFontDto.fontWeight = fontWeight;
     createFontDto.isVariableFont = isVariableFontStr === 'true';
     createFontDto.description = description;
-    
-    // 处理 variableAxes JSON 字符串
-    if (variableAxesStr) {
-      try {
-        createFontDto.variableAxes = JSON.parse(variableAxesStr);
-      } catch (e) {
-        throw new BadRequestException('Invalid variableAxes JSON format');
-      }
-    }
     
     return this.fontsService.create(createFontDto, file);
   }
@@ -194,7 +180,6 @@ export class FontsController {
         name: font.name,
         fontWeight: font.fontWeight,
         isVariableFont: font.isVariableFont,
-        variableAxes: font.variableAxes,
         description: font.description,
         url: `/${relativePath}` // Add leading slash to make it a proper URL
       };

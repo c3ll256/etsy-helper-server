@@ -3,6 +3,9 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Font } from '../../fonts/entities/font.entity';
 
 @Injectable()
 export class PythonStampService {
@@ -10,7 +13,10 @@ export class PythonStampService {
   private readonly pythonScriptPath: string;
   private readonly outputDir = 'uploads/stamps';
 
-  constructor() {
+  constructor(
+    @InjectRepository(Font)
+    private readonly fontRepository: Repository<Font>
+  ) {
     this.pythonScriptPath = path.join(process.cwd(), 'src', 'stamps', 'python', 'png_stamp_generator.py');
     
     // Ensure the python script exists and is executable
@@ -33,6 +39,48 @@ export class PythonStampService {
   }
 
   /**
+   * Get font mapping data to pass to Python script
+   * Maps font family names to their file paths
+   */
+  private async getFontMapping(): Promise<Record<string, string>> {
+    const fontMapping: Record<string, string> = {};
+    
+    try {
+      const fonts = await this.fontRepository.find({ where: { isActive: true } });
+      
+      fonts.forEach(font => {
+        // Map the font name to its file path
+        fontMapping[font.name] = font.filePath;
+        
+        // Also map without hyphens for compatibility
+        if (font.name.includes('-')) {
+          const noHyphenName = font.name.replace(/-/g, '');
+          fontMapping[noHyphenName] = font.filePath;
+        }
+        
+        // For font families like Montserrat-Bold, add a mapping for just "Montserrat"
+        const nameParts = font.name.split('-');
+        if (nameParts.length > 1) {
+          const familyName = nameParts[0];
+          // Only map the base family name to this font if it's not already mapped
+          // or if this is a regular/default weight font
+          if (!fontMapping[familyName] || 
+              font.fontWeight.toLowerCase() === 'regular' || 
+              font.fontWeight.toLowerCase() === 'normal') {
+            fontMapping[familyName] = font.filePath;
+          }
+        }
+      });
+      
+      this.logger.log(`Font mapping created with ${Object.keys(fontMapping).length} entries`);
+    } catch (error) {
+      this.logger.error(`Error creating font mapping: ${error.message}`);
+    }
+    
+    return fontMapping;
+  }
+
+  /**
    * Generate a stamp using Python
    * @param template The stamp template data
    * @param textElements Text elements with values
@@ -46,13 +94,17 @@ export class PythonStampService {
     convertTextToPaths?: boolean;
     debug?: boolean;
   }): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
+      // Get font mapping to send to Python script
+      const fontMapping = await this.getFontMapping();
+      
       // Prepare data for Python script
       const inputData = {
         template,
         textElements,
         convertTextToPaths,
-        debug
+        debug,
+        fontMapping
       };
 
       // Spawn Python process
@@ -121,7 +173,10 @@ export class PythonStampService {
     convertTextToPaths?: boolean;
     debug?: boolean;
   }): Promise<string> {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
+      // Get font mapping to send to Python script
+      const fontMapping = await this.getFontMapping();
+      
       // Generate unique filename
       const timestamp = Date.now();
       const hash = crypto.createHash('md5').update(`${orderId}-${timestamp}`).digest('hex').substring(0, 8);
@@ -134,7 +189,8 @@ export class PythonStampService {
         textElements,
         convertTextToPaths,
         filename,
-        debug
+        debug,
+        fontMapping
       };
 
       // Spawn Python process

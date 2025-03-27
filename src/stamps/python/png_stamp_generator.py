@@ -68,6 +68,23 @@ class PNGStampGenerator:
         """Build a mapping of font family names to font file paths and metadata"""
         font_map = {}
         
+        # Check if we received font mapping from NestJS
+        nodejs_font_mapping = self.data.get('fontMapping', {})
+        if nodejs_font_mapping:            
+            # Convert NestJS font mapping to our internal format
+            for font_name, font_path in nodejs_font_mapping.items():
+                if os.path.exists(font_path):
+                    # Check if it's a variable font and extract axes information
+                    is_variable, axes_info = self._analyze_font(font_path)
+                    
+                    font_map[font_name] = {
+                        'path': font_path,
+                        'isVariableFont': is_variable,
+                        'variableAxes': axes_info
+                    }
+                else:
+                    logger.warning(f"Font path from NestJS does not exist: {font_path}")
+        
         # Default font as fallback
         default_fonts = [
             '/System/Library/Fonts/Arial.ttf',  # macOS
@@ -85,32 +102,23 @@ class PNGStampGenerator:
                 }
                 break
         
-        # Scan the fonts directory for custom fonts
-        fonts_dir = os.path.join(os.getcwd(), 'uploads', 'fonts')
-        if os.path.exists(fonts_dir):
-            for file in os.listdir(fonts_dir):
-                if file.lower().endswith(('.ttf', '.otf')):
-                    font_path = os.path.join(fonts_dir, file)
-                    font_family = os.path.splitext(file)[0]
-                    
-                    # 检查是否为可变字体并提取变量轴信息
-                    is_variable, axes_info = self._analyze_font(font_path)
-                    
-                    font_map[font_family] = {
-                        'path': font_path,
-                        'isVariableFont': is_variable,
-                        'variableAxes': axes_info
-                    }
-                    
-                    # Also register without hyphens if the name contains them
-                    if '-' in font_family:
-                        no_hyphen_name = font_family.replace('-', '')
-                        font_map[no_hyphen_name] = font_map[font_family]
+        # Scan the fonts directory for custom fonts only if we don't have a valid mapping from NestJS
+        if not nodejs_font_mapping:
+            fonts_dir = os.path.join(os.getcwd(), 'uploads', 'fonts')
+            if os.path.exists(fonts_dir):
+                for file in os.listdir(fonts_dir):
+                    if file.lower().endswith(('.ttf', '.otf')):
+                        font_path = os.path.join(fonts_dir, file)
+                        font_family = os.path.splitext(file)[0]
                         
-                        # Special handling for Montserrat font family
-                        if font_family.startswith('Montserrat-'):
-                            # Register all Montserrat variants as Montserrat font
-                            font_map['Montserrat'] = font_map[font_family]
+                        # Check if it's a variable font and extract axes information
+                        is_variable, axes_info = self._analyze_font(font_path)
+                        
+                        font_map[font_family] = {
+                            'path': font_path,
+                            'isVariableFont': is_variable,
+                            'variableAxes': axes_info
+                        }
         
         # Simplified log output
         logger.debug(f"Available fonts: {list(font_map.keys())}")
@@ -120,20 +128,67 @@ class PNGStampGenerator:
     def _analyze_font(self, font_path):
         """Analyze font file to determine if it's a variable font and extract axes information"""
         try:
-            font = TTFont(font_path)
-            is_variable = 'fvar' in font.tables
+            # 检查文件是否存在
+            if not os.path.exists(font_path):
+                logger.error(f"Font file does not exist: {font_path}")
+                return False, None
+
+            # 加载字体
+            try:
+                font = TTFont(font_path, lazy=False)
+            except Exception as e:
+                try:
+                    font = TTFont(font_path)
+                except Exception as e:
+                    logger.error(f"Error opening font: {e}")
+                    return False, None
             
+            # 检测是否为可变字体
+            is_variable = False
+            
+            # 通过键或表检测可变字体
+            if (hasattr(font, 'keys') and 'fvar' in font.keys()) or \
+               (hasattr(font, 'tables') and 'fvar' in getattr(font, 'tables', {})):
+                is_variable = True
+            elif (hasattr(font, 'keys') and ('gvar' in font.keys() or 'cvar' in font.keys())) or \
+                 (hasattr(font, 'tables') and ('gvar' in getattr(font, 'tables', {}) or 'cvar' in getattr(font, 'tables', {}))):
+                is_variable = True
+            
+            # 检查OS/2表中的字重信息
+            weight_class = None
+            try:
+                if 'OS/2' in getattr(font, 'tables', {}) or (hasattr(font, 'keys') and 'OS/2' in font.keys()):
+                    os2_table = font['OS/2']
+                    if hasattr(os2_table, 'usWeightClass'):
+                        weight_class = os2_table.usWeightClass
+            except Exception:
+                pass
+            
+            # 提取轴信息
             axes_info = None
             if is_variable:
-                # 提取可变字体轴信息
-                axes_info = {}
-                for axis in font.tables['fvar'].axes:
-                    axes_info[axis.axisTag] = {
-                        'min': float(axis.minValue),
-                        'max': float(axis.maxValue),
-                        'default': float(axis.defaultValue)
-                    }
-                logger.info(f"Variable font detected: {font_path} with axes: {axes_info}")
+                try:
+                    if 'fvar' in getattr(font, 'tables', {}) or (hasattr(font, 'keys') and 'fvar' in font.keys()):
+                        fvar_table = font['fvar']
+                        axes_info = {}
+                        
+                        if hasattr(fvar_table, 'axes'):
+                            for axis in fvar_table.axes:
+                                axes_info[axis.axisTag] = {
+                                    'min': float(axis.minValue),
+                                    'max': float(axis.maxValue),
+                                    'default': float(axis.defaultValue)
+                                }
+                except Exception:
+                    # 设置默认轴信息
+                    axes_info = {'wght': {'min': 100, 'max': 900, 'default': 400}}
+            
+            # 强制处理：对明显的可变字体
+            font_name_lower = os.path.basename(font_path).lower()
+            if not is_variable and ('variable' in font_name_lower or 'vf' in font_name_lower.split('.')[0].split('-')):
+                is_variable = True
+                if not axes_info:
+                    axes_info = {'wght': {'min': 100, 'max': 900, 'default': 400}}
             
             return is_variable, axes_info
         except Exception as e:
@@ -142,6 +197,11 @@ class PNGStampGenerator:
 
     def _get_font_info(self, font_family):
         """Get font info for a given font family"""
+        if not font_family:
+            logger.warning("Empty font family provided, using default font")
+            return self.font_map.get('Arial', next(iter(self.font_map.values())) if self.font_map else None)
+            
+        # Direct match
         if font_family in self.font_map:
             return self.font_map[font_family]
             
@@ -149,9 +209,37 @@ class PNGStampGenerator:
         for name in self.font_map:
             if name.lower() == font_family.lower():
                 return self.font_map[name]
-                    
+        
+        # Try to match font family regardless of weight/style suffix
+        # E.g., if "Montserrat-Bold" is requested but only "Montserrat-Regular" exists
+        if '-' in font_family:
+            base_family = font_family.split('-')[0]
+            if base_family in self.font_map:
+                logger.debug(f"Using {base_family} as fallback for {font_family}")
+                return self.font_map[base_family]
+                
+            # Try to find any font with the same base family
+            for name in self.font_map:
+                if name.startswith(f"{base_family}-"):
+                    logger.debug(f"Using {name} as fallback for {font_family}")
+                    return self.font_map[name]
+        
+        # If we get here, we couldn't find the font
         logger.warning(f"Font not found: {font_family}")
-        return self.font_map.get('Arial')  # Default fallback
+        # Return any available font as fallback
+        default_font = self.font_map.get('Arial')
+        if default_font:
+            return default_font
+            
+        # Last resort: return the first available font
+        if self.font_map:
+            first_font = next(iter(self.font_map.values()))
+            logger.warning(f"Using {next(iter(self.font_map.keys()))} as last resort fallback")
+            return first_font
+            
+        # If there are no fonts at all, return None and let calling code handle it
+        logger.error("No fonts available in font_map")
+        return None
 
     def _get_pil_font(self, font_family, font_size, variable_settings=None):
         """
@@ -171,7 +259,33 @@ class PNGStampGenerator:
         try:
             # 获取字体信息
             font_info = self._get_font_info(font_family)
+            if not font_info:
+                logger.error(f"Could not get font info for {font_family}, no fonts available")
+                # Use PIL's default font as a last resort
+                default_font = ImageFont.load_default()
+                self.font_cache[cache_key] = default_font
+                return default_font
+                
             font_path = font_info.get('path')
+            if not font_path or not os.path.exists(font_path):
+                logger.error(f"Font path does not exist: {font_path}")
+                # Try system default font
+                default_fonts = [
+                    '/System/Library/Fonts/Arial.ttf',  # macOS
+                    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',  # Linux
+                    'C:\\Windows\\Fonts\\arial.ttf'  # Windows
+                ]
+                for default_path in default_fonts:
+                    if os.path.exists(default_path):
+                        font_path = default_path
+                        logger.debug(f"Using system default font: {font_path}")
+                        break
+                if not font_path or not os.path.exists(font_path):
+                    # Use PIL's default font as a last resort
+                    default_font = ImageFont.load_default()
+                    self.font_cache[cache_key] = default_font
+                    return default_font
+                
             is_variable = font_info.get('isVariableFont', False)
             
             if is_variable and variable_settings:
@@ -192,12 +306,26 @@ class PNGStampGenerator:
             logger.error(f"Error loading font {font_family}: {e}")
             # Fallback to default font
             try:
-                default_font_info = self._get_font_info('Arial')
-                default_font_path = default_font_info.get('path')
-                font = ImageFont.truetype(default_font_path, int(font_size))
-                self.font_cache[cache_key] = font
-                return font
-            except:
+                # Try to find a working system font
+                default_fonts = [
+                    '/System/Library/Fonts/Arial.ttf',  # macOS
+                    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',  # Linux
+                    'C:\\Windows\\Fonts\\arial.ttf'  # Windows
+                ]
+                for default_path in default_fonts:
+                    if os.path.exists(default_path):
+                        font = ImageFont.truetype(default_path, int(font_size))
+                        self.font_cache[cache_key] = font
+                        logger.debug(f"Using system fallback font: {default_path}")
+                        return font
+                
+                # If no system fonts work, use PIL's default
+                logger.warning("Using PIL's default font as last resort")
+                default_font = ImageFont.load_default()
+                self.font_cache[cache_key] = default_font
+                return default_font
+            except Exception as fallback_err:
+                logger.error(f"Failed to load any fonts, even defaults: {fallback_err}")
                 # Last resort fallback
                 return ImageFont.load_default()
 
@@ -257,18 +385,121 @@ class PNGStampGenerator:
             # 获取当前文本元素及其属性
             current_element = None
             variable_settings = None
+            font_weight = None
+            
             for element in self.text_elements:
                 if element.get('value') == text:
                     current_element = element
                     position = element.get('position', {})
                     
+                    # 保存字体权重信息，无论是否为可变字体都可能会用到
+                    font_weight = element.get('fontWeight')
+                    
                     # 检查是否有可变字体设置
                     if 'variableFontSettings' in element:
                         variable_settings = element.get('variableFontSettings')
+                        logger.debug(f"Using explicit variableFontSettings: {variable_settings}")
                     break
             
+            # 如果没有显式设置变量设置，则从fontWeight创建
+            if not variable_settings and font_weight:
+                # 转换fontWeight为wght值
+                wght_value = 400  # 默认值
+                
+                # 字符串形式的权重处理
+                if isinstance(font_weight, str):
+                    if font_weight.lower() == 'bold':
+                        wght_value = 700
+                    elif font_weight.lower() == 'medium':
+                        wght_value = 500
+                    elif font_weight.lower() == 'semibold':
+                        wght_value = 600
+                    elif font_weight.lower() == 'light':
+                        wght_value = 300
+                    elif font_weight.lower() == 'thin' or font_weight.lower() == 'hairline':
+                        wght_value = 100
+                    elif font_weight.lower() == 'black':
+                        wght_value = 900
+                    elif font_weight.lower() == 'extrabold':
+                        wght_value = 800
+                    elif font_weight.lower() == 'extralight':
+                        wght_value = 200
+                    elif font_weight.isdigit():
+                        wght_value = int(font_weight)
+                # 数字形式的权重处理
+                elif isinstance(font_weight, (int, float)):
+                    wght_value = int(font_weight)
+                
+                # 创建变量字体设置
+                variable_settings = {'wght': wght_value}
+                logger.debug(f"Created variable font settings from fontWeight '{font_weight}': {variable_settings}")
+            
+            # 常规权重的显式变量字体设置
+            if not variable_settings and not font_weight:
+                variable_settings = {'wght': 400}  # 默认常规权重
+            
+            # 首先尝试使用确切的字体名称（可能包含权重）
+            exact_font_family = font_family
+            
+            # 如果存在字体权重，并且font_family不包含权重信息，尝试构建包含权重的字体名称
+            if font_weight and '-' not in font_family:
+                # 权重映射到字体名称中常见的命名约定
+                weight_name_map = {
+                    'thin': 'Thin', 
+                    'hairline': 'Hairline',
+                    'extralight': 'ExtraLight',
+                    'light': 'Light',
+                    'regular': 'Regular',
+                    'normal': 'Regular',
+                    'medium': 'Medium',
+                    'semibold': 'SemiBold',
+                    'bold': 'Bold',
+                    'extrabold': 'ExtraBold',
+                    'black': 'Black',
+                    '100': 'Thin',
+                    '200': 'ExtraLight',
+                    '300': 'Light',
+                    '400': 'Regular',
+                    '500': 'Medium',
+                    '600': 'SemiBold',
+                    '700': 'Bold',
+                    '800': 'ExtraBold',
+                    '900': 'Black'
+                }
+                
+                # 尝试构建带权重的字体名称
+                if isinstance(font_weight, str) and font_weight.lower() in weight_name_map:
+                    weight_name = weight_name_map[font_weight.lower()]
+                    weighted_font_family = f"{font_family}-{weight_name}"
+                    
+                    # 检查此名称的字体是否存在于字体映射中
+                    if weighted_font_family in self.font_map:
+                        exact_font_family = weighted_font_family
+                        logger.debug(f"Using font with weight in name: {exact_font_family}")
+                    else:
+                        logger.debug(f"Weighted font name not found: {weighted_font_family}, using base family with variable settings")
+                elif isinstance(font_weight, (int, float)) or (isinstance(font_weight, str) and font_weight.isdigit()):
+                    # 数字权重转为名称
+                    weight_num = int(font_weight) if isinstance(font_weight, str) else font_weight
+                    weight_key = str(int(weight_num / 100) * 100)  # 四舍五入到最近的100
+                    
+                    if weight_key in weight_name_map:
+                        weight_name = weight_name_map[weight_key]
+                        weighted_font_family = f"{font_family}-{weight_name}"
+                        
+                        if weighted_font_family in self.font_map:
+                            exact_font_family = weighted_font_family
+                            logger.debug(f"Using font with weight in name: {exact_font_family}")
+                        else:
+                            logger.debug(f"Weighted font name not found: {weighted_font_family}, using base family with variable settings")
+            
             # 获取字体，应用可变字体设置（如果有）
-            font = self._get_pil_font(font_family, scaled_font_size, variable_settings)
+            font = self._get_pil_font(exact_font_family, scaled_font_size, variable_settings)
+            
+            # 如果没有找到带权重的字体，但有权重设置，使用基本字体名称再次尝试
+            if font == ImageFont.load_default() and exact_font_family != font_family:
+                logger.debug(f"Falling back to base font family: {font_family}")
+                font = self._get_pil_font(font_family, scaled_font_size, variable_settings)
             
             # Get position attributes
             circular_text = False
@@ -331,7 +562,7 @@ class PNGStampGenerator:
                 if text_width > max_available_width:
                     text_scale_factor = max_available_width / text_width
                     adjusted_font_size = int(scaled_font_size * text_scale_factor)
-                    font = self._get_pil_font(font_family, adjusted_font_size, variable_settings)
+                    font = self._get_pil_font(exact_font_family, adjusted_font_size, variable_settings)
                     # Recalculate text dimensions
                     bbox = font.getbbox(text)
                     text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
