@@ -7,6 +7,7 @@ import { StampsModule } from './stamps/stamps.module';
 import { FontsModule } from './fonts/fonts.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { BasketModule } from './basket/basket.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { AuthModule } from './auth/auth.module';
     FontsModule,
     UsersModule,
     AuthModule,
+    BasketModule,
   ],
 })
 export class AppModule {} 
