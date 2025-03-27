@@ -13,6 +13,7 @@ import { StampsService } from '../stamps/stamps.service';
 import { OrderStampService } from '../stamps/services/order-stamp.service';
 import { ExcelService } from './services/excel.service';
 import { UpdateStampDto } from './dto/update-stamp.dto';
+import { User } from '../users/entities/user.entity';
 
 @Injectable()
 export class OrdersService {
@@ -39,10 +40,12 @@ export class OrdersService {
     }
   }
 
-  async create(createOrderDto: CreateOrderDto): Promise<Order> {
+  async create(createOrderDto: CreateOrderDto, user?: User): Promise<Order> {
     const order = this.ordersRepository.create({
       status: createOrderDto.status,
-      orderType: createOrderDto.orderType
+      orderType: createOrderDto.orderType,
+      user: user,
+      userId: user?.id
     });
     return await this.ordersRepository.save(order);
   }
@@ -96,12 +99,13 @@ export class OrdersService {
     }
   }
 
-  async findAll(paginationDto: PaginationDto): Promise<PaginatedResponse<Order>> {
-    const { page = 1, limit = 10, search, status, startDate, endDate } = paginationDto;
+  async findAll(paginationDto: PaginationDto, currentUser?: User): Promise<PaginatedResponse<Order>> {
+    const { page = 1, limit = 10, search, status, startDate, endDate, userId } = paginationDto;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
       .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
+      .leftJoinAndSelect('order.user', 'user')
       .orderBy('order.createdAt', 'DESC')
       .skip(skip)
       .take(limit);
@@ -122,6 +126,19 @@ export class OrdersService {
       );
     }
 
+    // Apply user filter based on role
+    if (currentUser) {
+      // If admin user and userId is specified, filter by that userId
+      if (currentUser.isAdmin && userId) {
+        queryBuilder.andWhere('order.userId = :userId', { userId });
+      }
+      // If non-admin user, only show their own orders
+      else if (!currentUser.isAdmin) {
+        queryBuilder.andWhere('order.userId = :userId', { userId: currentUser.id });
+      }
+      // Admin without userId filter sees all orders
+    }
+
     const [items, total] = await queryBuilder.getManyAndCount();
     const ordersWithDetails = await this.addOrderDetails(items);
 
@@ -136,27 +153,37 @@ export class OrdersService {
     };
   }
 
-  async findOne(id: string): Promise<Order> {
-    const order = await this.ordersRepository.findOne({
-      where: { id },
-      relations: ['etsyOrder']
-    });
+  async findOne(id: string, currentUser?: User): Promise<Order> {
+    const queryBuilder = this.ordersRepository.createQueryBuilder('order')
+      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
+      .leftJoinAndSelect('order.user', 'user')
+      .where('order.id = :id', { id });
+
+    // If user is not admin, restrict to only their orders
+    if (currentUser && !currentUser.isAdmin) {
+      queryBuilder.andWhere('order.userId = :userId', { userId: currentUser.id });
+    }
+
+    const order = await queryBuilder.getOne();
 
     if (!order) {
-      throw new NotFoundException(`Order with ID "${id}" not found`);
+      throw new NotFoundException(`Order with ID "${id}" not found or you don't have permission to access it`);
     }
 
     const [orderWithDetails] = await this.addOrderDetails([order]);
     return orderWithDetails;
   }
 
-  async update(id: string, updateOrderDto: Partial<CreateOrderDto>): Promise<Order> {
-    const order = await this.findOne(id);
+  async update(id: string, updateOrderDto: Partial<CreateOrderDto>, currentUser?: User): Promise<Order> {
+    const order = await this.findOne(id, currentUser);
     Object.assign(order, updateOrderDto);
     return await this.ordersRepository.save(order);
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, currentUser?: User): Promise<void> {
+    // First check if the user has access to this order
+    await this.findOne(id, currentUser);
+    
     const result = await this.ordersRepository.delete(id);
     if (result.affected === 0) {
       throw new NotFoundException(`Order with ID "${id}" not found`);
@@ -167,18 +194,16 @@ export class OrdersService {
    * 使用指定的ID更新订单印章
    * @param id 订单ID
    * @param updateStampDto 更新印章的数据
+   * @param currentUser 当前用户
    * @returns 包含成功状态、路径和记录ID的结果
    */
-  async updateOrderStamp(id: string, updateStampDto: UpdateStampDto): Promise<{ success: boolean; path?: string; error?: string; recordId?: number }> {
+  async updateOrderStamp(id: string, updateStampDto: UpdateStampDto, currentUser?: User): Promise<{ success: boolean; path?: string; error?: string; recordId?: number }> {
     try {
       // 查找订单
-      const order = await this.ordersRepository.findOne({
-        where: { id },
-        relations: ['etsyOrder'],
-      });
+      const order = await this.findOne(id, currentUser);
 
       if (!order) {
-        throw new NotFoundException(`Order with ID ${id} not found`);
+        throw new NotFoundException(`Order with ID ${id} not found or you don't have permission to access it`);
       }
 
       // 创建适合印章生成的临时订单对象
@@ -291,21 +316,19 @@ export class OrdersService {
     }
   }
 
-  async getOrderStampRecords(orderId: string) {
-    // 首先确认订单存在
-    const order = await this.ordersRepository.findOne({
-      where: { id: orderId }
-    });
+  async getOrderStampRecords(orderId: string, currentUser?: User) {
+    // 首先确认订单存在并且用户有权限查看
+    const order = await this.findOne(orderId, currentUser);
 
     if (!order) {
-      throw new NotFoundException(`Order with ID ${orderId} not found`);
+      throw new NotFoundException(`Order with ID ${orderId} not found or you don't have permission to access it`);
     }
 
     // 从StampService获取记录
     return this.stampsService.getGenerationRecordsByOrderId(orderId);
   }
 
-  async exportStampsAsZip(startDate?: string, endDate?: string, search?: string, status?: string): Promise<{
+  async exportStampsAsZip(startDate?: string, endDate?: string, search?: string, status?: string, currentUser?: User): Promise<{
     filePath: string;
     fileName: string;
     orderCount: number;
@@ -314,7 +337,8 @@ export class OrdersService {
     
     // Create query builder for finding orders with generated stamps
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
-      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder');
+      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
+      .leftJoinAndSelect('order.user', 'user');
 
     // Apply status filter if provided, otherwise use default filter for generated stamps
     if (status) {
@@ -336,6 +360,11 @@ export class OrdersService {
       );
     }
 
+    // Apply user filter based on role
+    if (currentUser && !currentUser.isAdmin) {
+      queryBuilder.andWhere('order.userId = :userId', { userId: currentUser.id });
+    }
+
     // Get the SQL query for debugging
     const sqlQuery = queryBuilder.getSql();
     console.log(`查询SQL: ${sqlQuery}`);
@@ -355,6 +384,11 @@ export class OrdersService {
       allOrdersQuery.where('order.status IN (:...statuses)', { 
         statuses: ['stamp_generated_pending_review', 'stamp_generated_reviewed'] 
       });
+    }
+    
+    // Apply user filter for non-admin users
+    if (currentUser && !currentUser.isAdmin) {
+      allOrdersQuery.andWhere('order.userId = :userId', { userId: currentUser.id });
     }
     
     const allOrders = await allOrdersQuery.getMany();

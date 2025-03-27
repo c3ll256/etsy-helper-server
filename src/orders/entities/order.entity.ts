@@ -1,6 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToOne } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToOne, ManyToOne } from 'typeorm';
 import { EtsyOrder } from './etsy-order.entity';
 import { ApiProperty } from '@nestjs/swagger';
+import { User } from '../../users/entities/user.entity';
 
 @Entity('orders')
 export class Order {
@@ -66,6 +67,21 @@ export class Order {
   })
   @OneToOne(() => EtsyOrder, (etsyOrder) => etsyOrder.order)
   etsyOrder: EtsyOrder;
+
+  @ApiProperty({
+    description: 'The user who owns this order',
+    type: () => User,
+    required: false
+  })
+  @ManyToOne(() => User, user => user.orders, { nullable: true })
+  user: User;
+
+  @ApiProperty({
+    description: 'The user ID who owns this order',
+    required: false
+  })
+  @Column({ nullable: true })
+  userId: string;
 
   @ApiProperty({
     description: 'The creation timestamp',

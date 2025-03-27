@@ -7,18 +7,20 @@ export interface JobProgress {
   message: string;
   result?: any;
   error?: string;
+  userId?: string; // Add user ID to track job ownership
 }
 
 @Injectable()
 export class JobQueueService {
   private jobs = new Map<string, JobProgress>();
 
-  createJob(): string {
+  createJob(userId?: string): string {
     const jobId = uuidv4();
     this.jobs.set(jobId, {
       status: 'pending',
       progress: 0,
       message: 'Job created, waiting to start',
+      userId: userId,
     });
     return jobId;
   }

@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { JobQueueService } from './job-queue.service';
 import * as path from 'path';
 import * as fs from 'fs';
+import { User } from '../../users/entities/user.entity';
 
 @Injectable()
 export class ExcelService {
@@ -26,11 +27,11 @@ export class ExcelService {
   ) {}
 
   // New method for asynchronous processing with progress tracking
-  async processExcelFileAsync(file: Express.Multer.File): Promise<string> {
-    const jobId = this.jobQueueService.createJob();
+  async processExcelFileAsync(file: Express.Multer.File, user?: User): Promise<string> {
+    const jobId = this.jobQueueService.createJob(user?.id);
     
     // Start processing in background
-    this.processExcelFileWithProgress(file, jobId).catch(error => {
+    this.processExcelFileWithProgress(file, jobId, user).catch(error => {
       this.logger.error(`Error in background processing: ${error.message}`, error.stack);
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'failed',
@@ -44,7 +45,7 @@ export class ExcelService {
   }
 
   // Background processing method
-  private async processExcelFileWithProgress(file: Express.Multer.File, jobId: string): Promise<void> {
+  private async processExcelFileWithProgress(file: Express.Multer.File, jobId: string, user?: User): Promise<void> {
     try {
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'processing',
@@ -116,8 +117,8 @@ export class ExcelService {
             continue;
           }
 
-          // 使用processOrderWithStamp处理订单，现在支持自动检测和处理多个个性化信息
-          const orderResult = await this.processOrderWithStamp(item);
+          // 使用processOrderWithStamp处理订单，现在支持自动检测和处理多个个性化信息，并关联到用户
+          const orderResult = await this.processOrderWithStamp(item, user);
           
           if (orderResult.success && orderResult.stamps && orderResult.stamps.length > 0) {
             // 成功创建了订单和印章
@@ -183,6 +184,7 @@ export class ExcelService {
   // 处理订单及生成印章
   private async processOrderWithStamp(
     item: any, 
+    user?: User,
     personalizationText?: string
   ): Promise<{
     success: boolean;
@@ -282,8 +284,8 @@ export class ExcelService {
       mainItem['Variations'] = originalVariations;
       mainItem['ParsedVariations'] = parsedResult;
       
-      // 创建基础订单
-      const orderResult = await this.etsyOrderService.createFromExcelData(mainItem, tempOrderId);
+      // 创建基础订单，关联到当前登录用户
+      const orderResult = await this.etsyOrderService.createFromExcelData(mainItem, tempOrderId, user);
       
       if (orderResult.status !== 'created') {
         return {

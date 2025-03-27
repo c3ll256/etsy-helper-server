@@ -5,6 +5,7 @@ import { EtsyOrder } from '../entities/etsy-order.entity';
 import { Order } from '../entities/order.entity';
 import { GlmService } from '../../common/services/glm.service';
 import { OllamaService } from '../../common/services/ollama.service';
+import { User } from '../../users/entities/user.entity';
 
 @Injectable()
 export class EtsyOrderService {
@@ -19,7 +20,7 @@ export class EtsyOrderService {
     private readonly ollamaService: OllamaService,
   ) {}
 
-  async createFromExcelData(data: any, tempOrderId: string | undefined): Promise<{ order: EtsyOrder | null; status: 'created' | 'skipped'; reason?: string }> {
+  async createFromExcelData(data: any, tempOrderId: string | undefined, user?: User): Promise<{ order: EtsyOrder | null; status: 'created' | 'skipped'; reason?: string }> {
     const orderId = data['Order ID']?.toString() || '';
     const transactionId = data['Transaction ID']?.toString() || '';
     
@@ -46,7 +47,9 @@ export class EtsyOrderService {
       status: 'stamp_not_generated',
       orderType: 'etsy',
       platformOrderId: orderId,
-      platformOrderDate: data['Date Paid'] ? new Date(data['Date Paid']) : null
+      platformOrderDate: data['Date Paid'] ? new Date(data['Date Paid']) : null,
+      user: user,
+      userId: user?.id
     });
     
     await this.orderRepository.save(order);

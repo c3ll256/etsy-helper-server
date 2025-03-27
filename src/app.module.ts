@@ -5,6 +5,8 @@ import { OrdersModule } from './orders/orders.module';
 import { CommonModule } from './common/common.module';
 import { StampsModule } from './stamps/stamps.module';
 import { FontsModule } from './fonts/fonts.module';
+import { UsersModule } from './users/users.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { FontsModule } from './fonts/fonts.module';
     CommonModule,
     StampsModule,
     FontsModule,
+    UsersModule,
+    AuthModule,
   ],
 })
 export class AppModule {} 

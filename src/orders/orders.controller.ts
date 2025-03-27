@@ -1,11 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors, UploadedFile, BadRequestException, Query, Put, Res, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors, UploadedFile, BadRequestException, Query, Put, Res, NotFoundException, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateStampDto } from './dto/update-stamp.dto';
 import { ExportStampsDto } from './dto/export-stamps.dto';
 import { ExcelService } from './services/excel.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { Order } from './entities/order.entity';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
@@ -16,9 +16,15 @@ import { StampGenerationRecord } from '../stamps/entities/stamp-generation-recor
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JobQueueService } from './services/job-queue.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../auth/guards/admin.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from '../users/entities/user.entity';
 
 @ApiTags('orders')
 @Controller('orders')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
@@ -32,8 +38,8 @@ export class OrdersController {
   @ApiOperation({ summary: 'Create a new order' })
   @ApiResponse({ status: 201, description: 'The order has been successfully created.' })
   @ApiResponse({ status: 400, description: 'Invalid input data.' })
-  create(@Body() createOrderDto: CreateOrderDto) {
-    return this.ordersService.create(createOrderDto);
+  create(@Body() createOrderDto: CreateOrderDto, @CurrentUser() user: User) {
+    return this.ordersService.create(createOrderDto, user);
   }
 
   @Post('upload')
@@ -65,7 +71,10 @@ export class OrdersController {
   })
   @ApiResponse({ status: 400, description: 'Invalid file or file processing error.' })
   @UseInterceptors(FileInterceptor('file'))
-  async uploadFile(@UploadedFile() file: Express.Multer.File) {
+  async uploadFile(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: User
+  ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
@@ -75,8 +84,8 @@ export class OrdersController {
     }
 
     try {
-      // Start asynchronous processing
-      const jobId = await this.excelService.processExcelFileAsync(file);
+      // Start asynchronous processing with the current user
+      const jobId = await this.excelService.processExcelFileAsync(file, user);
       
       return {
         message: 'File accepted for processing',
@@ -147,10 +156,15 @@ export class OrdersController {
     }
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
-  checkJobStatus(@Param('jobId') jobId: string) {
+  checkJobStatus(@Param('jobId') jobId: string, @CurrentUser() user: User) {
     const jobProgress = this.jobQueueService.getJobProgress(jobId);
     
     if (!jobProgress) {
+      throw new NotFoundException(`Job with ID ${jobId} not found`);
+    }
+    
+    // Check if job belongs to user (unless admin)
+    if (!user.isAdmin && jobProgress.userId && jobProgress.userId !== user.id) {
       throw new NotFoundException(`Job with ID ${jobId} not found`);
     }
     
@@ -201,8 +215,13 @@ export class OrdersController {
     enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
     description: '按订单状态筛选' 
   })
-  findAll(@Query() paginationDto: PaginationDto): Promise<PaginatedResponse<Order>> {
-    return this.ordersService.findAll(paginationDto);
+  @ApiQuery({ 
+    name: 'userId', 
+    required: false, 
+    description: '按用户ID筛选（仅限管理员）' 
+  })
+  findAll(@Query() paginationDto: PaginationDto, @CurrentUser() user: User): Promise<PaginatedResponse<Order>> {
+    return this.ordersService.findAll(paginationDto, user);
   }
 
   @Get('export-stamps')
@@ -230,14 +249,16 @@ export class OrdersController {
   })
   async exportStamps(
     @Query() exportStampsDto: ExportStampsDto,
-    @Res() res: Response
+    @Res() res: Response,
+    @CurrentUser() user: User
   ) {
     try {
       const result = await this.ordersService.exportStampsAsZip(
         exportStampsDto.startDate,
         exportStampsDto.endDate,
         exportStampsDto.search,
-        exportStampsDto.status
+        exportStampsDto.status,
+        user
       );
 
       // 确保文件存在且有效
@@ -289,10 +310,10 @@ export class OrdersController {
     type: Order
   })
   @ApiResponse({ status: 404, description: 'Order not found' })
-  async findOne(@Param('id') id: string): Promise<any> {
-    const order = await this.ordersService.findOne(id);
+  async findOne(@Param('id') id: string, @CurrentUser() user: User): Promise<any> {
+    const order = await this.ordersService.findOne(id, user);
     if (!order) {
-      throw new NotFoundException(`Order with ID ${id} not found`);
+      throw new NotFoundException(`Order with ID ${id} not found or you don't have permission to access it`);
     }
 
     // 获取关联的印章生成记录
@@ -317,8 +338,12 @@ export class OrdersController {
   @ApiOperation({ summary: 'Update an order' })
   @ApiResponse({ status: 200, description: 'The order has been successfully updated.' })
   @ApiResponse({ status: 404, description: 'Order not found.' })
-  update(@Param('id') id: string, @Body() updateOrderDto: Partial<CreateOrderDto>) {
-    return this.ordersService.update(id, updateOrderDto);
+  update(
+    @Param('id') id: string, 
+    @Body() updateOrderDto: Partial<CreateOrderDto>,
+    @CurrentUser() user: User
+  ) {
+    return this.ordersService.update(id, updateOrderDto, user);
   }
 
   @Get(':id/stamp-records')
@@ -351,16 +376,16 @@ export class OrdersController {
     }
   })
   @ApiResponse({ status: 404, description: '订单不存在' })
-  async getOrderStampRecords(@Param('id') id: string) {
-    return this.ordersService.getOrderStampRecords(id);
+  async getOrderStampRecords(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.ordersService.getOrderStampRecords(id, user);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete an order' })
   @ApiResponse({ status: 200, description: 'The order has been successfully deleted.' })
   @ApiResponse({ status: 404, description: 'Order not found.' })
-  remove(@Param('id') id: string) {
-    return this.ordersService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.ordersService.remove(id, user);
   }
 
   @ApiOperation({ summary: '更新指定订单的印章' })
@@ -382,10 +407,11 @@ export class OrdersController {
   @Patch(':id/stamp')
   async updateOrderStampById(
     @Param('id') id: string,
-    @Body() updateStampDto: UpdateStampDto
+    @Body() updateStampDto: UpdateStampDto,
+    @CurrentUser() user: User
   ): Promise<any> {
     try {
-      const result = await this.ordersService.updateOrderStamp(id, updateStampDto);
+      const result = await this.ordersService.updateOrderStamp(id, updateStampDto, user);
       
       return {
         success: true,
@@ -426,7 +452,8 @@ export class OrdersController {
     }
   })
   @ApiResponse({ status: 404, description: '印章生成记录不存在' })
-  async getStampRecordById(@Param('recordId') recordId: string) {
+  async getStampRecordById(@Param('recordId') recordId: string, @CurrentUser() user: User) {
+    // First verify if the user has access to the record
     const record = await this.stampGenerationRecordRepository.findOne({
       where: { id: +recordId },
       relations: ['template']
@@ -434,6 +461,16 @@ export class OrdersController {
     
     if (!record) {
       throw new NotFoundException(`Stamp generation record with ID ${recordId} not found`);
+    }
+    
+    // If the user is not an admin, check if they have access to the order
+    if (!user.isAdmin) {
+      try {
+        // This will throw an exception if the user doesn't have access to this order
+        await this.ordersService.findOne(record.orderId, user);
+      } catch (error) {
+        throw new NotFoundException(`Stamp generation record with ID ${recordId} not found`);
+      }
     }
     
     return record;
