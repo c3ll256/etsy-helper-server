@@ -36,22 +36,45 @@ export class BasketController {
   constructor(private readonly basketService: BasketService) {}
 
   @Post('generate')
-  @ApiOperation({ summary: '生成篮子订单PPT' })
+  @ApiOperation({ summary: '生成篮子或书包订单PPT' })
   @ApiConsumes('multipart/form-data')
   @ApiResponse({ status: 201, description: '订单PPT生成任务已创建', type: BasketGenerationResponseDto })
   @ApiResponse({ status: 400, description: '无效的文件类型或参数' })
   @ApiResponse({ status: 401, description: '未授权' })
   @UseInterceptors(FileInterceptor('file'))
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Excel文件'
+        },
+        originalFilename: {
+          type: 'string',
+          description: '原始文件名'
+        },
+        orderType: {
+          type: 'string',
+          enum: ['basket', 'backpack'],
+          description: '订单类型：篮子或书包',
+          default: 'basket'
+        }
+      }
+    }
+  })
   async generateBasketOrders(
     @UploadedFile() file: Express.Multer.File,
     @Body('originalFilename') originalFilename: string,
+    @Body('orderType') orderType: 'basket' | 'backpack' = 'basket',
     @CurrentUser() user: User,
   ): Promise<BasketGenerationResponseDto> {
     if (!file) {
       throw new BadRequestException('没有提供Excel文件');
     }
     
-    return this.basketService.generateBasketOrders(file, user, originalFilename);
+    return this.basketService.generateBasketOrders(file, user, originalFilename, orderType);
   }
 
   @Get('sku-config')

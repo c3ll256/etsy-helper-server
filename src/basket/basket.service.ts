@@ -57,12 +57,14 @@ export class BasketService {
    * @param file Uploaded Excel file
    * @param user 当前登录用户
    * @param originalFilename Original filename
+   * @param orderType 订单类型 (篮子 或 书包)
    * @returns Basket generation record
    */
   async generateBasketOrders(
     file: Express.Multer.File, 
     user: User,
-    originalFilename?: string
+    originalFilename?: string,
+    orderType: 'basket' | 'backpack' = 'basket'
   ): Promise<BasketGenerationResponseDto> {
     // Check if user has SKU configuration
     const userConfig = await this.getUserSkuConfig(user.id);
@@ -77,6 +79,7 @@ export class BasketService {
       status: 'pending',
       progress: 0,
       userId: user.id,
+      orderType: orderType // 保存订单类型到记录中
     });
 
     // Save to get an ID
@@ -86,7 +89,7 @@ export class BasketService {
     const jobId = this.jobQueueService.createJob(user.id);
 
     // Start processing in background
-    this.processBasketOrdersAsync(savedRecord.id, file, jobId, userConfig);
+    this.processBasketOrdersAsync(savedRecord.id, file, jobId, userConfig, orderType);
 
     // Return the record
     return {
@@ -96,6 +99,7 @@ export class BasketService {
       progress: savedRecord.progress,
       originalFilename: savedRecord.originalFilename,
       createdAt: savedRecord.createdAt,
+      orderType: orderType // 在响应中包含订单类型
     };
   }
 
@@ -276,15 +280,17 @@ export class BasketService {
   /**
    * Process basket orders asynchronously
    * @param recordId Generation record ID
-   * @param file Uploaded Excel file
+   * @param file Uploaded file
    * @param jobId Job queue ID
    * @param skuConfig User's SKU configuration
+   * @param orderType Order type (basket or backpack)
    */
   private async processBasketOrdersAsync(
     recordId: number, 
     file: Express.Multer.File, 
     jobId: string,
-    skuConfig: SkuConfig
+    skuConfig: SkuConfig,
+    orderType: 'basket' | 'backpack'
   ): Promise<void> {
     // Update status to processing
     await this.basketRecordRepository.update(recordId, {
@@ -314,25 +320,30 @@ export class BasketService {
       const fileBuffer = fs.readFileSync(file.path);
       const processedOrders = await this.processExcelData(fileBuffer, skuConfig);
       
+      // Filter orders by specified orderType if needed
+      const filteredOrders = processedOrders.filter(order => 
+        !orderType || order.orderType === orderType
+      );
+      
       // Check if any orders were found
-      if (processedOrders.length === 0) {
-        throw new Error('没有找到匹配的订单，请检查您的SKU配置是否正确');
+      if (filteredOrders.length === 0) {
+        throw new Error(`没有找到匹配的${orderType === 'basket' ? '篮子' : '书包'}订单，请检查您的SKU配置是否正确`);
       }
       
       // Update progress after processing Excel data
       await this.basketRecordRepository.update(recordId, {
         progress: 50,
-        ordersProcessed: processedOrders.length,
-        totalOrders: processedOrders.length,
+        ordersProcessed: filteredOrders.length,
+        totalOrders: filteredOrders.length,
       });
       
       this.jobQueueService.updateJobProgress(jobId, {
         progress: 50,
-        message: `已处理 ${processedOrders.length} 个订单`,
+        message: `已处理 ${filteredOrders.length} 个订单`,
       });
 
       // Generate PPT using Python service
-      this.logger.log(`Generating PPT for ${processedOrders.length} orders`);
+      this.logger.log(`Generating PPT for ${filteredOrders.length} orders`);
       
       // Prepare data for generating PPT
       await this.basketRecordRepository.update(recordId, {
@@ -354,7 +365,7 @@ export class BasketService {
       const shopName = record?.user?.shopName || '';
       
       // Prepare data for PPT generation
-      const pptData = this.preparePPTData(processedOrders, shopName);
+      const pptData = this.preparePPTData(filteredOrders, shopName);
       
       // Call Python service to generate PPT
       const result = await this.pythonBasketService.generateBasketOrderPPT(
@@ -375,18 +386,18 @@ export class BasketService {
         status: 'completed',
         progress: 100,
         outputFilePath: result.filePath,
-        ordersProcessed: processedOrders.length,
-        totalOrders: processedOrders.length,
+        ordersProcessed: filteredOrders.length,
+        totalOrders: filteredOrders.length,
       });
       
       // Update job progress with success result
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'completed',
         progress: 100,
-        message: '篮子订单PPT生成成功',
+        message: `${orderType === 'basket' ? '篮子' : '书包'}订单PPT生成成功`,
         result: {
           filePath: result.filePath,
-          totalOrders: processedOrders.length,
+          totalOrders: filteredOrders.length,
         }
       });
 
@@ -408,7 +419,7 @@ export class BasketService {
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'failed',
         progress: 0,
-        message: '篮子订单PPT生成失败',
+        message: `${orderType === 'basket' ? '篮子' : '书包'}订单PPT生成失败`,
         error: error.message
       });
       
