@@ -34,7 +34,6 @@ async function bootstrap() {
   // 配置静态文件服务
   app.use('/stamps', express.static('uploads/stamps'));
   app.use('/uploads', express.static('uploads'));
-  app.use('/baskets', express.static('uploads/baskets'));
 
   // Create admin user if not exists
   const usersService = app.get(UsersService);
