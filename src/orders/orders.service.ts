@@ -14,6 +14,7 @@ import { OrderStampService } from '../stamps/services/order-stamp.service';
 import { ExcelService } from './services/excel.service';
 import { UpdateStampDto } from './dto/update-stamp.dto';
 import { User } from '../users/entities/user.entity';
+import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
 
 @Injectable()
 export class OrdersService {
@@ -25,6 +26,8 @@ export class OrdersService {
     private ordersRepository: Repository<Order>,
     @InjectRepository(EtsyOrder)
     private etsyOrderRepository: Repository<EtsyOrder>,
+    @InjectRepository(StampGenerationRecord)
+    private stampGenerationRecordRepository: Repository<StampGenerationRecord>,
     private readonly stampsService: StampsService,
     private readonly orderStampService: OrderStampService,
     private readonly excelService: ExcelService,
@@ -100,7 +103,7 @@ export class OrdersService {
   }
 
   async findAll(paginationDto: PaginationDto, currentUser?: User): Promise<PaginatedResponse<Order>> {
-    const { page = 1, limit = 10, search, status, startDate, endDate, userId } = paginationDto;
+    const { page = 1, limit = 10, search, status, startDate, endDate, userId, templateIds } = paginationDto;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
@@ -124,6 +127,34 @@ export class OrdersService {
         '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
         { search: `%${search}%` }
       );
+    }
+
+    // Apply template filter if provided
+    if (templateIds && templateIds.length > 0) {
+      console.log(`应用模板筛选条件，模板IDs: ${JSON.stringify(templateIds)}`);
+      
+      // 查询模板获取SKUs
+      const templates = await this.stampsService.getTemplatesByIds(templateIds);
+      const templateSkus = templates.map(template => template.sku).filter(sku => sku);
+      
+      console.log(`模板SKUs: ${JSON.stringify(templateSkus)}`);
+      
+      // 使用SKU进行模糊匹配
+      if (templateSkus.length > 0) {
+        // 构建模糊匹配条件
+        const skuConditions = templateSkus.map((sku, index) => {
+          const paramName = `sku${index}`;
+          return `etsyOrder.sku ILIKE :${paramName}`;
+        }).join(' OR ');
+        
+        // 构建参数对象
+        const skuParams = {};
+        templateSkus.forEach((sku, index) => {
+          skuParams[`sku${index}`] = `%${sku}%`;
+        });
+        
+        queryBuilder.andWhere(`etsyOrder.sku IS NOT NULL AND (${skuConditions})`, skuParams);
+      }
     }
 
     // Apply user filter based on role
@@ -328,12 +359,19 @@ export class OrdersService {
     return this.stampsService.getGenerationRecordsByOrderId(orderId);
   }
 
-  async exportStampsAsZip(startDate?: string, endDate?: string, search?: string, status?: string, currentUser?: User): Promise<{
+  async exportStampsAsZip(
+    startDate?: string, 
+    endDate?: string, 
+    search?: string, 
+    status?: string, 
+    currentUser?: User,
+    templateIds?: number[]
+  ): Promise<{
     filePath: string;
     fileName: string;
     orderCount: number;
   }> {
-    console.log(`开始导出图章: 开始日期=${startDate || '无'}, 结束日期=${endDate || '无'}, 搜索=${search || '无'}, 状态=${status || '全部'}`);
+    console.log(`开始导出图章: 开始日期=${startDate || '无'}, 结束日期=${endDate || '无'}, 搜索=${search || '无'}, 状态=${status || '全部'}, 模板IDs=${templateIds?.join(',') || '全部'}`);
     
     // Create query builder for finding orders with generated stamps
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
@@ -358,6 +396,37 @@ export class OrdersService {
         '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
         { search: `%${search}%` }
       );
+    }
+
+    // Apply template filter if provided
+    if (templateIds && templateIds.length > 0) {
+      console.log(`应用模板筛选条件，模板IDs: ${JSON.stringify(templateIds)}`);
+      
+      // 查询模板获取SKUs
+      const templates = await this.stampsService.getTemplatesByIds(templateIds);
+      const templateSkus = templates.map(template => template.sku).filter(sku => sku);
+      
+      console.log(`模板SKUs: ${JSON.stringify(templateSkus)}`);
+      
+      // 使用SKU进行模糊匹配
+      if (templateSkus.length > 0) {
+        // 构建模糊匹配条件
+        const skuConditions = templateSkus.map((sku, index) => {
+          const paramName = `sku${index}`;
+          return `etsyOrder.sku ILIKE :${paramName}`;
+        }).join(' OR ');
+        
+        // 构建参数对象
+        const skuParams = {};
+        templateSkus.forEach((sku, index) => {
+          skuParams[`sku${index}`] = `%${sku}%`;
+        });
+        
+        queryBuilder.andWhere(`etsyOrder.sku IS NOT NULL AND (${skuConditions})`, skuParams);
+      }
+      
+      console.log(`模板筛选SQL: ${queryBuilder.getSql()}`);
+      console.log(`模板筛选参数: ${JSON.stringify(queryBuilder.getParameters())}`);
     }
 
     // Apply user filter based on role
@@ -483,7 +552,7 @@ export class OrdersService {
               // Use Excel row index and stamp index for filename
               const fileExtension = path.extname(stampPath);
               // Match the exact filename pattern used in Excel - order index (1-based) followed by stamp index (1-based)
-              const numberedFileName = `${i + 1}-${stampIndex + 1}${fileExtension}`;
+              const numberedFileName = `${order.platformOrderId}-${stampIndex + 1}${fileExtension}`;
               
               console.log(`添加文件到压缩包: ${numberedFileName}`);
               

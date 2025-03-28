@@ -51,7 +51,6 @@ def create_basket_order_slide(prs, order_data):
     date_p.font.bold = True
     date_p.font.size = Pt(24)
     date_p.font.color.rgb = RGBColor(0, 0, 0)
-    logger.info(f"Added date: {date_p.text}")
     
     # 组合 orderID-SKU-color-icon，在连字符两侧添加空格
     order_id_str = str(order_data.get('orderNumber', ''))
@@ -76,7 +75,6 @@ def create_basket_order_slide(prs, order_data):
     combined_p.font.bold = True
     combined_p.font.size = Pt(22)
     combined_p.font.color.rgb = RGBColor(0, 0, 0)
-    logger.info(f"Added combined top info: {combined_text}")
     
     # Position (一单多买的序号)
     position_box = slide.shapes.add_textbox(prs.slide_width - margin - Inches(1.2), margin, Inches(1.2), Inches(0.4))
@@ -87,7 +85,6 @@ def create_basket_order_slide(prs, order_data):
     position_p.font.bold = True
     position_p.font.size = Pt(22)
     position_p.font.color.rgb = RGBColor(0, 0, 0)
-    logger.info(f"Added position: {position_p.text}")
     
     # ----- MIDDLE SECTION -----
     # Recipient Name (收件人)
@@ -99,7 +96,6 @@ def create_basket_order_slide(prs, order_data):
     recipient_p.font.bold = True
     recipient_p.font.size = Pt(24)  # 减小收件人字体
     recipient_p.font.color.rgb = RGBColor(0, 0, 0)
-    logger.info(f"Added recipient name: {recipient_p.text}")
     
     # ----- MAIN CONTENT -----
     # Custom Value (定制内容) - 占满整个A4宽度
@@ -126,7 +122,6 @@ def create_basket_order_slide(prs, order_data):
     font_size = min(180, max(120, int(base_size * adjustment_factor / (text_len ** 0.5))))
     
     value_p.font.size = Pt(font_size)
-    logger.info(f"Added custom name: {value_p.text} with auto-calculated font size: {font_size}pt")
     
     # ----- BOTTOM SECTION -----
     # Shop name at the bottom
@@ -154,7 +149,6 @@ def create_basket_order_slide(prs, order_data):
     bottom_p.font.size = Pt(22)
     bottom_p.font.bold = True
     bottom_p.font.color.rgb = RGBColor(0, 0, 0)
-    logger.info(f"Added bottom text: {bottom_p.text}")
     
     # Return the slide
     return slide

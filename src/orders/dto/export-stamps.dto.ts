@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsDateString, IsOptional, IsString, IsEnum } from 'class-validator';
+import { IsDateString, IsOptional, IsString, IsEnum, IsArray, IsNumber } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 export class ExportStampsDto {
   @ApiProperty({
@@ -38,4 +39,28 @@ export class ExportStampsDto {
   })
   @IsOptional()
   status?: string;
+  
+  @ApiProperty({
+    description: '印章模板ID筛选（多选）',
+    type: [Number],
+    example: [1, 2, 3],
+    required: false
+  })
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @Type(() => Number)
+  @Transform(({ value }) => {
+    // 处理各种可能的输入格式
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    // 如果已经是数组，直接返回
+    if (Array.isArray(value)) {
+      return value.map(v => Number(v));
+    }
+    // 如果是单个值，转换为数组
+    return [Number(value)];
+  })
+  @IsOptional()
+  templateIds?: number[];
 } 

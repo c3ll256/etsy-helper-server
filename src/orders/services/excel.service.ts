@@ -507,8 +507,8 @@ export class ExcelService {
               'SKU': order.etsyOrder.sku || 'N/A',
               '解析前的variants': order.etsyOrder.originalVariations || 'N/A',
               '解析后的variants': JSON.stringify(order.etsyOrder.variations) || 'N/A',
-              '下单日期': order.etsyOrder.saleDate || order.createdAt,
-              '文件名': `${i + 1}-${stampIndex + 1}${path.extname(stampUrl)}`
+              '下单日期': order.platformOrderDate || order.createdAt,
+              '文件名': `${order.platformOrderId}-${stampIndex + 1}${path.extname(stampUrl)}`
             });
           });
         }

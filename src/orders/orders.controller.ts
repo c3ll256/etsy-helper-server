@@ -220,6 +220,13 @@ export class OrdersController {
     required: false, 
     description: '按用户ID筛选（仅限管理员）' 
   })
+  @ApiQuery({ 
+    name: 'templateIds', 
+    required: false, 
+    description: '按印章模板ID筛选（多选）', 
+    type: [Number],
+    isArray: true
+  })
   findAll(@Query() paginationDto: PaginationDto, @CurrentUser() user: User): Promise<PaginatedResponse<Order>> {
     return this.ordersService.findAll(paginationDto, user);
   }
@@ -247,6 +254,13 @@ export class OrdersController {
     enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
     description: '按订单状态筛选' 
   })
+  @ApiQuery({ 
+    name: 'templateIds', 
+    required: false, 
+    description: '按印章模板ID筛选（多选）', 
+    type: [Number],
+    isArray: true
+  })
   async exportStamps(
     @Query() exportStampsDto: ExportStampsDto,
     @Res() res: Response,
@@ -258,7 +272,8 @@ export class OrdersController {
         exportStampsDto.endDate,
         exportStampsDto.search,
         exportStampsDto.status,
-        user
+        user,
+        exportStampsDto.templateIds
       );
 
       // 确保文件存在且有效

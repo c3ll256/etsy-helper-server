@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { In } from 'typeorm';
 
 import { StampTemplate } from './entities/stamp-template.entity';
 import { StampGenerationRecord } from './entities/stamp-generation-record.entity';
@@ -165,5 +166,16 @@ export class StampsService {
     const updatedTemplate = this.stampTemplateRepository.merge(template, updateStampTemplateDto);
     
     return this.stampTemplateRepository.save(updatedTemplate);
+  }
+
+  // 根据模板ID数组获取模板列表
+  async getTemplatesByIds(ids: number[]): Promise<StampTemplate[]> {
+    if (!ids || ids.length === 0) {
+      return [];
+    }
+    
+    return this.stampTemplateRepository.find({
+      where: { id: In(ids) }
+    });
   }
 }
