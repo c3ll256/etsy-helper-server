@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import { BasketController } from './basket.controller';
 import { BasketService } from './basket.service';
 import { BasketGenerationRecord } from './entities/basket-generation-record.entity';
+import { SkuConfig } from './entities/sku-config.entity';
 import { PythonBasketService } from './services/python-basket.service';
 import { CommonModule } from '../common/common.module';
 import { UsersModule } from '../users/users.module';
@@ -22,7 +23,7 @@ if (!fs.existsSync(BASKETS_UPLOADS_DIR)) {
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([BasketGenerationRecord]),
+    TypeOrmModule.forFeature([BasketGenerationRecord, SkuConfig]),
     CommonModule,
     UsersModule,
     AuthModule,

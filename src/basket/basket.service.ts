@@ -1,4 +1,4 @@
-import { Injectable, Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, Like } from 'typeorm';
 import * as fs from 'fs';
@@ -13,6 +13,8 @@ import { User } from '../users/entities/user.entity';
 import { BasketPaginationDto } from './dto/basket-pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { JobQueueService } from '../orders/services/job-queue.service';
+import { SkuConfig } from './entities/sku-config.entity';
+import { CreateSkuConfigDto, UpdateSkuConfigDto } from './dto/sku-config.dto';
 
 interface ParsedVariation {
   color: string;
@@ -27,6 +29,7 @@ interface ProcessedOrder {
   variations: ParsedVariation[];
   sku: string;
   icon?: string;
+  orderType?: 'basket' | 'backpack';
 }
 
 @Injectable()
@@ -37,6 +40,8 @@ export class BasketService {
   constructor(
     @InjectRepository(BasketGenerationRecord)
     private readonly basketRecordRepository: Repository<BasketGenerationRecord>,
+    @InjectRepository(SkuConfig)
+    private readonly skuConfigRepository: Repository<SkuConfig>,
     private readonly pythonBasketService: PythonBasketService,
     private readonly ollamaService: OllamaService,
     private readonly jobQueueService: JobQueueService,
@@ -59,6 +64,13 @@ export class BasketService {
     user: User,
     originalFilename?: string
   ): Promise<BasketGenerationResponseDto> {
+    // Check if user has SKU configuration
+    const userConfig = await this.getUserSkuConfig(user.id);
+    
+    if (!userConfig || (!userConfig.basketSkuKeys?.length && !userConfig.backpackSkuKeys?.length)) {
+      throw new BadRequestException('您尚未配置SKU匹配规则，请先前往设置页面进行配置');
+    }
+    
     // Create a new record
     const record = this.basketRecordRepository.create({
       originalFilename: originalFilename || file.originalname,
@@ -74,7 +86,7 @@ export class BasketService {
     const jobId = this.jobQueueService.createJob(user.id);
 
     // Start processing in background
-    this.processBasketOrdersAsync(savedRecord.id, file, jobId);
+    this.processBasketOrdersAsync(savedRecord.id, file, jobId, userConfig);
 
     // Return the record
     return {
@@ -90,9 +102,10 @@ export class BasketService {
   /**
    * Process Excel file to extract order data
    * @param excelBuffer Buffer containing Excel data
+   * @param skuConfig User's SKU configuration
    * @returns Array of processed order data
    */
-  private async processExcelData(excelBuffer: Buffer): Promise<ProcessedOrder[]> {
+  private async processExcelData(excelBuffer: Buffer, skuConfig: SkuConfig): Promise<ProcessedOrder[]> {
     try {
       // Read the Excel file
       const workbook = read(excelBuffer, { type: 'buffer' });
@@ -117,8 +130,17 @@ export class BasketService {
           const variations = row['Variations'] || row['变量'] || '';
           const sku = row['SKU'] || '';
           
-          // Use LLM to analyze variations
-          const analyzedVariations = await this.analyzeVariations(variations);
+          // Determine order type based on SKU
+          const orderType = this.determineOrderType(sku, skuConfig);
+          
+          // If neither basket nor backpack SKU is matched, skip this order
+          if (!orderType) {
+            this.logger.debug(`Skipping row ${i + 1}: SKU ${sku} does not match any configured patterns`);
+            continue;
+          }
+          
+          // Use LLM to analyze variations based on order type
+          const analyzedVariations = await this.analyzeVariations(variations, orderType);
           
           // Map the row data to our order structure
           const orderData: ProcessedOrder = {
@@ -127,7 +149,8 @@ export class BasketService {
             orderId,
             shipName,
             variations: analyzedVariations,
-            sku
+            sku,
+            orderType
           };
           
           processedOrders.push(orderData);
@@ -144,14 +167,49 @@ export class BasketService {
   }
   
   /**
-   * Use LLM to analyze variations data
+   * Determine order type based on SKU and user configuration
+   * @param sku SKU from Excel
+   * @param skuConfig User's SKU configuration
+   * @returns Order type ('basket', 'backpack', or undefined if no match)
+   */
+  private determineOrderType(sku: string, skuConfig: SkuConfig): 'basket' | 'backpack' | undefined {
+    if (!sku) return undefined;
+    
+    // Check if SKU matches any basket pattern
+    if (skuConfig.basketSkuKeys?.length) {
+      const isBasket = skuConfig.basketSkuKeys.some(key => 
+        sku.toLowerCase().includes(key.toLowerCase())
+      );
+      
+      if (isBasket) return 'basket';
+    }
+    
+    // Check if SKU matches any backpack pattern
+    if (skuConfig.backpackSkuKeys?.length) {
+      const isBackpack = skuConfig.backpackSkuKeys.some(key => 
+        sku.toLowerCase().includes(key.toLowerCase())
+      );
+      
+      if (isBackpack) return 'backpack';
+    }
+    
+    return undefined;
+  }
+  
+  /**
+   * Use LLM to analyze variations data based on order type
    * @param variations Variations string from Excel
+   * @param orderType Type of order (basket or backpack)
    * @returns Array of parsed variations
    */
-  private async analyzeVariations(variations: string): Promise<ParsedVariation[]> {
+  private async analyzeVariations(variations: string, orderType: 'basket' | 'backpack'): Promise<ParsedVariation[]> {
     try {
-      const prompt = `
-你是一个订单变量解析专家，需要从变量中提取客户定制的每一项内容，用JSON数组格式返回，每个元素包含：
+      // Different prompt based on order type
+      let prompt = '';
+      
+      if (orderType === 'basket') {
+        prompt = `
+你是一个订单变量解析专家，需要从篮子产品的变量中提取客户定制的每一项内容，用JSON数组格式返回，每个元素包含：
 {
   "color": 变量中提到的颜色信息（如毛线颜色、材料颜色等）,
   "value": 变量中客户要定制的内容（如名字、文字等）
@@ -164,12 +222,28 @@ export class BasketService {
 
 变量 (Variations): ${variations}
 `;
+      } else if (orderType === 'backpack') {
+        prompt = `
+你是一个订单变量解析专家，需要从背包产品的变量中提取客户定制的内容，用JSON数组格式返回，每个元素包含：
+{
+  "color": 变量中提到的背包颜色/材质信息,
+  "value": 变量中客户要定制的内容（如名字、文字等）
+}
+
+请注意！！！
+1. 对于背包产品，通常会有背包颜色和定制内容两个部分。
+2. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
+3. 请确保返回有效的 JSON 格式数组，没有额外的文本。
+
+变量 (Variations): ${variations}
+`;
+      }
 
       const result = await this.ollamaService.generateJson(prompt, {
         temperature: 0.2, // Lower temperature for more deterministic results
       });
       
-      this.logger.debug(`LLM analysis result: ${JSON.stringify(result)}`);
+      this.logger.debug(`LLM analysis result for ${orderType}: ${JSON.stringify(result)}`);
       
       // Ensure result is an array
       if (!Array.isArray(result)) {
@@ -189,7 +263,7 @@ export class BasketService {
       
       return result;
     } catch (error) {
-      this.logger.error(`Error analyzing variations data with LLM: ${error.message}`);
+      this.logger.error(`Error analyzing variations data with LLM for ${orderType}: ${error.message}`);
       
       // Return default value if LLM analysis fails
       return [{
@@ -204,8 +278,14 @@ export class BasketService {
    * @param recordId Generation record ID
    * @param file Uploaded Excel file
    * @param jobId Job queue ID
+   * @param skuConfig User's SKU configuration
    */
-  private async processBasketOrdersAsync(recordId: number, file: Express.Multer.File, jobId: string): Promise<void> {
+  private async processBasketOrdersAsync(
+    recordId: number, 
+    file: Express.Multer.File, 
+    jobId: string,
+    skuConfig: SkuConfig
+  ): Promise<void> {
     // Update status to processing
     await this.basketRecordRepository.update(recordId, {
       status: 'processing',
@@ -232,7 +312,12 @@ export class BasketService {
 
       // Read the file from disk instead of using buffer
       const fileBuffer = fs.readFileSync(file.path);
-      const processedOrders = await this.processExcelData(fileBuffer);
+      const processedOrders = await this.processExcelData(fileBuffer, skuConfig);
+      
+      // Check if any orders were found
+      if (processedOrders.length === 0) {
+        throw new Error('没有找到匹配的订单，请检查您的SKU配置是否正确');
+      }
       
       // Update progress after processing Excel data
       await this.basketRecordRepository.update(recordId, {
@@ -356,7 +441,7 @@ export class BasketService {
         const variationPosition = `${variationIndex + 1}/${totalVariations}`;
         
         // Create a slide for each variation
-        pptSlides.push({
+        const slideData = {
           date: new Date().toLocaleDateString('zh-CN'),
           orderNumber: String(order.orderId),
           color: variation.color || '默认颜色',
@@ -366,8 +451,17 @@ export class BasketService {
           customName: variation.value || '',
           sku: order.sku || '',
           quantity: order.quantity || 1,
-          shopName: shopName || ''
-        });
+          shopName: shopName || '',
+          orderType: order.orderType || 'basket' // 默认为篮子类型
+        };
+        
+        // 根据订单类型添加特定属性
+        if (order.orderType === 'backpack') {
+          // 为背包订单添加特定属性
+          slideData['backpackStyle'] = true;
+        }
+        
+        pptSlides.push(slideData);
       });
     });
     
@@ -518,5 +612,37 @@ export class BasketService {
     }
     
     return response;
+  }
+
+  /**
+   * Get user's SKU configuration
+   * @param userId User ID
+   * @returns User's SKU configuration or null if not found
+   */
+  async getUserSkuConfig(userId: string): Promise<SkuConfig | null> {
+    return this.skuConfigRepository.findOne({ where: { userId } });
+  }
+
+  /**
+   * Create or update user's SKU configuration
+   * @param userId User ID
+   * @param configDto Configuration data
+   * @returns Updated or created configuration
+   */
+  async createOrUpdateSkuConfig(userId: string, configDto: CreateSkuConfigDto): Promise<SkuConfig> {
+    let config = await this.getUserSkuConfig(userId);
+    
+    if (config) {
+      // Update existing config
+      this.skuConfigRepository.merge(config, configDto);
+    } else {
+      // Create new config
+      config = this.skuConfigRepository.create({
+        userId,
+        ...configDto
+      });
+    }
+    
+    return this.skuConfigRepository.save(config);
   }
 } 

@@ -10,6 +10,7 @@ import {
   Body,
   UseGuards,
   Query,
+  Put,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
@@ -24,6 +25,8 @@ import { User } from '../users/entities/user.entity';
 import { BasketPaginationDto } from './dto/basket-pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { BasketGenerationRecord } from './entities/basket-generation-record.entity';
+import { CreateSkuConfigDto, SkuConfigResponseDto } from './dto/sku-config.dto';
+import { SkuConfig } from './entities/sku-config.entity';
 
 @ApiTags('baskets')
 @Controller('baskets')
@@ -49,6 +52,39 @@ export class BasketController {
     }
     
     return this.basketService.generateBasketOrders(file, user, originalFilename);
+  }
+
+  @Get('sku-config')
+  @ApiOperation({ summary: '获取用户SKU配置' })
+  @ApiResponse({ status: 200, description: '返回用户的SKU配置', type: SkuConfigResponseDto })
+  @ApiResponse({ status: 404, description: '未找到配置' })
+  async getUserSkuConfig(@CurrentUser() user: User): Promise<Partial<SkuConfig>> {
+    const config = await this.basketService.getUserSkuConfig(user.id);
+    
+    if (!config) {
+      return {
+        id: 0,
+        userId: user.id,
+        basketSkuKeys: [],
+        backpackSkuKeys: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        user: null
+      };
+    }
+    
+    return config;
+  }
+
+  @Put('sku-config')
+  @ApiOperation({ summary: '创建或更新用户SKU配置' })
+  @ApiResponse({ status: 200, description: '配置已更新', type: SkuConfigResponseDto })
+  @ApiResponse({ status: 400, description: '无效的配置数据' })
+  async createOrUpdateSkuConfig(
+    @Body() configDto: CreateSkuConfigDto,
+    @CurrentUser() user: User
+  ): Promise<SkuConfig> {
+    return this.basketService.createOrUpdateSkuConfig(user.id, configDto);
   }
 
   @Get('records')
