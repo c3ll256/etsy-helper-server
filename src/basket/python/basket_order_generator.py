@@ -41,115 +41,100 @@ def create_basket_order_slide(prs, order_data):
     slide.background.fill.fore_color.rgb = RGBColor(255, 255, 255)
     
     # ----- TOP SECTION -----
-    # Top row items: Date, Order Number, Color, Icon, Position
+    # Row 1: Date on left, combined orderID-SKU-color-icon in center, position on right
     
     # Date (生成日期)
-    date_box = slide.shapes.add_textbox(margin, margin, Inches(3), Inches(0.5))
+    date_box = slide.shapes.add_textbox(margin, margin, Inches(2.5), Inches(0.4))
     date_text = date_box.text_frame
     date_p = date_text.paragraphs[0]
     date_p.text = order_data.get('date', '')
     date_p.font.bold = True
     date_p.font.size = Pt(24)
-    date_p.font.color.rgb = RGBColor(0, 0, 0)  # Black color
+    date_p.font.color.rgb = RGBColor(0, 0, 0)
     logger.info(f"Added date: {date_p.text}")
     
-    # Order Number (订单号)
-    order_box_x = margin + Inches(3.5)
-    order_box = slide.shapes.add_textbox(order_box_x, margin, Inches(4), Inches(0.5))
-    order_text = order_box.text_frame
-    order_p = order_text.paragraphs[0]
-    order_p.text = str(order_data.get('orderNumber', ''))  # Convert to string
-    order_p.font.bold = True
-    order_p.font.size = Pt(20)
-    order_p.font.color.rgb = RGBColor(0, 0, 0)  # Black color
-    logger.info(f"Added order number: {order_p.text}")
+    # 组合 orderID-SKU-color-icon，在连字符两侧添加空格
+    order_id_str = str(order_data.get('orderNumber', ''))
+    sku_str = order_data.get('sku', '')
+    color_str = order_data.get('color', '默认颜色')
+    icon_str = order_data.get('icon', '')
     
-    # Color (毛线颜色)
-    color_text = "默认颜色"
-    if order_data.get('color'):
-        color_text = order_data.get('color')
+    combined_text = order_id_str
+    if sku_str:
+        combined_text += f" - {sku_str}"
+    if color_str:
+        combined_text += f" - {color_str}"
+    if icon_str:
+        combined_text += f" - {icon_str}"
     
-    color_box = slide.shapes.add_textbox(order_box_x + Inches(4.5), margin, Inches(2), Inches(0.5))
-    color_text_frame = color_box.text_frame
-    color_p = color_text_frame.paragraphs[0]
-    color_p.text = color_text
-    color_p.font.bold = True
-    color_p.font.size = Pt(20)
-    color_p.font.color.rgb = RGBColor(0, 0, 0)  # Black color
-    logger.info(f"Added color: {color_p.text}")
-    
-    # SKU (顶部展示)
-    sku_text = f"SKU: {order_data.get('sku', '')}"
-    sku_top_box = slide.shapes.add_textbox(margin, margin + Inches(0.6), Inches(5), Inches(0.5))
-    sku_top_text = sku_top_box.text_frame
-    sku_top_p = sku_top_text.paragraphs[0]
-    sku_top_p.text = sku_text
-    sku_top_p.font.bold = True
-    sku_top_p.font.size = Pt(20)
-    sku_top_p.font.color.rgb = RGBColor(0, 0, 0)  # Black color
-    logger.info(f"Added SKU at top: {sku_top_p.text}")
-    
-    # Icon (图标)
-    icon_box = slide.shapes.add_textbox(margin + Inches(5.5), margin + Inches(0.6), Inches(3), Inches(0.5))
-    icon_text = icon_box.text_frame
-    icon_p = icon_text.paragraphs[0]
-    icon_p.text = order_data.get('icon', '')
-    icon_p.font.bold = True
-    icon_p.font.size = Pt(20)
-    icon_p.font.color.rgb = RGBColor(0, 0, 0)  # Black color
-    logger.info(f"Added icon: {icon_p.text}")
+    # Center combined text
+    combined_box = slide.shapes.add_textbox(margin + Inches(2.7), margin, Inches(6), Inches(0.4))
+    combined_text_frame = combined_box.text_frame
+    combined_p = combined_text_frame.paragraphs[0]
+    combined_p.text = combined_text
+    combined_p.alignment = PP_ALIGN.CENTER
+    combined_p.font.bold = True
+    combined_p.font.size = Pt(22)
+    combined_p.font.color.rgb = RGBColor(0, 0, 0)
+    logger.info(f"Added combined top info: {combined_text}")
     
     # Position (一单多买的序号)
-    position_box = slide.shapes.add_textbox(prs.slide_width - margin - Inches(1.5), margin, Inches(1.5), Inches(0.5))
+    position_box = slide.shapes.add_textbox(prs.slide_width - margin - Inches(1.2), margin, Inches(1.2), Inches(0.4))
     position_text = position_box.text_frame
     position_p = position_text.paragraphs[0]
     position_p.text = order_data.get('position', '')
     position_p.alignment = PP_ALIGN.RIGHT
     position_p.font.bold = True
-    position_p.font.size = Pt(20)
-    position_p.font.color.rgb = RGBColor(0, 0, 0)  # Black color
+    position_p.font.size = Pt(22)
+    position_p.font.color.rgb = RGBColor(0, 0, 0)
     logger.info(f"Added position: {position_p.text}")
     
     # ----- MIDDLE SECTION -----
     # Recipient Name (收件人)
-    recipient_box = slide.shapes.add_textbox(margin, margin + Inches(1.5), prs.slide_width - margin * 2, Inches(1.5))
+    recipient_box = slide.shapes.add_textbox(margin, margin + Inches(1.0), prs.slide_width - margin * 2, Inches(0.8))
     recipient_text = recipient_box.text_frame
     recipient_p = recipient_text.paragraphs[0]
     recipient_p.text = order_data.get('recipientName', '')
     recipient_p.alignment = PP_ALIGN.CENTER
     recipient_p.font.bold = True
-    recipient_p.font.size = Pt(36)
-    recipient_p.font.color.rgb = RGBColor(0, 0, 0)  # Black color
+    recipient_p.font.size = Pt(24)  # 减小收件人字体
+    recipient_p.font.color.rgb = RGBColor(0, 0, 0)
     logger.info(f"Added recipient name: {recipient_p.text}")
     
     # ----- MAIN CONTENT -----
-    # Custom Value (定制内容) - Large text that takes up most of the slide
-    value_box = slide.shapes.add_textbox(margin, margin + Inches(3), prs.slide_width - margin * 2, Inches(3.5))
+    # Custom Value (定制内容) - 占满整个A4宽度
+    content_margin = Inches(0)  # 零边距，完全占满宽度
+    value_box = slide.shapes.add_textbox(content_margin, margin + Inches(2.5), prs.slide_width, Inches(3.0))
     value_text = value_box.text_frame
     value_text.word_wrap = True
     value_p = value_text.paragraphs[0]
     value_p.text = order_data.get('customName', '')
     value_p.alignment = PP_ALIGN.CENTER
     value_p.font.bold = True
-    value_p.font.color.rgb = RGBColor(0, 0, 0)  # Black color
+    value_p.font.color.rgb = RGBColor(0, 0, 0)
     
-    # Adjust font size based on text length to ensure it fits well
+    # 精确计算字体大小，根据文本长度和幻灯片宽度自适应
     text_len = len(value_p.text)
-    if text_len > 30:
-        value_p.font.size = Pt(36)
-    elif text_len > 15:
-        value_p.font.size = Pt(48)
-    else:
-        value_p.font.size = Pt(72)
-    logger.info(f"Added custom name: {value_p.text} with font size: {value_p.font.size.pt}")
+    
+    # 计算公式：基础字体大小 * 调整系数 / 文本长度的平方根
+    # 基础大小设为140点，这样短文本会很大，长文本会适当缩小
+    # 使用文本长度的平方根而不是线性关系，使得字体大小变化更平滑
+    base_size = 140
+    adjustment_factor = 3  # 调整系数，可以微调效果
+    
+    # 计算字体大小，对于非常短的文本设置上限，对于超长文本设置下限
+    font_size = min(180, max(120, int(base_size * adjustment_factor / (text_len ** 0.5))))
+    
+    value_p.font.size = Pt(font_size)
+    logger.info(f"Added custom name: {value_p.text} with auto-calculated font size: {font_size}pt")
     
     # ----- BOTTOM SECTION -----
-    # Shop name and SKU info at the bottom
-    bottom_box = slide.shapes.add_textbox(margin, prs.slide_height - margin - Inches(0.5), prs.slide_width - margin * 2, Inches(0.5))
+    # Shop name at the bottom
+    bottom_box = slide.shapes.add_textbox(margin, prs.slide_height - margin - Inches(0.4), prs.slide_width - margin * 2, Inches(0.4))
     bottom_text_frame = bottom_box.text_frame
     bottom_p = bottom_text_frame.paragraphs[0]
     
-    # Combine shop name and SKU
+    # Shop name and quantity
     shop_name = order_data.get('shopName', '')
     
     if shop_name:
@@ -165,10 +150,10 @@ def create_basket_order_slide(prs, order_data):
             bottom_text = f"数量: {order_data.get('quantity')}"
     
     bottom_p.text = bottom_text
-    bottom_p.alignment = PP_ALIGN.CENTER
-    bottom_p.font.size = Pt(16)
+    bottom_p.alignment = PP_ALIGN.RIGHT
+    bottom_p.font.size = Pt(22)
     bottom_p.font.bold = True
-    bottom_p.font.color.rgb = RGBColor(0, 0, 0)  # Black color
+    bottom_p.font.color.rgb = RGBColor(0, 0, 0)
     logger.info(f"Added bottom text: {bottom_p.text}")
     
     # Return the slide
