@@ -4,6 +4,9 @@ export class BasketGenerationResponseDto {
   @ApiProperty({ description: '生成记录ID', example: 1 })
   id: number;
 
+  @ApiProperty({ description: '任务队列ID', example: 'e9b3af7c-7458-4a87-9b6f-26e9ed5e5e1a' })
+  jobId: string;
+
   @ApiProperty({ description: '处理状态', enum: ['pending', 'processing', 'completed', 'failed'], example: 'pending' })
   status: 'pending' | 'processing' | 'completed' | 'failed';
 

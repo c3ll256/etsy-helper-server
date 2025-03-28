@@ -12,18 +12,21 @@ import { BasketGenerationResponseDto } from './dto/basket-generation-response.dt
 import { User } from '../users/entities/user.entity';
 import { BasketPaginationDto } from './dto/basket-pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
+import { JobQueueService } from '../orders/services/job-queue.service';
 
-interface ParsedOrder {
-  orderId: string;
-  orderNumber: string;
-  product: string;
+interface ParsedVariation {
   color: string;
-  icon: string;
-  position: string;
-  recipientName: string;
-  customName: string;
-  variations: Record<string, string>;
+  value: string;
+}
+
+interface ProcessedOrder {
+  id: number;
+  quantity: number;
+  orderId: string;
+  shipName: string;
+  variations: ParsedVariation[];
   sku: string;
+  icon?: string;
 }
 
 @Injectable()
@@ -36,6 +39,7 @@ export class BasketService {
     private readonly basketRecordRepository: Repository<BasketGenerationRecord>,
     private readonly pythonBasketService: PythonBasketService,
     private readonly ollamaService: OllamaService,
+    private readonly jobQueueService: JobQueueService,
   ) {
     // Ensure uploads directory exists
     if (!fs.existsSync(this.uploadsDir)) {
@@ -65,13 +69,17 @@ export class BasketService {
 
     // Save to get an ID
     const savedRecord = await this.basketRecordRepository.save(record);
+    
+    // Create a job ID in the job queue
+    const jobId = this.jobQueueService.createJob(user.id);
 
     // Start processing in background
-    this.processBasketOrdersAsync(savedRecord.id, file);
+    this.processBasketOrdersAsync(savedRecord.id, file, jobId);
 
     // Return the record
     return {
       id: savedRecord.id,
+      jobId: jobId,
       status: savedRecord.status,
       progress: savedRecord.progress,
       originalFilename: savedRecord.originalFilename,
@@ -82,9 +90,9 @@ export class BasketService {
   /**
    * Process Excel file to extract order data
    * @param excelBuffer Buffer containing Excel data
-   * @returns Array of parsed order data
+   * @returns Array of processed order data
    */
-  private async processExcelData(excelBuffer: Buffer): Promise<ParsedOrder[]> {
+  private async processExcelData(excelBuffer: Buffer): Promise<ProcessedOrder[]> {
     try {
       // Read the Excel file
       const workbook = read(excelBuffer, { type: 'buffer' });
@@ -93,7 +101,7 @@ export class BasketService {
       
       this.logger.log(`Processing ${rawData.length} rows from Excel file`);
       
-      const parsedOrders: ParsedOrder[] = [];
+      const processedOrders: ProcessedOrder[] = [];
       
       // Process each row
       for (let i = 0; i < rawData.length; i++) {
@@ -102,35 +110,33 @@ export class BasketService {
         try {
           this.logger.debug(`Processing row ${i + 1}: ${JSON.stringify(row)}`);
           
-          // Extract order ID, variations, and SKU
+          // Extract required fields
+          const quantity = Number(row['Quantity'] || row['数量'] || 1);
           const orderId = row['Order ID'] || row['OrderID'] || row['订单ID'] || '';
+          const shipName = row['Ship Name'] || row['收件人姓名'] || row['收件人'] || '';
           const variations = row['Variations'] || row['变量'] || '';
           const sku = row['SKU'] || '';
           
           // Use LLM to analyze variations
-          const analyzedData = await this.analyzeOrderData(orderId, variations, sku);
+          const analyzedVariations = await this.analyzeVariations(variations);
           
           // Map the row data to our order structure
-          const orderData: ParsedOrder = {
-            orderId: orderId,
-            orderNumber: analyzedData.orderNumber || row['Order Number'] || row['订单号'] || '',
-            product: analyzedData.product || row['Product'] || row['产品'] || '',
-            color: analyzedData.color || row['Color'] || row['毛线颜色'] || '',
-            icon: analyzedData.icon || row['Icon'] || row['图标'] || '',
-            position: analyzedData.position || row['Position'] || row['一单多买的序号'] || '',
-            recipientName: analyzedData.recipientName || row['Recipient Name'] || row['收件人姓名'] || '',
-            customName: analyzedData.customName || row['Custom Name'] || row['定制名字'] || '',
-            variations: analyzedData.parsedVariations || {},
-            sku: sku
+          const orderData: ProcessedOrder = {
+            id: i + 1, // Auto-increment ID
+            quantity,
+            orderId,
+            shipName,
+            variations: analyzedVariations,
+            sku
           };
           
-          parsedOrders.push(orderData);
+          processedOrders.push(orderData);
         } catch (error) {
           this.logger.error(`Error processing row ${i + 1}: ${error.message}`);
         }
       }
       
-      return parsedOrders;
+      return processedOrders;
     } catch (error) {
       this.logger.error(`Error processing Excel data: ${error.message}`);
       throw error;
@@ -138,32 +144,25 @@ export class BasketService {
   }
   
   /**
-   * Use LLM to analyze order data
-   * @param orderId Order ID from Excel
+   * Use LLM to analyze variations data
    * @param variations Variations string from Excel
-   * @param sku SKU from Excel
-   * @returns Analyzed data
+   * @returns Array of parsed variations
    */
-  private async analyzeOrderData(orderId: string, variations: string, sku: string): Promise<any> {
+  private async analyzeVariations(variations: string): Promise<ParsedVariation[]> {
     try {
       const prompt = `
-分析以下订单信息，并提取关键字段：
+你是一个订单变量解析专家，需要从变量中提取客户定制的每一项内容，用JSON数组格式返回，每个元素包含：
+{
+  "color": 变量中提到的颜色信息（如毛线颜色、材料颜色等）,
+  "value": 变量中客户要定制的内容（如名字、文字等）
+}
 
-订单ID: ${orderId}
+请注意！！！
+1. 如果有多个定制项，请分别提取并作为不同的数组元素返回。
+2. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
+3. 请确保返回有效的 JSON 格式数组，没有额外的文本。
+
 变量 (Variations): ${variations}
-SKU: ${sku}
-
-请分析并以JSON格式返回以下信息：
-1. 订单号 (orderNumber): 从订单ID或变量中提取
-2. 产品 (product): 从变量或SKU中提取产品类型
-3. 毛线颜色 (color): 从变量中提取颜色信息
-4. 图标 (icon): 从变量中提取图标信息，通常在"i12左下"这样的格式
-5. 一单多买的序号 (position): 如有，通常是"1/2"这样的格式
-6. 收件人姓名 (recipientName): 从变量中提取收件人姓名
-7. 定制名字 (customName): 从变量中提取客户要求的定制名字
-8. 解析的变量 (parsedVariations): 将所有变量解析为键值对格式
-
-请确保返回有效的JSON格式，没有额外的文本。
 `;
 
       const result = await this.ollamaService.generateJson(prompt, {
@@ -172,56 +171,31 @@ SKU: ${sku}
       
       this.logger.debug(`LLM analysis result: ${JSON.stringify(result)}`);
       
+      // Ensure result is an array
+      if (!Array.isArray(result)) {
+        return [{
+          color: '默认颜色',
+          value: variations || ''
+        }];
+      }
+      
+      // If result is empty array, return default
+      if (result.length === 0) {
+        return [{
+          color: '默认颜色',
+          value: variations || ''
+        }];
+      }
+      
       return result;
     } catch (error) {
-      this.logger.error(`Error analyzing order data with LLM: ${error.message}`);
+      this.logger.error(`Error analyzing variations data with LLM: ${error.message}`);
       
-      // Return empty object if LLM analysis fails
-      return {
-        orderNumber: '',
-        product: '',
-        color: '',
-        icon: '',
-        position: '',
-        recipientName: '',
-        customName: '',
-        parsedVariations: {}
-      };
-    }
-  }
-
-  /**
-   * Prepare order data for PPT generation
-   * @param parsedOrders Parsed order data
-   * @returns Base64 encoded PPT data
-   */
-  private async preparePPTData(parsedOrders: ParsedOrder[]): Promise<Buffer> {
-    try {
-      // Prepare data for Python script
-      const jsonData = parsedOrders.map(order => ({
-        date: new Date().toLocaleDateString('zh-CN'),
-        orderNumber: order.orderNumber,
-        product: order.product,
-        color: order.color,
-        icon: order.icon,
-        position: order.position,
-        recipientName: order.recipientName,
-        customName: order.customName
-      }));
-      
-      // Convert to base64 encoded JSON
-      const excelData = Buffer.from(JSON.stringify(jsonData)).toString('base64');
-      
-      // Call Python service to generate PPT
-      const result = await this.pythonBasketService.generateBasketOrderPPT(excelData);
-      
-      // Get the Buffer from the base64 data in the result
-      const pptBuffer = Buffer.from(result.data, 'base64');
-      
-      return pptBuffer;
-    } catch (error) {
-      this.logger.error(`Error preparing PPT data: ${error.message}`);
-      throw error;
+      // Return default value if LLM analysis fails
+      return [{
+        color: '默认颜色',
+        value: variations || ''
+      }];
     }
   }
 
@@ -229,43 +203,86 @@ SKU: ${sku}
    * Process basket orders asynchronously
    * @param recordId Generation record ID
    * @param file Uploaded Excel file
+   * @param jobId Job queue ID
    */
-  private async processBasketOrdersAsync(recordId: number, file: Express.Multer.File): Promise<void> {
+  private async processBasketOrdersAsync(recordId: number, file: Express.Multer.File, jobId: string): Promise<void> {
     // Update status to processing
     await this.basketRecordRepository.update(recordId, {
       status: 'processing',
       progress: 10,
     });
+    
+    // Update job progress
+    this.jobQueueService.updateJobProgress(jobId, {
+      status: 'processing',
+      progress: 10,
+      message: '开始处理Excel文件',
+    });
 
     try {
-      // Parse Excel data in Node.js
+      // Parse Excel data
       await this.basketRecordRepository.update(recordId, {
         progress: 20,
       });
       
-      const parsedOrders = await this.processExcelData(file.buffer);
+      this.jobQueueService.updateJobProgress(jobId, {
+        progress: 20,
+        message: '解析Excel数据',
+      });
+
+      // Read the file from disk instead of using buffer
+      const fileBuffer = fs.readFileSync(file.path);
+      const processedOrders = await this.processExcelData(fileBuffer);
       
+      // Update progress after processing Excel data
       await this.basketRecordRepository.update(recordId, {
         progress: 50,
-        ordersProcessed: parsedOrders.length,
-        totalOrders: parsedOrders.length,
+        ordersProcessed: processedOrders.length,
+        totalOrders: processedOrders.length,
+      });
+      
+      this.jobQueueService.updateJobProgress(jobId, {
+        progress: 50,
+        message: `已处理 ${processedOrders.length} 个订单`,
       });
 
       // Generate PPT using Python service
-      this.logger.log(`Generating PPT for ${parsedOrders.length} orders`);
+      this.logger.log(`Generating PPT for ${processedOrders.length} orders`);
       
       // Prepare data for generating PPT
       await this.basketRecordRepository.update(recordId, {
         progress: 60,
       });
       
+      this.jobQueueService.updateJobProgress(jobId, {
+        progress: 60,
+        message: '准备生成PPT',
+      });
+      
+      // 获取记录关联的用户信息
+      const record = await this.basketRecordRepository.findOne({
+        where: { id: recordId },
+        relations: ['user']
+      });
+      
+      // 从用户信息中获取店铺名称，如果不存在则使用空字符串
+      const shopName = record?.user?.shopName || '';
+      
+      // Prepare data for PPT generation
+      const pptData = this.preparePPTData(processedOrders, shopName);
+      
       // Call Python service to generate PPT
       const result = await this.pythonBasketService.generateBasketOrderPPT(
-        Buffer.from(JSON.stringify(parsedOrders)).toString('base64')
+        Buffer.from(JSON.stringify(pptData)).toString('base64')
       );
       
       await this.basketRecordRepository.update(recordId, {
         progress: 90,
+      });
+      
+      this.jobQueueService.updateJobProgress(jobId, {
+        progress: 90,
+        message: 'PPT生成完成，更新记录',
       });
 
       // Update record with the results
@@ -273,11 +290,25 @@ SKU: ${sku}
         status: 'completed',
         progress: 100,
         outputFilePath: result.filePath,
-        ordersProcessed: parsedOrders.length,
-        totalOrders: parsedOrders.length,
+        ordersProcessed: processedOrders.length,
+        totalOrders: processedOrders.length,
+      });
+      
+      // Update job progress with success result
+      this.jobQueueService.updateJobProgress(jobId, {
+        status: 'completed',
+        progress: 100,
+        message: '篮子订单PPT生成成功',
+        result: {
+          filePath: result.filePath,
+          totalOrders: processedOrders.length,
+        }
       });
 
       this.logger.log(`Successfully generated basket orders PPT for record #${recordId}`);
+      
+      // Start job cleanup after 3 hours
+      this.jobQueueService.startJobCleanup(jobId, 3 * 60 * 60 * 1000);
     } catch (error) {
       this.logger.error(`Error generating basket orders PPT for record #${recordId}: ${error.message}`);
 
@@ -287,7 +318,61 @@ SKU: ${sku}
         progress: 0,
         errorMessage: error.message,
       });
+      
+      // Update job progress with error
+      this.jobQueueService.updateJobProgress(jobId, {
+        status: 'failed',
+        progress: 0,
+        message: '篮子订单PPT生成失败',
+        error: error.message
+      });
+      
+      // Start job cleanup after 1 hour for failed jobs
+      this.jobQueueService.startJobCleanup(jobId, 60 * 60 * 1000);
     }
+  }
+
+  /**
+   * Prepare order data for PPT generation
+   * @param processedOrders Processed order data
+   * @param shopName 用户店铺名称
+   * @returns Formatted data for PPT generation
+   */
+  private preparePPTData(processedOrders: ProcessedOrder[], shopName: string = ''): any[] {
+    const pptSlides = [];
+    
+    // Process each order
+    processedOrders.forEach(order => {
+      // Calculate position for multi-buy orders (same orderID)
+      const sameOrderIdOrders = processedOrders.filter(o => o.orderId === order.orderId);
+      const totalOrderCount = sameOrderIdOrders.length;
+      const orderPosition = sameOrderIdOrders.findIndex(o => o.id === order.id) + 1;
+      const orderPositionString = `${orderPosition}/${totalOrderCount}`;
+      
+      // Process each variation in the order
+      order.variations.forEach((variation, variationIndex) => {
+        // For orders with multiple variations, calculate position
+        const totalVariations = order.variations.length;
+        const variationPosition = `${variationIndex + 1}/${totalVariations}`;
+        
+        // Create a slide for each variation
+        pptSlides.push({
+          date: new Date().toLocaleDateString('zh-CN'),
+          orderNumber: String(order.orderId),
+          color: variation.color || '默认颜色',
+          icon: order.icon || '', 
+          position: totalOrderCount > 1 ? orderPositionString : variationPosition,
+          recipientName: order.shipName || '',
+          customName: variation.value || '',
+          sku: order.sku || '',
+          quantity: order.quantity || 1,
+          shopName: shopName || ''
+        });
+      });
+    });
+    
+    this.logger.debug(`Generated ${pptSlides.length} PPT slides with shop name: ${shopName}`);
+    return pptSlides;
   }
 
   /**
@@ -395,5 +480,43 @@ SKU: ${sku}
         totalPages: Math.ceil(total / limit)
       }
     };
+  }
+
+  /**
+   * Check the status of a basket generation job
+   * @param jobId Job ID from job queue
+   * @param user Current user
+   * @returns Job progress information
+   */
+  async checkJobStatus(jobId: string, user: User): Promise<any> {
+    const jobProgress = this.jobQueueService.getJobProgress(jobId);
+    
+    if (!jobProgress) {
+      throw new NotFoundException(`Job with ID ${jobId} not found`);
+    }
+    
+    // Check if job belongs to user (unless admin)
+    if (!user.isAdmin && jobProgress.userId && jobProgress.userId !== user.id) {
+      throw new NotFoundException(`Job with ID ${jobId} not found`);
+    }
+    
+    // Format the response for the client
+    const response: any = {
+      status: jobProgress.status,
+      progress: jobProgress.progress,
+      message: jobProgress.message
+    };
+    
+    // Add result if available
+    if (jobProgress.result) {
+      response.result = jobProgress.result;
+    }
+    
+    // Add error if available
+    if (jobProgress.error) {
+      response.error = jobProgress.error;
+    }
+    
+    return response;
   }
 } 

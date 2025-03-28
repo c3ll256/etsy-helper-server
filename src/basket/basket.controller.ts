@@ -12,11 +12,10 @@ import {
   Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { Express } from 'express';
 
 import { BasketService } from './basket.service';
-import { GenerateBasketOrderDto } from './dto/generate-basket-order.dto';
 import { BasketGenerationResponseDto } from './dto/basket-generation-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
@@ -36,24 +35,20 @@ export class BasketController {
   @Post('generate')
   @ApiOperation({ summary: '生成篮子订单PPT' })
   @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    description: '包含Excel数据的文件',
-    type: GenerateBasketOrderDto,
-  })
   @ApiResponse({ status: 201, description: '订单PPT生成任务已创建', type: BasketGenerationResponseDto })
   @ApiResponse({ status: 400, description: '无效的文件类型或参数' })
   @ApiResponse({ status: 401, description: '未授权' })
   @UseInterceptors(FileInterceptor('file'))
   async generateBasketOrders(
     @UploadedFile() file: Express.Multer.File,
-    @Body() generateDto: GenerateBasketOrderDto,
+    @Body('originalFilename') originalFilename: string,
     @CurrentUser() user: User,
   ): Promise<BasketGenerationResponseDto> {
     if (!file) {
       throw new BadRequestException('没有提供Excel文件');
     }
     
-    return this.basketService.generateBasketOrders(file, user, generateDto.originalFilename);
+    return this.basketService.generateBasketOrders(file, user, originalFilename);
   }
 
   @Get('records')
@@ -153,5 +148,48 @@ export class BasketController {
     @CurrentUser() user: User
   ) {
     return this.basketService.getGenerationRecord(id, user);
+  }
+
+  @Get('generate/:jobId/status')
+  @ApiOperation({ summary: '检查篮子订单PPT生成任务的状态' })
+  @ApiParam({ name: 'jobId', description: '生成任务的ID' })
+  @ApiResponse({
+    status: 200,
+    description: '返回当前生成任务的状态',
+    schema: {
+      type: 'object',
+      properties: {
+        status: { 
+          type: 'string', 
+          enum: ['pending', 'processing', 'completed', 'failed'] 
+        },
+        progress: { 
+          type: 'number', 
+          description: '完成百分比 (0-100)' 
+        },
+        message: { 
+          type: 'string' 
+        },
+        result: { 
+          type: 'object',
+          properties: {
+            filePath: { type: 'string' },
+            totalOrders: { type: 'number' }
+          }
+        },
+        error: { 
+          type: 'string',
+          description: '错误信息（如果任务失败）' 
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: '找不到该任务' })
+  @ApiResponse({ status: 403, description: '没有访问该任务的权限' })
+  async checkGenerationStatus(
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: User
+  ) {
+    return this.basketService.checkJobStatus(jobId, user);
   }
 } 

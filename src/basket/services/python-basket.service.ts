@@ -47,7 +47,7 @@ export class PythonBasketService {
       
       // Prepare data for Python script
       const inputData = {
-        excelData: jsonData, // We keep the parameter name for backward compatibility
+        orderData: jsonData, // Rename to be more descriptive
         outputPath,
       };
 
