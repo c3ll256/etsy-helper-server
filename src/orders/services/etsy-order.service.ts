@@ -3,9 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EtsyOrder } from '../entities/etsy-order.entity';
 import { Order } from '../entities/order.entity';
-import { GlmService } from '../../common/services/glm.service';
-import { OllamaService } from '../../common/services/ollama.service';
 import { User } from '../../users/entities/user.entity';
+import { AliyunService } from 'src/common/services/aliyun.service';
 
 @Injectable()
 export class EtsyOrderService {
@@ -16,8 +15,7 @@ export class EtsyOrderService {
     private etsyOrderRepository: Repository<EtsyOrder>,
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
-    private readonly glmService: GlmService,
-    private readonly ollamaService: OllamaService,
+    private readonly aliyunService: AliyunService,
   ) {}
 
   async createFromExcelData(data: any, tempOrderId: string | undefined, user?: User): Promise<{ order: EtsyOrder | null; status: 'created' | 'skipped'; reason?: string }> {
@@ -228,21 +226,20 @@ Manila, UT 84046"
     ]
   ]
 }
+`;
 
-${templateDescription ? `
+      const userPrompt = 
+`${templateDescription ? `
 模版如下，请根据模版字段的描述 (description) 来理解和提取相关字段：
 ${templateDescription}
 ` : ''}
 
 原始变量字符串:
-${variationsString}
-`;
+${variationsString}`;
 
       // 调用GLM服务的generateJson方法
       try {
-        // const parsedResult = await this.glmService.generateJson(prompt);
-
-        const parsedResult = await this.ollamaService.generateJson(prompt);
+        const parsedResult = await this.aliyunService.generateJson(userPrompt, { systemPrompt: prompt });
 
         this.logger.log(`Parsed result: ${JSON.stringify(parsedResult)}`);
 

@@ -15,6 +15,7 @@ import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { JobQueueService } from '../orders/services/job-queue.service';
 import { SkuConfig } from './entities/sku-config.entity';
 import { CreateSkuConfigDto, UpdateSkuConfigDto } from './dto/sku-config.dto';
+import { AliyunService } from 'src/common/services/aliyun.service';
 
 interface ParsedVariation {
   color: string;
@@ -43,8 +44,8 @@ export class BasketService {
     @InjectRepository(SkuConfig)
     private readonly skuConfigRepository: Repository<SkuConfig>,
     private readonly pythonBasketService: PythonBasketService,
-    private readonly ollamaService: OllamaService,
     private readonly jobQueueService: JobQueueService,
+    private readonly aliyunService: AliyunService,
   ) {
     // Ensure uploads directory exists
     if (!fs.existsSync(this.uploadsDir)) {
@@ -223,8 +224,6 @@ export class BasketService {
 1. 如果有多个定制项，请分别提取并作为不同的数组元素返回。
 2. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
 3. 请确保返回有效的 JSON 格式数组，没有额外的文本。
-
-变量 (Variations): ${variations}
 `;
       } else if (orderType === 'backpack') {
         prompt = `
@@ -238,14 +237,12 @@ export class BasketService {
 1. 对于背包产品，通常会有背包颜色和定制内容两个部分。
 2. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
 3. 请确保返回有效的 JSON 格式数组，没有额外的文本。
-
-变量 (Variations): ${variations}
 `;
       }
 
-      const result = await this.ollamaService.generateJson(prompt, {
-        temperature: 0.2, // Lower temperature for more deterministic results
-      });
+      const userPrompt = `变量 (Variations): ${variations}`;
+
+      const result = await this.aliyunService.generateJson(userPrompt, { systemPrompt: prompt });
       
       this.logger.debug(`LLM analysis result for ${orderType}: ${JSON.stringify(result)}`);
       
