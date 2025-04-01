@@ -20,6 +20,7 @@ interface ParsedVariation {
   value: string;
   icon?: string;
   design?: string;
+  originalText?: string;
 }
 
 interface ProcessedOrder {
@@ -451,6 +452,7 @@ export class BasketService {
         // For orders with multiple variations, calculate position
         const totalVariations = order.variations.length;
         const variationPosition = `${variationIndex + 1}/${totalVariations}`;
+        
         // Create a slide for each variation
         const slideData = {
           date: new Date().toLocaleDateString('zh-CN'),
@@ -463,8 +465,9 @@ export class BasketService {
           sku: order.sku || '',
           quantity: order.quantity || 1,
           shopName: shopName || '',
-          orderType: order.orderType || 'basket', // 默认为篮子类型
-          fontSize: order.fontSize // 添加字体大小
+          orderType: order.orderType || 'basket',
+          fontSize: order.fontSize,
+          originalVariations: variation.originalText || '' // 添加原始变量文本
         };
         
         // 根据订单类型添加特定属性
@@ -521,47 +524,23 @@ export class BasketService {
   ... // 可能还有更多定制项
 ]
 
-
 请注意！！！
 1. 对于背包产品，通常会有背包颜色和定制内容两个部分。
 2. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
 3. 注意 Personalization 中会包含客户的名字以及定制的图案编号，请分别提取。
 4. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
-
-例子：
-
-变量：Backpack Design:Rose + Icon,Yarn Color:Cream,Personalization:Kennedy 1 and 6
-
-返回：
-[
-  {
-    "color": "Cream",
-    "design": "Rose + Icon",
-    "icon": "1, 6",
-    "value": "Kennedy"
-  }
-]
-
-变量：Backpack Design:Rose + Icon,Yarn Color:Mix-2,Personalization:Truly 
-7 & 10
-
-返回：
-[
-  {
-    "color": "Mix-2",
-    "design": "Rose + Icon",
-    "icon": "7, 10",
-    "value": "Truly"
-  }
-]
-
-接下来是真实的数据：
 `;
       }
 
       const userPrompt = `变量 (Variations): ${variations}`;
 
       const result = await this.aliyunService.generateJson(userPrompt, { systemPrompt: prompt });
+      
+      // 为每个解析的变量添加原始文本
+      result.forEach(variation => {
+        variation.originalText = variations;
+      });
+      
       this.logger.debug(`LLM analysis result for ${orderType}: ${JSON.stringify(result)}`);
       return result;
     } catch (error) {
@@ -570,7 +549,8 @@ export class BasketService {
       // Return default value if LLM analysis fails
       return [{
         color: '默认颜色',
-        value: variations || ''
+        value: variations || '',
+        originalText: variations || ''
       }];
     }
   }

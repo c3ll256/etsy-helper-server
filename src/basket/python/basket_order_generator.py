@@ -43,6 +43,15 @@ def create_basket_order_slide(prs, order_data):
     # ----- TOP SECTION -----
     # Row 1: Date on left, combined orderID-SKU-color-icon in center, position on right
     
+    # Original Variations (原始变量)
+    variations_box = slide.shapes.add_textbox(margin, margin + Inches(1.5), Inches(2.5), Inches(1.2))
+    variations_text = variations_box.text_frame
+    variations_text.word_wrap = True
+    variations_p = variations_text.paragraphs[0]
+    variations_p.text = order_data.get('originalVariations', '')
+    variations_p.font.size = Pt(10)  # 使用小字体
+    variations_p.font.color.rgb = RGBColor(0, 0, 0)
+    
     # Date (生成日期)
     date_box = slide.shapes.add_textbox(margin, margin, Inches(2.5), Inches(0.4))
     date_text = date_box.text_frame
@@ -51,7 +60,7 @@ def create_basket_order_slide(prs, order_data):
     date_p.font.size = Pt(24)
     date_p.font.color.rgb = RGBColor(0, 0, 0)
     
-    # 组合 orderID-SKU-color-icon，在连字符两侧添加空格
+    # 组合 orderID-SKU-color-icon
     order_id_str = str(order_data.get('orderNumber', ''))
     sku_str = order_data.get('sku', '')
     color_str = order_data.get('color', '默认颜色')
