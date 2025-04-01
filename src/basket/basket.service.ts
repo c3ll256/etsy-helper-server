@@ -20,6 +20,8 @@ import { AliyunService } from 'src/common/services/aliyun.service';
 interface ParsedVariation {
   color: string;
   value: string;
+  icon?: string;
+  design?: string;
 }
 
 interface ProcessedOrder {
@@ -29,7 +31,6 @@ interface ProcessedOrder {
   shipName: string;
   variations: ParsedVariation[];
   sku: string;
-  icon?: string;
   orderType?: 'basket' | 'backpack';
 }
 
@@ -215,53 +216,74 @@ export class BasketService {
       if (orderType === 'basket') {
         prompt = `
 你是一个订单变量解析专家，需要从篮子产品的变量中提取客户定制的每一项内容，用JSON数组格式返回，每个元素包含：
-{
-  "color": 变量中提到的颜色信息（如毛线颜色、材料颜色等）,
-  "value": 变量中客户要定制的内容（如名字、文字等）
-}
+[
+  {
+    "color": 变量中提到的颜色信息（如毛线颜色、材料颜色等）,
+    "value": 变量中客户要定制的内容（如名字、文字等）
+  },
+  ... // 可能还有更多定制项
+]
 
 请注意！！！
 1. 如果有多个定制项，请分别提取并作为不同的数组元素返回。
 2. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
-3. 请确保返回有效的 JSON 格式数组，没有额外的文本。
+3. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
 `;
       } else if (orderType === 'backpack') {
         prompt = `
 你是一个订单变量解析专家，需要从背包产品的变量中提取客户定制的内容，用JSON数组格式返回，每个元素包含：
-{
-  "color": 变量中提到的背包颜色/材质信息,
-  "value": 变量中客户要定制的内容（如名字、文字等）
-}
+[
+  {
+    "color": 变量中提到的羊毛颜色（Yarn Color）,
+    "design": 变量中提到的背包设计信息（Backpack Design）,
+    "icon": 变量中提到的背包图案编号（编号为数字）,
+    "value": 变量中客户要定制的内容（如名字、文字等）
+  },
+  ... // 可能还有更多定制项
+]
+
 
 请注意！！！
 1. 对于背包产品，通常会有背包颜色和定制内容两个部分。
 2. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
-3. 请确保返回有效的 JSON 格式数组，没有额外的文本。
+3. 注意 Personalization 中会包含客户的名字以及定制的图案编号，请分别提取。
+4. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
+
+例子：
+
+变量：Backpack Design:Rose + Icon,Yarn Color:Cream,Personalization:Kennedy 1 and 6
+
+返回：
+[
+  {
+    "color": "Cream",
+    "design": "Rose + Icon",
+    "icon": "1, 6",
+    "value": "Kennedy"
+  }
+]
+
+变量：Backpack Design:Rose + Icon,Yarn Color:Mix-2,Personalization:Truly 
+7 & 10
+
+返回：
+[
+  {
+    "color": "Mix-2",
+    "design": "Rose + Icon",
+    "icon": "7, 10",
+    "value": "Truly"
+  }
+]
+
+接下来是真实的数据：
 `;
       }
 
       const userPrompt = `变量 (Variations): ${variations}`;
 
       const result = await this.aliyunService.generateJson(userPrompt, { systemPrompt: prompt });
-      
       this.logger.debug(`LLM analysis result for ${orderType}: ${JSON.stringify(result)}`);
-      
-      // Ensure result is an array
-      if (!Array.isArray(result)) {
-        return [{
-          color: '默认颜色',
-          value: variations || ''
-        }];
-      }
-      
-      // If result is empty array, return default
-      if (result.length === 0) {
-        return [{
-          color: '默认颜色',
-          value: variations || ''
-        }];
-      }
-      
       return result;
     } catch (error) {
       this.logger.error(`Error analyzing variations data with LLM for ${orderType}: ${error.message}`);
@@ -447,13 +469,12 @@ export class BasketService {
         // For orders with multiple variations, calculate position
         const totalVariations = order.variations.length;
         const variationPosition = `${variationIndex + 1}/${totalVariations}`;
-        
         // Create a slide for each variation
         const slideData = {
           date: new Date().toLocaleDateString('zh-CN'),
           orderNumber: String(order.orderId),
           color: variation.color || '默认颜色',
-          icon: order.icon || '', 
+          icon: variation.icon || '', 
           position: totalOrderCount > 1 ? orderPositionString : variationPosition,
           recipientName: order.shipName || '',
           customName: variation.value || '',

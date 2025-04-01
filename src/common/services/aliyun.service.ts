@@ -128,16 +128,15 @@ export class AliyunService {
       
       if (response && response.choices && response.choices[0] && response.choices[0].message) {
         const content = response.choices[0].message.content;
-        
         // 尝试提取JSON部分
         try {
           // 首先尝试直接解析
           return JSON.parse(content);
         } catch (error) {
-          // 如果直接解析失败，尝试提取内容中的JSON部分
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            return JSON.parse(jsonMatch[0]);
+          // 如果直接解析失败，尝试提取内容中的```json和```之间的内容
+          const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+          if (jsonMatch && jsonMatch[1]) {
+            return JSON.parse(jsonMatch[1]);
           }
           // 如果仍然失败，可能需要进一步处理或报错
           throw new Error('Failed to parse JSON from LLM response');
