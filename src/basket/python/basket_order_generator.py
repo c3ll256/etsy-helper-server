@@ -117,6 +117,10 @@ def create_basket_order_slide(prs, order_data):
     value_p.alignment = PP_ALIGN.CENTER
     value_p.font.color.rgb = RGBColor(0, 0, 0)
     
+    # 使用配置的字体
+    if 'font' in order_data and order_data['font']:
+        value_p.font.name = order_data['font']
+    
     # 使用配置的字体大小，如果没有配置则使用自适应大小
     if 'fontSize' in order_data and order_data['fontSize'] is not None:
         value_p.font.size = Pt(order_data['fontSize'])

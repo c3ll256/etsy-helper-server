@@ -42,6 +42,10 @@ export class SkuConfig {
   @ApiProperty({ description: '字体大小' })
   fontSize: number;
 
+  @Column({ nullable: true })
+  @ApiProperty({ description: '字体名称' })
+  font: string;
+
   @CreateDateColumn()
   @ApiProperty({ description: '创建时间' })
   createdAt: Date;

@@ -20,6 +20,11 @@ export class CreateSkuConfigDto {
   @IsNumber()
   @IsOptional()
   fontSize?: number;
+
+  @ApiProperty({ description: '字体名称', required: false })
+  @IsString()
+  @IsOptional()
+  font?: string;
 }
 
 export class SkuConfigResponseDto extends CreateSkuConfigDto {

@@ -32,6 +32,7 @@ interface ProcessedOrder {
   sku: string;
   orderType?: 'basket' | 'backpack';
   fontSize?: number;
+  font?: string;
   datePaid?: string;
 }
 
@@ -266,6 +267,7 @@ export class BasketService {
             sku: skuConfig?.replaceValue || sku,
             orderType,
             fontSize: skuConfig?.fontSize,
+            font: skuConfig?.font,
             datePaid
           };
           
@@ -470,6 +472,7 @@ export class BasketService {
           shopName: shopName || '',
           orderType: order.orderType || 'basket',
           fontSize: order.fontSize,
+          font: order.font, // 添加字体信息
           originalVariations: variation.originalText || '', // 添加原始变量文本
           datePaid: order.datePaid || ''
         };
