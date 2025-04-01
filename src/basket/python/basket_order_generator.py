@@ -48,7 +48,6 @@ def create_basket_order_slide(prs, order_data):
     date_text = date_box.text_frame
     date_p = date_text.paragraphs[0]
     date_p.text = order_data.get('date', '')
-    date_p.font.bold = True
     date_p.font.size = Pt(24)
     date_p.font.color.rgb = RGBColor(0, 0, 0)
     
@@ -72,7 +71,6 @@ def create_basket_order_slide(prs, order_data):
     combined_p = combined_text_frame.paragraphs[0]
     combined_p.text = combined_text
     combined_p.alignment = PP_ALIGN.CENTER
-    combined_p.font.bold = True
     combined_p.font.size = Pt(22)
     combined_p.font.color.rgb = RGBColor(0, 0, 0)
     
@@ -82,7 +80,6 @@ def create_basket_order_slide(prs, order_data):
     position_p = position_text.paragraphs[0]
     position_p.text = order_data.get('position', '')
     position_p.alignment = PP_ALIGN.RIGHT
-    position_p.font.bold = True
     position_p.font.size = Pt(22)
     position_p.font.color.rgb = RGBColor(0, 0, 0)
     
@@ -93,7 +90,6 @@ def create_basket_order_slide(prs, order_data):
     recipient_p = recipient_text.paragraphs[0]
     recipient_p.text = order_data.get('recipientName', '')
     recipient_p.alignment = PP_ALIGN.CENTER
-    recipient_p.font.bold = True
     recipient_p.font.size = Pt(24)  # 减小收件人字体
     recipient_p.font.color.rgb = RGBColor(0, 0, 0)
     
@@ -106,22 +102,25 @@ def create_basket_order_slide(prs, order_data):
     value_p = value_text.paragraphs[0]
     value_p.text = order_data.get('customName', '')
     value_p.alignment = PP_ALIGN.CENTER
-    value_p.font.bold = True
     value_p.font.color.rgb = RGBColor(0, 0, 0)
     
-    # 精确计算字体大小，根据文本长度和幻灯片宽度自适应
-    text_len = len(value_p.text)
-    
-    # 计算公式：基础字体大小 * 调整系数 / 文本长度的平方根
-    # 基础大小设为140点，这样短文本会很大，长文本会适当缩小
-    # 使用文本长度的平方根而不是线性关系，使得字体大小变化更平滑
-    base_size = 140
-    adjustment_factor = 3  # 调整系数，可以微调效果
-    
-    # 计算字体大小，对于非常短的文本设置上限，对于超长文本设置下限
-    font_size = min(180, max(120, int(base_size * adjustment_factor / (text_len ** 0.5))))
-    
-    value_p.font.size = Pt(font_size)
+    # 使用配置的字体大小，如果没有配置则使用自适应大小
+    if 'fontSize' in order_data and order_data['fontSize'] is not None:
+        value_p.font.size = Pt(order_data['fontSize'])
+    else:
+        # 精确计算字体大小，根据文本长度和幻灯片宽度自适应
+        text_len = len(value_p.text)
+        
+        # 计算公式：基础字体大小 * 调整系数 / 文本长度的平方根
+        # 基础大小设为140点，这样短文本会很大，长文本会适当缩小
+        # 使用文本长度的平方根而不是线性关系，使得字体大小变化更平滑
+        base_size = 140
+        adjustment_factor = 3  # 调整系数，可以微调效果
+        
+        # 计算字体大小，对于非常短的文本设置上限，对于超长文本设置下限
+        font_size = min(180, max(120, int(base_size * adjustment_factor / (text_len ** 0.5))))
+        
+        value_p.font.size = Pt(font_size)
     
     # ----- BOTTOM SECTION -----
     # Shop name at the bottom
@@ -147,7 +146,6 @@ def create_basket_order_slide(prs, order_data):
     bottom_p.text = bottom_text
     bottom_p.alignment = PP_ALIGN.RIGHT
     bottom_p.font.size = Pt(22)
-    bottom_p.font.bold = True
     bottom_p.font.color.rgb = RGBColor(0, 0, 0)
     
     # Return the slide

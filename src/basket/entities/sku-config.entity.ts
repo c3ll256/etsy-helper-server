@@ -2,6 +2,11 @@ import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDa
 import { User } from '../../users/entities/user.entity';
 import { ApiProperty } from '@nestjs/swagger';
 
+export enum SkuType {
+  BASKET = 'basket',
+  BACKPACK = 'backpack'
+}
+
 @Entity('sku_configs')
 export class SkuConfig {
   @PrimaryGeneratedColumn()
@@ -17,13 +22,25 @@ export class SkuConfig {
   @ApiProperty({ description: '用户信息' })
   user: User;
 
-  @Column('simple-array', { nullable: true })
-  @ApiProperty({ description: '篮子SKU关键词', type: [String] })
-  basketSkuKeys: string[];
+  @Column()
+  @ApiProperty({ description: 'SKU编码' })
+  sku: string;
 
-  @Column('simple-array', { nullable: true })
-  @ApiProperty({ description: '背包SKU关键词', type: [String] })
-  backpackSkuKeys: string[];
+  @Column({
+    type: 'enum',
+    enum: SkuType,
+    default: SkuType.BASKET
+  })
+  @ApiProperty({ description: 'SKU类型：篮子或书包', enum: SkuType })
+  type: SkuType;
+
+  @Column({ nullable: true })
+  @ApiProperty({ description: '替换后的显示文本' })
+  replaceValue: string;
+
+  @Column({ type: 'float', nullable: true })
+  @ApiProperty({ description: '字体大小' })
+  fontSize: number;
 
   @CreateDateColumn()
   @ApiProperty({ description: '创建时间' })

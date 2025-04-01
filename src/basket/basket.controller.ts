@@ -11,6 +11,7 @@ import {
   UseGuards,
   Query,
   Put,
+  Delete,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
@@ -78,36 +79,45 @@ export class BasketController {
   }
 
   @Get('sku-config')
-  @ApiOperation({ summary: '获取用户SKU配置' })
-  @ApiResponse({ status: 200, description: '返回用户的SKU配置', type: SkuConfigResponseDto })
-  @ApiResponse({ status: 404, description: '未找到配置' })
-  async getUserSkuConfig(@CurrentUser() user: User): Promise<Partial<SkuConfig>> {
-    const config = await this.basketService.getUserSkuConfig(user.id);
-    
-    if (!config) {
-      return {
-        id: 0,
-        userId: user.id,
-        basketSkuKeys: [],
-        backpackSkuKeys: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        user: null
-      };
-    }
-    
-    return config;
+  @ApiOperation({ summary: '获取用户SKU配置列表' })
+  @ApiResponse({ status: 200, description: '返回用户的SKU配置列表', type: [SkuConfigResponseDto] })
+  async getUserSkuConfigs(@CurrentUser() user: User): Promise<SkuConfig[]> {
+    return this.basketService.getUserSkuConfigs(user.id);
   }
 
-  @Put('sku-config')
-  @ApiOperation({ summary: '创建或更新用户SKU配置' })
-  @ApiResponse({ status: 200, description: '配置已更新', type: SkuConfigResponseDto })
+  @Post('sku-config')
+  @ApiOperation({ summary: '创建新的SKU配置' })
+  @ApiResponse({ status: 201, description: 'SKU配置已创建', type: SkuConfigResponseDto })
   @ApiResponse({ status: 400, description: '无效的配置数据' })
-  async createOrUpdateSkuConfig(
+  async createSkuConfig(
     @Body() configDto: CreateSkuConfigDto,
     @CurrentUser() user: User
   ): Promise<SkuConfig> {
-    return this.basketService.createOrUpdateSkuConfig(user.id, configDto);
+    return this.basketService.createSkuConfig(user.id, configDto);
+  }
+
+  @Put('sku-config/:id')
+  @ApiOperation({ summary: '更新SKU配置' })
+  @ApiResponse({ status: 200, description: 'SKU配置已更新', type: SkuConfigResponseDto })
+  @ApiResponse({ status: 400, description: '无效的配置数据' })
+  @ApiResponse({ status: 404, description: '配置未找到' })
+  async updateSkuConfig(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() configDto: CreateSkuConfigDto,
+    @CurrentUser() user: User
+  ): Promise<SkuConfig> {
+    return this.basketService.updateSkuConfig(id, user.id, configDto);
+  }
+
+  @Delete('sku-config/:id')
+  @ApiOperation({ summary: '删除SKU配置' })
+  @ApiResponse({ status: 200, description: 'SKU配置已删除' })
+  @ApiResponse({ status: 404, description: '配置未找到' })
+  async deleteSkuConfig(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: User
+  ): Promise<void> {
+    return this.basketService.deleteSkuConfig(id, user.id);
   }
 
   @Get('records')

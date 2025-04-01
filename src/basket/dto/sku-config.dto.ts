@@ -1,34 +1,33 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsOptional, IsString } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsNumber, Min, Max } from 'class-validator';
+import { SkuType } from '../entities/sku-config.entity';
 
 export class CreateSkuConfigDto {
-  @ApiProperty({ description: '篮子SKU关键词', type: [String], required: false })
-  @IsArray()
-  @IsString({ each: true })
-  @IsOptional()
-  basketSkuKeys?: string[];
+  @ApiProperty({ description: 'SKU编码' })
+  @IsString()
+  sku: string;
 
-  @ApiProperty({ description: '背包SKU关键词', type: [String], required: false })
-  @IsArray()
-  @IsString({ each: true })
+  @ApiProperty({ description: 'SKU类型：篮子或书包', enum: SkuType })
+  @IsEnum(SkuType)
+  type: SkuType;
+
+  @ApiProperty({ description: '替换后的显示文本', required: false })
+  @IsString()
   @IsOptional()
-  backpackSkuKeys?: string[];
+  replaceValue?: string;
+
+  @ApiProperty({ description: '字体大小', required: false })
+  @IsNumber()
+  @IsOptional()
+  fontSize?: number;
 }
 
-export class UpdateSkuConfigDto extends CreateSkuConfigDto {}
-
-export class SkuConfigResponseDto {
+export class SkuConfigResponseDto extends CreateSkuConfigDto {
   @ApiProperty({ description: '配置ID' })
   id: number;
 
   @ApiProperty({ description: '用户ID' })
-  userId: number;
-
-  @ApiProperty({ description: '篮子SKU关键词', type: [String] })
-  basketSkuKeys: string[];
-
-  @ApiProperty({ description: '背包SKU关键词', type: [String] })
-  backpackSkuKeys: string[];
+  userId: string;
 
   @ApiProperty({ description: '创建时间' })
   createdAt: Date;
