@@ -44,20 +44,24 @@ def create_basket_order_slide(prs, order_data):
     # Row 1: Date on left, combined orderID-SKU-color-icon in center, position on right
     
     # Original Variations (原始变量)
-    variations_box = slide.shapes.add_textbox(margin, margin + Inches(1.5), Inches(2.5), Inches(1.2))
+    variations_box = slide.shapes.add_textbox(margin, margin + Inches(1.3), Inches(2.5), Inches(1.2))
     variations_text = variations_box.text_frame
     variations_text.word_wrap = True
     variations_p = variations_text.paragraphs[0]
     variations_p.text = order_data.get('originalVariations', '')
-    variations_p.font.size = Pt(10)  # 使用小字体
+    variations_p.font.size = Pt(14)
     variations_p.font.color.rgb = RGBColor(0, 0, 0)
     
-    # Date (生成日期)
+    # Date (下单日期)
     date_box = slide.shapes.add_textbox(margin, margin, Inches(2.5), Inches(0.4))
     date_text = date_box.text_frame
     date_p = date_text.paragraphs[0]
-    date_p.text = order_data.get('date', '')
-    date_p.font.size = Pt(24)
+    
+    # Convert date format from MM/DD/YYYY to YYYY年MM月DD日
+    date_str = order_data.get('datePaid', '')
+    month, day, year = date_str.split('/')
+    date_p.text = f"{year}年{month}月{day}日"
+    date_p.font.size = Pt(22)
     date_p.font.color.rgb = RGBColor(0, 0, 0)
     
     # 组合 orderID-SKU-color-icon

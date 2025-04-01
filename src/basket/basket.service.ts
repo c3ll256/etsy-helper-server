@@ -32,6 +32,7 @@ interface ProcessedOrder {
   sku: string;
   orderType?: 'basket' | 'backpack';
   fontSize?: number;
+  datePaid?: string;
 }
 
 @Injectable()
@@ -238,6 +239,7 @@ export class BasketService {
           const shipName = row['Ship Name'] || row['收件人姓名'] || row['收件人'] || '';
           const variations = row['Variations'] || row['变量'] || '';
           const sku = row['SKU'] || '';
+          const datePaid = row['Date Paid'] || row['付款日期'] || '';
           
           // Determine order type based on SKU
           const orderType = this.determineOrderType(sku, skuConfigs);
@@ -263,7 +265,8 @@ export class BasketService {
             variations: analyzedVariations,
             sku: skuConfig?.replaceValue || sku,
             orderType,
-            fontSize: skuConfig?.fontSize
+            fontSize: skuConfig?.fontSize,
+            datePaid
           };
           
           processedOrders.push(orderData);
@@ -467,7 +470,8 @@ export class BasketService {
           shopName: shopName || '',
           orderType: order.orderType || 'basket',
           fontSize: order.fontSize,
-          originalVariations: variation.originalText || '' // 添加原始变量文本
+          originalVariations: variation.originalText || '', // 添加原始变量文本
+          datePaid: order.datePaid || ''
         };
         
         // 根据订单类型添加特定属性
