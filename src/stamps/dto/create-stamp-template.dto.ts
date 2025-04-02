@@ -2,6 +2,7 @@ import { IsString, IsArray, IsBoolean, IsOptional, ValidateNested, IsNumber, IsE
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { TextElementDto } from './text-element.dto';
+import { StampType } from '../entities/stamp-template.entity';
 
 export class CreateStampTemplateDto {
   @ApiProperty({ description: 'SKU of the stamp template' })
@@ -37,6 +38,11 @@ export class CreateStampTemplateDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiProperty({ enum: StampType, description: 'Type of the stamp', default: StampType.RUBBER, required: false })
+  @IsEnum(StampType)
+  @IsOptional()
+  type?: StampType;
 
   @ApiProperty({ description: 'Whether the template is active', default: true, required: false })
   @IsBoolean()

@@ -1,16 +1,18 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { In } from 'typeorm';
+import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { StampTemplate } from './entities/stamp-template.entity';
+import { StampTemplate, StampType } from './entities/stamp-template.entity';
 import { StampGenerationRecord } from './entities/stamp-generation-record.entity';
 import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
 import { CloneStampTemplateDto } from './dto/clone-stamp-template.dto';
 import { UpdateStampTemplateDto } from './dto/update-stamp-template.dto';
 import { PythonStampService } from './services/python-stamp.service';
+import { User } from '../users/entities/user.entity';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 
 @Injectable()
 export class StampsService {
@@ -24,21 +26,27 @@ export class StampsService {
   }
 
   private async generateAndSavePreview(template: StampTemplate): Promise<string> {
+    if (!template || !template.id || !template.textElements) {
+      console.error('Cannot generate preview: Template data is incomplete', template);
+      throw new Error('Template data is incomplete for preview generation.');
+    }
+
     const previewDir = path.join(process.cwd(), 'uploads', 'previews');
     if (!fs.existsSync(previewDir)) {
       fs.mkdirSync(previewDir, { recursive: true });
     }
 
-    const previewFileName = `preview-${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
+    const previewFileName = `preview-${template.id}-${Date.now()}.png`;
     const previewPath = path.join(previewDir, previewFileName);
 
-    for (const textElement of template.textElements) {
-      textElement.value = textElement.defaultValue
-    }
+    const elementsForPreview = template.textElements.map(el => ({ 
+        ...el, 
+        value: el.defaultValue 
+    }));
 
     const buffer = await this.pythonStampService.generateStamp({
       template,
-      textElements: template.textElements,
+      textElements: elementsForPreview,
       convertTextToPaths: false
     });
 
@@ -46,83 +54,155 @@ export class StampsService {
     return `uploads/previews/${previewFileName}`;
   }
 
-  async create(createStampTemplateDto: CreateStampTemplateDto): Promise<StampTemplate> {
-    const template = this.stampTemplateRepository.create(createStampTemplateDto);
-    const savedTemplate = await this.stampTemplateRepository.save(template);
+  async create(
+    createStampTemplateDto: CreateStampTemplateDto,
+    user: User
+  ): Promise<StampTemplate> {
+    const existingSku = await this.stampTemplateRepository.findOne({ where: { sku: createStampTemplateDto.sku } });
+    if (existingSku) {
+        throw new BadRequestException(`SKU "${createStampTemplateDto.sku}" already exists.`);
+    }
+
+    const templateData: Partial<StampTemplate> = {
+        ...createStampTemplateDto,
+        userId: user.id as string,
+    };
     
-    // Generate and save preview
-    savedTemplate.previewImagePath = await this.generateAndSavePreview(savedTemplate);
-    return this.stampTemplateRepository.save(savedTemplate);
+    const templateEntity = this.stampTemplateRepository.create(templateData);
+    let savedTemplate = await this.stampTemplateRepository.save(templateEntity); 
+
+    try {
+        const previewPath = await this.generateAndSavePreview(savedTemplate);
+        savedTemplate.previewImagePath = previewPath;
+        savedTemplate = await this.stampTemplateRepository.save(savedTemplate); 
+    } catch (previewError) {
+        console.error(`Failed to generate preview for new template ${savedTemplate.id}:`, previewError);
+    }
+    return savedTemplate;
   }
 
-  async findAll(): Promise<StampTemplate[]> {
-    return this.stampTemplateRepository.find();
+  async findAll(
+      paginationDto: PaginationDto,
+      user: User,
+      search?: string,
+      type?: StampType,
+  ): Promise<PaginatedResponse<StampTemplate>> {
+    const { page = 1, limit = 10 } = paginationDto;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.stampTemplateRepository.createQueryBuilder('template');
+
+    if (!user.isAdmin) {
+      queryBuilder.andWhere('template.userId = :userId', { userId: user.id as string });
+    }
+
+    if (type) {
+      queryBuilder.andWhere('template.type = :type', { type });
+    }
+
+    if (search) {
+        queryBuilder.andWhere('(LOWER(template.name) LIKE LOWER(:search) OR LOWER(template.sku) LIKE LOWER(:search))', {
+            search: `%${search}%`,
+        });
+    }
+
+    queryBuilder
+      .leftJoinAndSelect('template.user', 'user')
+      .select([
+          'template.id', 'template.sku', 'template.name', 'template.backgroundImagePath', 
+          'template.width', 'template.height', 'template.textElements', 'template.description',
+          'template.type', 'template.previewImagePath', 'template.isActive', 'template.createdAt',
+          'template.updatedAt', 'template.userId',
+          'user.id', 'user.username'
+      ]) 
+      .orderBy('template.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    const [results, total] = await queryBuilder.getManyAndCount();
+
+    const response: PaginatedResponse<StampTemplate> = {
+      items: results,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      }
+    };
+    return response;
   }
 
-  async findById(id: number): Promise<StampTemplate> {
-    let template: StampTemplate;
-
-    template = await this.stampTemplateRepository.findOne({ where: { id } });
+  async findById(id: number, user: User): Promise<StampTemplate> {
+    const template = await this.stampTemplateRepository.findOne({ 
+        where: { id },
+        relations: ['user']
+    });
 
     if (!template) {
       throw new NotFoundException(`Stamp template with ID ${id} not found`);
+    }
+
+    if (!user.isAdmin && template.userId !== user.id) {
+      throw new ForbiddenException('You do not have permission to access this template');
     }
     
     return template;
   }
 
-  async remove(id: number): Promise<void> {
+  async remove(id: number, user: User): Promise<void> {
+    const template = await this.findById(id, user);
+    
     const result = await this.stampTemplateRepository.delete(id);
     if (result.affected === 0) {
-      throw new NotFoundException(`Stamp template with ID ${id} not found`);
+      throw new NotFoundException(`Stamp template with ID ${id} not found or could not be deleted`);
     }
   }
 
-  async cloneTemplate(cloneStampTemplateDto: CloneStampTemplateDto): Promise<StampTemplate> {
+  async cloneTemplate(
+    cloneStampTemplateDto: CloneStampTemplateDto, 
+    user: User
+  ): Promise<StampTemplate> {
     const { sourceTemplateId, newName, newSku } = cloneStampTemplateDto;
+    const sourceTemplate = await this.findById(sourceTemplateId, user);
     
-    // 查找源模板
-    const sourceTemplate = await this.findById(sourceTemplateId);
-    
-    // 创建新模板对象，复制源模板的所有属性
-    const clonedTemplate = new StampTemplate();
-    
-    // 复制基本属性
-    clonedTemplate.width = sourceTemplate.width;
-    clonedTemplate.height = sourceTemplate.height;
-    clonedTemplate.backgroundImagePath = sourceTemplate.backgroundImagePath;
-    clonedTemplate.description = sourceTemplate.description;
-    clonedTemplate.isActive = sourceTemplate.isActive;
-    
-    // 设置新名称，如果没有提供则使用默认格式
-    clonedTemplate.name = newName || `复制 - ${sourceTemplate.name}`;
-    
-    // 设置新SKU，如果没有提供则生成一个唯一的SKU
-    if (newSku) {
-      // 检查SKU是否已存在
-      const existingTemplate = await this.stampTemplateRepository.findOne({ where: { sku: newSku } });
-      if (existingTemplate) {
-        throw new BadRequestException(`SKU "${newSku}" 已存在，请使用其他SKU`);
-      }
-      clonedTemplate.sku = newSku;
-    } else {
-      // 生成一个基于时间戳的唯一SKU
-      const timestamp = new Date().getTime();
-      clonedTemplate.sku = `${sourceTemplate.sku}-copy-${timestamp}`;
+    let finalSku = newSku;
+    if (!finalSku) {
+        const timestamp = new Date().getTime();
+        finalSku = `${sourceTemplate.sku}-copy-${timestamp}`;
     }
-    
-    // 深度复制文本元素数组
-    if (sourceTemplate.textElements && sourceTemplate.textElements.length > 0) {
-      clonedTemplate.textElements = JSON.parse(JSON.stringify(sourceTemplate.textElements));
-    } else {
-      clonedTemplate.textElements = [];
+
+    const existingTemplate = await this.stampTemplateRepository.findOne({ where: { sku: finalSku } });
+    if (existingTemplate) {
+      throw new BadRequestException(`SKU "${finalSku}" already exists. Please choose a different SKU.`);
     }
+
+    const clonedTemplateData: Partial<StampTemplate> = {
+        sku: finalSku,
+        name: newName || `复制 - ${sourceTemplate.name}`,
+        backgroundImagePath: sourceTemplate.backgroundImagePath,
+        width: sourceTemplate.width,
+        height: sourceTemplate.height,
+        textElements: sourceTemplate.textElements ? JSON.parse(JSON.stringify(sourceTemplate.textElements)) : [], 
+        description: sourceTemplate.description,
+        type: sourceTemplate.type,
+        isActive: sourceTemplate.isActive,
+        userId: user.id as string,
+    };
+
+    const clonedEntity = this.stampTemplateRepository.create(clonedTemplateData);
+    let savedClonedTemplate = await this.stampTemplateRepository.save(clonedEntity);
     
-    // 保存新模板
-    return this.stampTemplateRepository.save(clonedTemplate);
+    try {
+        const previewPath = await this.generateAndSavePreview(savedClonedTemplate);
+        savedClonedTemplate.previewImagePath = previewPath;
+        savedClonedTemplate = await this.stampTemplateRepository.save(savedClonedTemplate);
+    } catch (previewError) {
+        console.error(`Failed to generate preview for cloned template ${savedClonedTemplate.id}:`, previewError);
+    }
+    return savedClonedTemplate;
   }
 
-  // 创建印章生成记录
   async createGenerationRecord(
     orderId: string, 
     templateId: number, 
@@ -139,7 +219,6 @@ export class StampsService {
     return await this.stampGenerationRecordRepository.save(record);
   }
 
-  // 根据订单ID获取印章生成记录
   async getGenerationRecordsByOrderId(orderId: string): Promise<StampGenerationRecord[]> {
     return this.stampGenerationRecordRepository.find({
       where: { orderId },
@@ -148,7 +227,6 @@ export class StampsService {
     });
   }
 
-  // 根据记录ID获取特定的印章生成记录
   async getGenerationRecordById(id: number): Promise<StampGenerationRecord> {
     const record = await this.stampGenerationRecordRepository.findOne({
       where: { id },
@@ -162,7 +240,6 @@ export class StampsService {
     return record;
   }
 
-  // 获取最新一条印章生成记录（无论是哪个订单）
   async getLatestGenerationRecord(): Promise<StampGenerationRecord | null> {
     return this.stampGenerationRecordRepository.findOne({
       order: { createdAt: 'DESC' },
@@ -170,7 +247,6 @@ export class StampsService {
     });
   }
 
-  // 获取指定订单的最新一条印章生成记录
   async getLatestGenerationRecordByOrderId(orderId: string): Promise<StampGenerationRecord | null> {
     return this.stampGenerationRecordRepository.findOne({
       where: { orderId },
@@ -179,37 +255,49 @@ export class StampsService {
     });
   }
 
-  async update(id: number, updateStampTemplateDto: UpdateStampTemplateDto): Promise<StampTemplate> {
-    const template = await this.findById(id);
+  async update(
+    id: number, 
+    updateStampTemplateDto: UpdateStampTemplateDto, 
+    user: User
+  ): Promise<StampTemplate> {
+    let template = await this.findById(id, user);
     
-    // If SKU is being updated, check if it already exists
     if (updateStampTemplateDto.sku && updateStampTemplateDto.sku !== template.sku) {
       const existingTemplate = await this.stampTemplateRepository.findOne({ 
         where: { sku: updateStampTemplateDto.sku }
       });
       
       if (existingTemplate && existingTemplate.id !== id) {
-        throw new BadRequestException(`Template with SKU "${updateStampTemplateDto.sku}" already exists`);
+        throw new BadRequestException(`Another template with SKU "${updateStampTemplateDto.sku}" already exists.`);
       }
     }
     
-    // Update the template with new values
-    const updatedTemplate = this.stampTemplateRepository.merge(template, updateStampTemplateDto);
-    const savedTemplate = await this.stampTemplateRepository.save(updatedTemplate);
+    template = this.stampTemplateRepository.merge(template, updateStampTemplateDto);
+    let savedTemplate = await this.stampTemplateRepository.save(template);
     
-    // Generate and save new preview
-    savedTemplate.previewImagePath = await this.generateAndSavePreview(savedTemplate);
-    return this.stampTemplateRepository.save(savedTemplate);
+    try {
+        const previewPath = await this.generateAndSavePreview(savedTemplate);
+        savedTemplate.previewImagePath = previewPath;
+        savedTemplate = await this.stampTemplateRepository.save(savedTemplate);
+    } catch (previewError) {
+        console.error(`Failed to generate preview for updated template ${savedTemplate.id}:`, previewError);
+    }
+    return savedTemplate;
   }
 
-  // 根据模板ID数组获取模板列表
-  async getTemplatesByIds(ids: number[]): Promise<StampTemplate[]> {
+  async getTemplatesByIds(ids: number[], user: User): Promise<StampTemplate[]> {
     if (!ids || ids.length === 0) {
       return [];
     }
     
+    const whereClause: FindOptionsWhere<StampTemplate> = { id: In(ids) };
+
+    if (!user.isAdmin) {
+        whereClause.userId = user.id as string;
+    }
+    
     return this.stampTemplateRepository.find({
-      where: { id: In(ids) }
+      where: whereClause
     });
   }
 }

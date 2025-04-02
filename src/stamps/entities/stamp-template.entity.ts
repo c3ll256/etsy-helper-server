@@ -1,4 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';
+import { User } from '../../users/entities/user.entity';
+
+export enum StampType {
+  RUBBER = 'rubber',
+  STEEL = 'steel',
+}
 
 @Entity('stamp_templates')
 export class StampTemplate {
@@ -25,6 +31,15 @@ export class StampTemplate {
 
   @Column({ nullable: true })
   description?: string;
+
+  @Column({ type: 'enum', enum: StampType, default: StampType.RUBBER })
+  type: StampType;
+
+  @Column({ type: 'uuid' })
+  userId: string;
+
+  @ManyToOne(() => User)
+  user: User;
 
   @Column({ nullable: true })
   previewImagePath?: string;

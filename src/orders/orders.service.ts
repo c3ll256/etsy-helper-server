@@ -134,7 +134,7 @@ export class OrdersService {
       console.log(`应用模板筛选条件，模板IDs: ${JSON.stringify(templateIds)}`);
       
       // 查询模板获取SKUs
-      const templates = await this.stampsService.getTemplatesByIds(templateIds);
+      const templates = await this.stampsService.getTemplatesByIds(templateIds, currentUser);
       const templateSkus = templates.map(template => template.sku).filter(sku => sku);
       
       console.log(`模板SKUs: ${JSON.stringify(templateSkus)}`);
@@ -403,7 +403,7 @@ export class OrdersService {
       console.log(`应用模板筛选条件，模板IDs: ${JSON.stringify(templateIds)}`);
       
       // 查询模板获取SKUs
-      const templates = await this.stampsService.getTemplatesByIds(templateIds);
+      const templates = await this.stampsService.getTemplatesByIds(templateIds, currentUser);
       const templateSkus = templates.map(template => template.sku).filter(sku => sku);
       
       console.log(`模板SKUs: ${JSON.stringify(templateSkus)}`);

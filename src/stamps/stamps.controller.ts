@@ -8,14 +8,13 @@ import {
   Res,
   HttpStatus,
   ParseIntPipe,
-  UseInterceptors,
-  UploadedFile,
   BadRequestException,
   Put,
-  Req
+  Req,
+  UseGuards,
+  Query
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Response, Request } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -25,11 +24,16 @@ import { promisify } from 'util';
 import { StampsService } from './stamps.service';
 import { PythonStampService } from './services/python-stamp.service';
 import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
-import { GenerateStampDto } from './dto/generate-stamp.dto';
 import { PreviewStampDto } from './dto/preview-stamp.dto';
 import { CloneStampTemplateDto } from './dto/clone-stamp-template.dto';
 import { UpdateStampTemplateDto } from './dto/update-stamp-template.dto';
-import { GlmService } from 'src/common/services/glm.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from '../users/entities/user.entity';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { StampType } from './entities/stamp-template.entity';
+import { PaginatedResponse } from '../common/interfaces/pagination.interface';
+import { StampTemplate } from './entities/stamp-template.entity';
 
 const UPLOAD_DIR = 'uploads/backgrounds';
 
@@ -40,25 +44,41 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 
 @ApiTags('stamps')
 @Controller('stamps')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class StampsController {
   constructor(
     private readonly stampsService: StampsService,
     private readonly pythonStampService: PythonStampService, 
-    private readonly glmService: GlmService
   ) {}
 
   @Post('templates')
   @ApiOperation({ summary: 'Create a new stamp template' })
   @ApiResponse({ status: 201, description: 'The stamp template has been successfully created' })
-  async create(@Body() createStampTemplateDto: CreateStampTemplateDto) {
-    return this.stampsService.create(createStampTemplateDto);
+  @ApiResponse({ status: 400, description: 'Invalid input or SKU already exists' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async create(
+    @Body() createStampTemplateDto: CreateStampTemplateDto, 
+    @CurrentUser() user: User
+  ) {
+    return this.stampsService.create(createStampTemplateDto, user);
   }
 
   @Get('templates')
-  @ApiOperation({ summary: 'Get all stamp templates' })
-  @ApiResponse({ status: 200, description: 'Return all stamp templates' })
-  async findAll() {
-    return this.stampsService.findAll();
+  @ApiOperation({ summary: 'Get all stamp templates (paginated)' })
+  @ApiResponse({ status: 200, description: 'Return a paginated list of stamp templates' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by name or SKU' })
+  @ApiQuery({ name: 'type', required: false, enum: StampType, description: 'Filter by stamp type (rubber/steel)' })
+  async findAll(
+    @Query() paginationDto: PaginationDto, 
+    @CurrentUser() user: User,
+    @Query('search') search?: string,
+    @Query('type') type?: StampType
+  ): Promise<PaginatedResponse<StampTemplate>> {
+    return this.stampsService.findAll(paginationDto, user, search, type);
   }
 
   @Post('upload-background')
@@ -143,9 +163,14 @@ export class StampsController {
         fileName: req.file.originalname,
       });
     } catch (error) {
+      let message = '文件上传失败';
+      if (error instanceof Error) {
+        message = error.message;
+      }
+      console.error("Upload background error:", error);
       return res.status(400).json({ 
         success: false, 
-        message: error.message || '文件上传失败' 
+        message: message 
       });
     }
   }
@@ -154,35 +179,47 @@ export class StampsController {
   @ApiOperation({ summary: 'Get a stamp template by id' })
   @ApiResponse({ status: 200, description: 'Return the stamp template' })
   @ApiResponse({ status: 404, description: 'Stamp template not found' })
-  async findOne(@Param('id') id: string) {
-    return this.stampsService.findById(+id);
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  async findOne(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: User
+  ) {
+    return this.stampsService.findById(id, user);
   }
 
   @Delete('templates/:id')
   @ApiOperation({ summary: 'Delete a stamp template' })
   @ApiResponse({ status: 200, description: 'The stamp template has been successfully deleted' })
   @ApiResponse({ status: 404, description: 'Stamp template not found' })
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    await this.stampsService.remove(id);
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  async remove(
+    @Param('id', ParseIntPipe) id: number, 
+    @CurrentUser() user: User
+  ) {
+    await this.stampsService.remove(id, user);
     return { message: 'Template deleted successfully' };
   }
 
   @Post('preview')
   @ApiOperation({ summary: 'Preview a stamp with custom parameters' })
   @ApiResponse({ status: 200, description: 'Returns the preview image of the stamp' })
-  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 400, description: 'Bad request (e.g., invalid data)' })
   @ApiBody({ type: PreviewStampDto })
   async previewStamp(@Body() previewStampDto: PreviewStampDto, @Res() res: Response) {
-    let template = null;
+    let template: any = null;
     
-    // 如果提供了模板 ID，则获取模板
     if (previewStampDto.templateId) {
       try {
-        template = await this.stampsService.findById(previewStampDto.templateId);
+        template = await this.stampsService.findById(previewStampDto.templateId, null);
       } catch (error) {
-        // 如果找不到模板，则使用提供的参数创建临时模板
         template = {
           id: 0,
+          name: 'Preview',
+          sku: 'preview-sku',
+          userId: 0,
+          type: StampType.RUBBER,
           width: previewStampDto.width || 500,
           height: previewStampDto.height || 500,
           backgroundImagePath: previewStampDto.backgroundImagePath,
@@ -190,32 +227,40 @@ export class StampsController {
         };
       }
     } else {
-      // 创建临时模板
       template = {
         id: 0,
+        name: 'Preview',
+        sku: 'preview-sku',
+        userId: 0,
+        type: StampType.RUBBER,
         width: previewStampDto.width || 500,
         height: previewStampDto.height || 500,
         backgroundImagePath: previewStampDto.backgroundImagePath,
         textElements: []
       };
     }
-    
-    // 使用 Python 服务生成预览
-    const buffer = await this.pythonStampService.generateStamp({
-      template,
-      textElements: previewStampDto.textElements,
-      convertTextToPaths: previewStampDto.convertTextToPaths || false
-    });
-    
-    // 设置响应头
-    const contentType = 'image/png'
-    
-    res.set({
-      'Content-Type': contentType,
-      'Content-Length': buffer.length,
-    });
-    
-    return res.status(HttpStatus.OK).send(buffer);
+
+    try {
+      const buffer = await this.pythonStampService.generateStamp({
+        template,
+        textElements: previewStampDto.textElements,
+        convertTextToPaths: previewStampDto.convertTextToPaths || false
+      });
+
+      const contentType = 'image/png';
+      res.set({
+        'Content-Type': contentType,
+        'Content-Length': buffer.length,
+      });
+      return res.status(HttpStatus.OK).send(buffer);
+    } catch (error) {
+      console.error("Preview generation error:", error);
+      let message = 'Failed to generate preview.';
+      if (error instanceof Error) {
+        message = error.message;
+      }
+      throw new BadRequestException(message);
+    }
   }
 
   @Post('templates/clone')
@@ -223,8 +268,13 @@ export class StampsController {
   @ApiResponse({ status: 201, description: '印章模板克隆成功' })
   @ApiResponse({ status: 404, description: '源模板不存在' })
   @ApiResponse({ status: 400, description: 'SKU已存在或数据无效' })
-  async cloneTemplate(@Body() cloneStampTemplateDto: CloneStampTemplateDto) {
-    return this.stampsService.cloneTemplate(cloneStampTemplateDto);
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  async cloneTemplate(
+    @Body() cloneStampTemplateDto: CloneStampTemplateDto, 
+    @CurrentUser() user: User
+  ) {
+    return this.stampsService.cloneTemplate(cloneStampTemplateDto, user);
   }
 
   @Put('templates/:id')
@@ -232,10 +282,13 @@ export class StampsController {
   @ApiResponse({ status: 200, description: 'The stamp template has been successfully updated' })
   @ApiResponse({ status: 404, description: 'Stamp template not found' })
   @ApiResponse({ status: 400, description: 'Invalid data or SKU already exists' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
   async update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() updateStampTemplateDto: UpdateStampTemplateDto
+    @Body() updateStampTemplateDto: UpdateStampTemplateDto,
+    @CurrentUser() user: User
   ) {
-    return this.stampsService.update(id, updateStampTemplateDto);
+    return this.stampsService.update(id, updateStampTemplateDto, user);
   }
 } 
