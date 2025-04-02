@@ -1,20 +1,21 @@
 import { IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { OrderStatus, OrderType } from '../enums/order.enum';
 
 export class CreateOrderDto {
   @ApiProperty({
-    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
+    enum: OrderStatus,
     description: 'Order status',
-    example: 'stamp_not_generated'
+    example: OrderStatus.STAMP_NOT_GENERATED
   })
-  @IsEnum(['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'])
-  status: string;
+  @IsEnum(OrderStatus)
+  status: OrderStatus;
 
   @ApiProperty({
-    enum: ['etsy', 'manual', 'other'],
+    enum: OrderType,
     description: 'Order type',
-    example: 'manual'
+    example: OrderType.MANUAL
   })
-  @IsEnum(['etsy', 'manual', 'other'])
-  orderType: string;
+  @IsEnum(OrderType)
+  orderType: OrderType;
 } 

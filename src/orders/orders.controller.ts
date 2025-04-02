@@ -19,6 +19,7 @@ import { JobQueueService } from '../common/services/job-queue.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
+import { OrderStatus } from 'src/orders/enums/order.enum';
 
 @ApiTags('orders')
 @Controller('orders')
@@ -211,7 +212,7 @@ export class OrdersController {
   @ApiQuery({ 
     name: 'status', 
     required: false, 
-    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
+    enum: OrderStatus,
     description: '按订单状态筛选' 
   })
   @ApiQuery({ 
@@ -256,7 +257,7 @@ export class OrdersController {
   @ApiQuery({ 
     name: 'status', 
     required: false, 
-    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
+    enum: OrderStatus,
     description: '按订单状态筛选' 
   })
   @ApiQuery({ 

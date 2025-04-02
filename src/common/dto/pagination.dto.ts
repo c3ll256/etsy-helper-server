@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsInt, Min, IsString, IsEnum, IsDateString, IsUUID, IsArray, IsNumber } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
+import { OrderStatus, StampType } from '../../orders/enums/order.enum';
 
 export class PaginationDto {
   @ApiPropertyOptional({
@@ -35,14 +36,14 @@ export class PaginationDto {
   
   @ApiPropertyOptional({
     description: '订单状态筛选',
-    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
-    example: 'stamp_not_generated',
+    enum: OrderStatus,
+    example: OrderStatus.STAMP_NOT_GENERATED,
   })
-  @IsEnum(['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'], { 
+  @IsEnum(OrderStatus, { 
     message: '状态必须是有效的订单状态' 
   })
   @IsOptional()
-  status?: string;
+  status?: OrderStatus;
 
   @ApiPropertyOptional({
     description: '开始日期筛选 (YYYY-MM-DD)',
@@ -93,12 +94,12 @@ export class PaginationDto {
 
   @ApiPropertyOptional({
     description: '印章类型筛选',
-    enum: ['rubber', 'steel'],
-    example: 'rubber',
+    enum: StampType,
+    example: StampType.RUBBER,
   })
-  @IsEnum(['rubber', 'steel'], { 
+  @IsEnum(StampType, { 
     message: '印章类型必须是 rubber 或 steel' 
   })
   @IsOptional()
-  stampType?: string;
+  stampType?: StampType;
 } 

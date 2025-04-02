@@ -14,7 +14,7 @@ import { OrderStampService } from '../stamps/services/order-stamp.service';
 import { ExcelService } from './services/excel.service';
 import { UpdateStampDto } from './dto/update-stamp.dto';
 import { User } from '../users/entities/user.entity';
-import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
+import { OrderStatus } from './enums/order.enum';
 
 @Injectable()
 export class OrdersService {
@@ -26,8 +26,6 @@ export class OrdersService {
     private ordersRepository: Repository<Order>,
     @InjectRepository(EtsyOrder)
     private etsyOrderRepository: Repository<EtsyOrder>,
-    @InjectRepository(StampGenerationRecord)
-    private stampGenerationRecordRepository: Repository<StampGenerationRecord>,
     private readonly stampsService: StampsService,
     private readonly orderStampService: OrderStampService,
     private readonly excelService: ExcelService,
@@ -336,7 +334,7 @@ export class OrdersService {
       // 更新订单状态为已生成印章待审核
       await this.ordersRepository.update(
         { id: order.id },
-        { status: 'stamp_generated_pending_review' }
+        { status: OrderStatus.STAMP_GENERATED_PENDING_REVIEW }
       );
 
       return {
@@ -388,7 +386,7 @@ export class OrdersService {
       queryBuilder.where('order.status = :status', { status });
     } else {
       queryBuilder.where('order.status IN (:...statuses)', { 
-        statuses: ['stamp_generated_pending_review', 'stamp_generated_reviewed'] 
+        statuses: [OrderStatus.STAMP_GENERATED_PENDING_REVIEW, OrderStatus.STAMP_GENERATED_REVIEWED] 
       });
     }
 
@@ -456,7 +454,7 @@ export class OrdersService {
       allOrdersQuery.where('order.status = :status', { status });
     } else {
       allOrdersQuery.where('order.status IN (:...statuses)', { 
-        statuses: ['stamp_generated_pending_review', 'stamp_generated_reviewed'] 
+        statuses: [OrderStatus.STAMP_GENERATED_PENDING_REVIEW, OrderStatus.STAMP_GENERATED_REVIEWED] 
       });
     }
     

@@ -2,6 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 import { EtsyOrder } from './etsy-order.entity';
 import { ApiProperty } from '@nestjs/swagger';
 import { User } from '../../users/entities/user.entity';
+import { OrderStatus, OrderType, StampType } from '../enums/order.enum';
 
 @Entity('orders')
 export class Order {
@@ -13,28 +14,28 @@ export class Order {
   id: string;
 
   @ApiProperty({
-    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
+    enum: OrderStatus,
     description: 'The status of the order',
-    example: 'stamp_not_generated'
+    example: OrderStatus.STAMP_NOT_GENERATED
   })
   @Column({
     type: 'enum',
-    enum: ['stamp_not_generated', 'stamp_generated_pending_review', 'stamp_generated_reviewed'],
-    default: 'stamp_not_generated'
+    enum: OrderStatus,
+    default: OrderStatus.STAMP_NOT_GENERATED
   })
-  status: string;
+  status: OrderStatus;
 
   @ApiProperty({
-    enum: ['etsy', 'manual', 'other'],
+    enum: OrderType,
     description: 'The type of the order',
-    example: 'manual'
+    example: OrderType.MANUAL
   })
   @Column({
     type: 'enum',
-    enum: ['etsy', 'manual', 'other'],
-    default: 'manual'
+    enum: OrderType,
+    default: OrderType.MANUAL
   })
-  orderType: string;
+  orderType: OrderType;
 
   @ApiProperty({
     description: 'The order ID from the e-commerce platform',
@@ -104,15 +105,15 @@ export class Order {
   orderDetails?: any;
 
   @ApiProperty({
-    enum: ['rubber', 'steel'],
+    enum: StampType,
     description: 'The type of stamp for this order',
-    example: 'rubber',
+    example: StampType.RUBBER,
     required: false
   })
   @Column({
     type: 'enum',
-    enum: ['rubber', 'steel'],
+    enum: StampType,
     nullable: true
   })
-  stampType: string;
+  stampType: StampType;
 } 

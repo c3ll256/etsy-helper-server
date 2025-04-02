@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { User } from '../../users/entities/user.entity';
 import { AliyunService } from 'src/common/services/aliyun.service';
+import { OrderStatus, OrderType } from '../enums/order.enum';
 
 type ProcessingResult = {
   total: number;
@@ -404,14 +405,11 @@ export class ExcelService {
     
     // Create basic order
     const order = this.orderRepository.create({
-      id: tempOrderId,
-      status: 'stamp_not_generated',
-      orderType: 'etsy',
+      status: OrderStatus.STAMP_NOT_GENERATED,
+      orderType: OrderType.ETSY,
       platformOrderId: orderId,
-      platformOrderDate: item['Date Paid'] ? new Date(item['Date Paid']) : null,
       user: user,
-      userId: user?.id,
-      stampType: item['Stamp Type']?.toLowerCase() === 'steel' ? 'steel' : 'rubber'
+      userId: user?.id
     });
     
     // Save the order to get its ID
@@ -517,7 +515,7 @@ export class ExcelService {
     if (stamps.length > 0) {
       await this.orderRepository.update(
         { id: order.id },
-        { status: 'stamp_generated_pending_review' }
+        { status: OrderStatus.STAMP_GENERATED_PENDING_REVIEW }
       );
     }
     
@@ -689,5 +687,12 @@ ${templateDescription}
 
 原始变量字符串:
 ${variationsString}`;
+  }
+
+  async updateOrderStatus(orderId: string, status: OrderStatus) {
+    await this.orderRepository.update(
+      { id: orderId },
+      { status: status }
+    );
   }
 } 
