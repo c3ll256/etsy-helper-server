@@ -76,9 +76,13 @@ export class EtsyOrder {
   @Column({ nullable: true })
   shipName: string;
 
-  @ApiProperty({ description: 'Shipping address', example: '123 Main St', required: false })
+  @ApiProperty({ description: 'Shipping address 1', example: '123 Main St', required: false })
   @Column({ nullable: true })
   shipAddress1: string;
+
+  @ApiProperty({ description: 'Shipping address 2', example: 'Apt 1', required: false })
+  @Column({ nullable: true })
+  shipAddress2: string;
 
   @ApiProperty({ description: 'Shipping city', example: 'New York', required: false })
   @Column({ nullable: true })

@@ -569,16 +569,26 @@ class PNGStampGenerator:
                 # Calculate position based on alignment
                 place_x = scaled_x
                 if text_align == 'center':
-                    place_x = scaled_x - (text_width / 2)
+                    # 使用更准确的方法计算文本宽度
+                    # 获取左边界和右边界
+                    left, top, right, bottom = font.getbbox(text)
+                    # 使用实际边界计算文本宽度
+                    actual_text_width = right - left
+                    # 考虑左边界的偏移
+                    place_x = scaled_x - (actual_text_width / 2) - left
                 elif text_align == 'right':
-                    place_x = scaled_x - text_width
+                    left, _, right, _ = font.getbbox(text)
+                    actual_text_width = right - left
+                    place_x = scaled_x - actual_text_width - left
                 
                 place_y = scaled_y
                 ascent, descent = font.getmetrics()
                 if vert_align == 'top':
                     place_y = scaled_y
                 elif vert_align == 'middle':
-                    place_y = scaled_y - text_height / 2
+                    _, top, _, bottom = font.getbbox(text)
+                    actual_text_height = bottom - top
+                    place_y = scaled_y - actual_text_height / 2 - top
                 else:  # baseline
                     place_y = scaled_y - ascent
                 

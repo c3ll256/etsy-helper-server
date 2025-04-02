@@ -72,6 +72,7 @@ export class EtsyOrderService {
       datePaid: data['Date Paid'] ? new Date(data['Date Paid']) : null,
       shipName: data['Ship Name'],
       shipAddress1: data['Ship Address1'],
+      shipAddress2: data['Ship Address2'],
       shipCity: data['Ship City'],
       shipState: data['Ship State'],
       shipZipcode: data['Ship Zipcode']?.toString(),
