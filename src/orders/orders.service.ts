@@ -14,7 +14,7 @@ import { OrderStampService } from '../stamps/services/order-stamp.service';
 import { ExcelService } from './services/excel.service';
 import { UpdateStampDto } from './dto/update-stamp.dto';
 import { User } from '../users/entities/user.entity';
-import { OrderStatus } from './enums/order.enum';
+import { OrderStatus, StampType } from './enums/order.enum';
 
 @Injectable()
 export class OrdersService {
@@ -368,13 +368,14 @@ export class OrdersService {
     search?: string, 
     status?: string, 
     currentUser?: User,
-    templateIds?: number[]
+    templateIds?: number[],
+    stampType?: StampType
   ): Promise<{
     filePath: string;
     fileName: string;
     orderCount: number;
   }> {
-    console.log(`开始导出图章: 开始日期=${startDate || '无'}, 结束日期=${endDate || '无'}, 搜索=${search || '无'}, 状态=${status || '全部'}, 模板IDs=${templateIds?.join(',') || '全部'}`);
+    console.log(`开始导出图章: 开始日期=${startDate || '无'}, 结束日期=${endDate || '无'}, 搜索=${search || '无'}, 状态=${status || '全部'}, 模板IDs=${templateIds?.join(',') || '全部'}, 印章类型=${stampType || '全部'}`);
     
     // Create query builder for finding orders with generated stamps
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
@@ -388,6 +389,11 @@ export class OrdersService {
       queryBuilder.where('order.status IN (:...statuses)', { 
         statuses: [OrderStatus.STAMP_GENERATED_PENDING_REVIEW, OrderStatus.STAMP_GENERATED_REVIEWED] 
       });
+    }
+
+    // Apply stamp type filter if provided
+    if (stampType) {
+      queryBuilder.andWhere('order.stampType = :stampType', { stampType });
     }
 
     // Apply date filters

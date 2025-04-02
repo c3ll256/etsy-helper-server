@@ -19,7 +19,7 @@ import { JobQueueService } from '../common/services/job-queue.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
-import { OrderStatus } from 'src/orders/enums/order.enum';
+import { OrderStatus, StampType } from 'src/orders/enums/order.enum';
 
 @ApiTags('orders')
 @Controller('orders')
@@ -230,7 +230,7 @@ export class OrdersController {
   @ApiQuery({ 
     name: 'stampType', 
     required: false, 
-    enum: ['rubber', 'steel'],
+    enum: StampType,
     description: '按印章类型筛选' 
   })
   findAll(@Query() paginationDto: PaginationDto, @CurrentUser() user: User): Promise<PaginatedResponse<Order>> {
@@ -267,6 +267,12 @@ export class OrdersController {
     type: [Number],
     isArray: true
   })
+  @ApiQuery({ 
+    name: 'stampType', 
+    required: false, 
+    enum: StampType,
+    description: '按印章类型筛选' 
+  })
   async exportStamps(
     @Query() exportStampsDto: ExportStampsDto,
     @Res() res: Response,
@@ -279,7 +285,8 @@ export class OrdersController {
         exportStampsDto.search,
         exportStampsDto.status,
         user,
-        exportStampsDto.templateIds
+        exportStampsDto.templateIds,
+        exportStampsDto.stampType
       );
 
       // 确保文件存在且有效

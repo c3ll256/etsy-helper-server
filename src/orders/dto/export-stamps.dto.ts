@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsDateString, IsOptional, IsString, IsEnum, IsArray, IsNumber } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
-import { OrderStatus } from '../enums/order.enum';
+import { OrderStatus, StampType } from '../enums/order.enum';
+
 
 export class ExportStampsDto {
   @ApiProperty({
@@ -64,4 +65,15 @@ export class ExportStampsDto {
   })
   @IsOptional()
   templateIds?: number[];
+
+  @ApiProperty({
+    description: '按印章类型筛选',
+    enum: StampType,
+    required: false
+  })
+  @IsEnum(StampType, {
+    message: '印章类型必须是有效的类型'
+  })
+  @IsOptional()
+  stampType?: StampType;
 } 
