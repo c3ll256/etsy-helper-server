@@ -26,6 +26,9 @@ export class StampTemplate {
   @Column({ nullable: true })
   description?: string;
 
+  @Column({ nullable: true })
+  previewImagePath?: string;
+
   @Column({ default: true })
   isActive: boolean;
 
@@ -38,7 +41,8 @@ export class StampTemplate {
 
 export interface TextElement {
   id?: string;
-  defaultValue?: string;
+  defaultValue?: string; 
+  value?: string;
   fontFamily?: string;
   fontSize?: number;
   fontWeight?: string;

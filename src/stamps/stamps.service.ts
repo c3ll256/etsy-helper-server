@@ -2,12 +2,15 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { In } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
 
 import { StampTemplate } from './entities/stamp-template.entity';
 import { StampGenerationRecord } from './entities/stamp-generation-record.entity';
 import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
 import { CloneStampTemplateDto } from './dto/clone-stamp-template.dto';
 import { UpdateStampTemplateDto } from './dto/update-stamp-template.dto';
+import { PythonStampService } from './services/python-stamp.service';
 
 @Injectable()
 export class StampsService {
@@ -15,13 +18,41 @@ export class StampsService {
     @InjectRepository(StampTemplate)
     private stampTemplateRepository: Repository<StampTemplate>,
     @InjectRepository(StampGenerationRecord)
-    private stampGenerationRecordRepository: Repository<StampGenerationRecord>
+    private stampGenerationRecordRepository: Repository<StampGenerationRecord>,
+    private readonly pythonStampService: PythonStampService
   ) {
+  }
+
+  private async generateAndSavePreview(template: StampTemplate): Promise<string> {
+    const previewDir = path.join(process.cwd(), 'uploads', 'previews');
+    if (!fs.existsSync(previewDir)) {
+      fs.mkdirSync(previewDir, { recursive: true });
+    }
+
+    const previewFileName = `preview-${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
+    const previewPath = path.join(previewDir, previewFileName);
+
+    for (const textElement of template.textElements) {
+      textElement.value = textElement.defaultValue
+    }
+
+    const buffer = await this.pythonStampService.generateStamp({
+      template,
+      textElements: template.textElements,
+      convertTextToPaths: false
+    });
+
+    fs.writeFileSync(previewPath, buffer);
+    return `uploads/previews/${previewFileName}`;
   }
 
   async create(createStampTemplateDto: CreateStampTemplateDto): Promise<StampTemplate> {
     const template = this.stampTemplateRepository.create(createStampTemplateDto);
-    return this.stampTemplateRepository.save(template);
+    const savedTemplate = await this.stampTemplateRepository.save(template);
+    
+    // Generate and save preview
+    savedTemplate.previewImagePath = await this.generateAndSavePreview(savedTemplate);
+    return this.stampTemplateRepository.save(savedTemplate);
   }
 
   async findAll(): Promise<StampTemplate[]> {
@@ -164,8 +195,11 @@ export class StampsService {
     
     // Update the template with new values
     const updatedTemplate = this.stampTemplateRepository.merge(template, updateStampTemplateDto);
+    const savedTemplate = await this.stampTemplateRepository.save(updatedTemplate);
     
-    return this.stampTemplateRepository.save(updatedTemplate);
+    // Generate and save new preview
+    savedTemplate.previewImagePath = await this.generateAndSavePreview(savedTemplate);
+    return this.stampTemplateRepository.save(savedTemplate);
   }
 
   // 根据模板ID数组获取模板列表
