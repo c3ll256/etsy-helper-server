@@ -103,7 +103,7 @@ export class OrdersService {
   }
 
   async findAll(paginationDto: PaginationDto, currentUser?: User): Promise<PaginatedResponse<Order>> {
-    const { page = 1, limit = 10, search, status, startDate, endDate, userId, templateIds } = paginationDto;
+    const { page = 1, limit = 10, search, status, startDate, endDate, userId, templateIds, stampType } = paginationDto;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
@@ -116,6 +116,11 @@ export class OrdersService {
     // Apply status filter if provided
     if (status) {
       queryBuilder.andWhere('order.status = :status', { status });
+    }
+
+    // Apply stamp type filter if provided
+    if (stampType) {
+      queryBuilder.andWhere('order.stampType = :stampType', { stampType });
     }
 
     // Apply date filters

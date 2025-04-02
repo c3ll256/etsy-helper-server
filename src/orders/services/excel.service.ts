@@ -1,29 +1,29 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { read, utils, write, WorkSheet, WorkBook } from 'xlsx';
-import { EtsyOrderService } from './etsy-order.service';
 import { OrderStampService } from '../../stamps/services/order-stamp.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order } from '../entities/order.entity';
 import { EtsyOrder } from '../entities/etsy-order.entity';
 import { v4 as uuidv4 } from 'uuid';
-import { JobQueueService } from './job-queue.service';
+import { JobQueueService } from '../../common/services/job-queue.service';
 import * as path from 'path';
 import * as fs from 'fs';
 import { User } from '../../users/entities/user.entity';
+import { AliyunService } from 'src/common/services/aliyun.service';
 
 @Injectable()
 export class ExcelService {
   private readonly logger = new Logger(ExcelService.name);
 
   constructor(
-    private readonly etsyOrderService: EtsyOrderService,
     private readonly orderStampService: OrderStampService,
     private readonly jobQueueService: JobQueueService,
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
     @InjectRepository(EtsyOrder)
     private readonly etsyOrderRepository: Repository<EtsyOrder>,
+    private readonly aliyunService: AliyunService,
   ) {}
 
   // New method for asynchronous processing with progress tracking
@@ -270,7 +270,7 @@ export class ExcelService {
       }
       
       // 使用增强的parseVariations方法解析variations和检测多个个性化信息
-      const parsedResult = await this.etsyOrderService.parseVariations(originalVariations, templateDescription);
+      const parsedResult = await this.parseVariations(originalVariations, templateDescription);
       
       // 创建临时订单ID
       const tempOrderId = uuidv4();
@@ -284,82 +284,64 @@ export class ExcelService {
       mainItem['Variations'] = originalVariations;
       mainItem['ParsedVariations'] = parsedResult;
       
-      // 创建基础订单，关联到当前登录用户
-      const orderResult = await this.etsyOrderService.createFromExcelData(mainItem, tempOrderId, user);
+      // 创建基本订单
+      const order = this.orderRepository.create({
+        id: tempOrderId,
+        status: 'stamp_not_generated',
+        orderType: 'etsy',
+        platformOrderId: orderId,
+        platformOrderDate: item['Date Paid'] ? new Date(item['Date Paid']) : null,
+        user: user,
+        userId: user?.id,
+        stampType: item['Stamp Type']?.toLowerCase() === 'steel' ? 'steel' : 'rubber' // 默认使用 rubber
+      });
       
-      if (orderResult.status !== 'created') {
+      // 创建临时EtsyOrder对象用于印章生成
+      const tempEtsyOrder = {
+        orderId,
+        transactionId: baseTransactionId,
+        order_id: order.id,
+        sku: mainItem['SKU']?.toString(),
+        variations: {
+          ...parsedResult.variations,
+          personalization: parsedResult.personalizations[0].reduce((acc, curr) => {
+            acc[curr.id] = curr.value;
+            return acc;
+          }, {})
+        },
+        originalVariations: parsedResult.originalVariations
+      };
+      
+      // 记录当前正在处理的个性化信息
+      this.logger.log(`Processing personalization group #1: ${JSON.stringify(parsedResult.personalizations[0])}`);
+      
+      // 生成印章
+      const stampResult = await this.orderStampService.generateStampFromOrder({
+        order: tempEtsyOrder,
+        convertTextToPaths: true
+      });
+      
+      if (!stampResult.success) {
+        this.logger.warn(`Failed to generate stamp for personalization group #1: ${stampResult.error}`);
         return {
           success: false,
-          error: orderResult.reason || 'Failed to create order'
+          error: stampResult.error
         };
       }
       
-      // 存储所有生成记录ID的数组
-      const generatedRecordIds: number[] = [];
-      
-      // 处理每个个性化信息，为每个个性化信息生成单独的印章，但关联到同一个订单
-      for (let i = 0; i < parsedResult.personalizations.length; i++) {
-        // 准备个性化信息 - 现在是数组中的数组
-        const currentPersonalizationGroup = parsedResult.personalizations[i];
-        
-        // 创建临时的EtsyOrder对象用于印章生成
-        const tempEtsyOrder = {
-          orderId,
-          transactionId: baseTransactionId,
-          order_id: orderResult.order?.order?.id || tempOrderId,
-          sku: mainItem['SKU']?.toString(),
-          variations: {
-            ...parsedResult.variations,
-            personalization: currentPersonalizationGroup.reduce((acc, curr) => {
-              acc[curr.id] = curr.value;
-              return acc;
-            }, {})
-          },
-          originalVariations: parsedResult.originalVariations,
-          order: { id: orderResult.order?.order?.id || tempOrderId }
-        };
-        
-        // 记录当前正在处理的个性化信息
-        this.logger.log(`Processing personalization group #${i+1}: ${JSON.stringify(currentPersonalizationGroup)}`);
-        
-        // 生成印章
-        const stampResult = await this.orderStampService.generateStampFromOrder({
-          order: tempEtsyOrder,
-          convertTextToPaths: true
-        });
-        
-        if (!stampResult.success) {
-          this.logger.warn(`Failed to generate stamp for personalization group #${i + 1}: ${stampResult.error}`);
-          continue; // 继续处理下一个个性化信息
-        }
-        
-        // 记录生成的印章记录ID
-        if (stampResult.recordId) {
-          generatedRecordIds.push(stampResult.recordId);
-        }
-        
-        // 将生成的印章与订单关联
-        const stampImageUrl = stampResult.path.replace('uploads/', '/');
-        
-        // 加入印章结果集
+      // 记录生成的印章记录ID
+      if (stampResult.recordId) {
         stamps.push({
-          orderId: orderResult.order.orderId,
-          transactionId: orderResult.order.transactionId,
-          stampPath: stampImageUrl
+          orderId: order.id,
+          transactionId: baseTransactionId,
+          stampPath: stampResult.path.replace('uploads/', '/')
         });
-        
-        // 更新EtsyOrder的stampImageUrl
-        await this.etsyOrderService.updateStampImage(
-          baseTransactionId,
-          stampImageUrl,
-          stampResult.recordId
-        );
       }
       
       // 如果成功生成了至少一个印章，则更新订单状态
-      if (stamps.length > 0 && orderResult.order?.order) {
+      if (stamps.length > 0) {
         await this.orderRepository.update(
-          { id: orderResult.order.order.id },
+          { id: order.id },
           { status: 'stamp_generated_pending_review' }
         );
       }
@@ -552,6 +534,141 @@ export class ExcelService {
     } catch (error) {
       this.logger.error(`Failed to create Excel file: ${error.message}`, error.stack);
       throw new Error(`Failed to create Excel file: ${error.message}`);
+    }
+  }
+
+  /**
+   * 使用LLM解析订单变量和检测多个个性化信息
+   * 一次性处理所有信息，包括：
+   * 1. 解析变量为JSON格式
+   * 2. 检测是否包含多个个性化信息
+   * 3. 提取每个个性化信息段落并根据模板描述解析为结构化数据
+   * @param variationsString 原始变量字符串
+   * @param templateDescription 可选的模板描述，用于指导LLM解析
+   * @returns 解析后的结果，包含变量对象和个性化信息数组
+   */
+  public async parseVariations(variationsString: string, templateDescription?: string): Promise<{
+    variations: {
+      [key: string]: string;
+    };
+    hasMultiple: boolean;
+    personalizations: Array<Array<{
+      id: string;
+      value: string;
+    }>>;
+    originalVariations: string;
+  }> {
+    if (!variationsString) return {
+      variations: null,
+      hasMultiple: false,
+      personalizations: [],
+      originalVariations: ''
+    };
+    
+    try {
+      // 构建提示
+      const prompt = `
+你是一位解析订单的专家。你需要完成两个任务：
+1. 将原始的变量字符串解析为JSON格式
+2. 分析是否包含多个个性化信息，并将每个个性化信息根据模板描述 (description) 解析为结构化数据
+
+请按照以下格式返回JSON:
+{
+  "variations": {
+    "字段名1": "值1",
+    "字段名2": "值2",
+    ...
+  },
+  "hasMultiple": true/false, // 是否包含多个 Personalization 信息
+  "personalizations": [    // 每个 Personalization 的结构化数据
+    [
+      "1": {
+        "id": "id_1",
+        "value": "值1"
+      },
+      "2": {
+        "id": "id_2",
+        "value": "值2"
+      },
+      ...
+    ],
+    ... // 可能还有更多个性化信息
+  ]
+}
+
+特别注意:
+1. 个性化信息 (personalizations) 是最重要的字段，必须确保100%完整保留，尤其是地址、名称等信息
+2. 如果只有一个个性化信息，hasMultiple 应为 false
+3. 保持原始文本的精确性，不要添加或删除内容
+4. 一定要保证填写每一个字段，根据模版字段的描述 (description) 来匹配信息应该填写到哪个字段
+5. 仅输出JSON对象，不要有任何其他文本
+
+注意！！！每个结构化数据的 key-value 的 key 是模版描述中的 id (不要自己编造，严格按照模版描述中的 id)！！！
+
+例如，对于如下原始变量:
+"Stamp Type:Wood Stamp + ink pad,Design Options:#4,Personalization:The Bradys
+50 South Circle V Drive
+Manila, UT 84046"
+
+以及如下模版:
+[
+  {"id":"name","description":"名字或团体名称","defaultValue":"default"},
+  {"id":"address_line1","description":"地址栏一","defaultValue":"address1"},
+  {"id":"address_line2","description":"地址栏二","defaultValue":"address2"},
+  ... // 可能还有更多字段
+]
+
+正确的解析应为如下:
+{
+  "variations": {
+    "Stamp Type": "Wood Stamp + ink pad",
+    "Design Options": "#4"
+  },
+  "hasMultiple": false,
+  "personalizations": [
+    [
+      {
+        "id": "name",
+        "value": "The Bradys"
+      },
+      {
+        "id": "address_line1",
+        "value": "50 South Circle V Drive"
+      },
+      {
+        "id": "address_line2",
+        "value": "Manila, UT 84046"
+      }
+    ]
+  ]
+}
+`;
+
+      const userPrompt = 
+`${templateDescription ? `
+模版如下，请根据模版字段的描述 (description) 来理解和提取相关字段：
+${templateDescription}
+` : ''}
+
+原始变量字符串:
+${variationsString}`;
+
+      // 调用GLM服务的generateJson方法
+      try {
+        const parsedResult = await this.aliyunService.generateJson(userPrompt, { systemPrompt: prompt });
+
+        this.logger.log(`Parsed result: ${JSON.stringify(parsedResult)}`);
+
+        return {
+          ...parsedResult,
+          originalVariations: variationsString
+        };
+      } catch (jsonError) {
+        this.logger.warn(`Failed to parse variations using GLM JSON: ${jsonError.message}`);
+      }
+    } catch (error) {
+      this.logger.error(`Error parsing variations using LLM: ${error.message}`, error);
+      throw error;
     }
   }
 } 

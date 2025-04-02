@@ -6,6 +6,7 @@ import glmConfig from '../config/glm.config';
 import ollamaConfig from '../config/ollama.config';
 import { AliyunService } from './services/aliyun.service';
 import aliyunConfig from 'src/config/aliyun.config';
+import { JobQueueService } from './services/job-queue.service';
 
 @Module({
   imports: [
@@ -13,7 +14,7 @@ import aliyunConfig from 'src/config/aliyun.config';
     ConfigModule.forFeature(ollamaConfig),
     ConfigModule.forFeature(aliyunConfig)
   ],
-  providers: [GlmService, OllamaService, AliyunService],
-  exports: [GlmService, OllamaService, AliyunService],
+  providers: [GlmService, OllamaService, AliyunService, JobQueueService],
+  exports: [GlmService, OllamaService, AliyunService, JobQueueService],
 })
 export class CommonModule {} 

@@ -90,4 +90,15 @@ export class PaginationDto {
   })
   @IsOptional()
   templateIds?: number[];
+
+  @ApiPropertyOptional({
+    description: '印章类型筛选',
+    enum: ['rubber', 'steel'],
+    example: 'rubber',
+  })
+  @IsEnum(['rubber', 'steel'], { 
+    message: '印章类型必须是 rubber 或 steel' 
+  })
+  @IsOptional()
+  stampType?: string;
 } 

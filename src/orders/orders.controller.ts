@@ -15,7 +15,7 @@ import { In } from 'typeorm';
 import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { JobQueueService } from './services/job-queue.service';
+import { JobQueueService } from '../common/services/job-queue.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -226,6 +226,12 @@ export class OrdersController {
     description: '按印章模板ID筛选（多选）', 
     type: [Number],
     isArray: true
+  })
+  @ApiQuery({ 
+    name: 'stampType', 
+    required: false, 
+    enum: ['rubber', 'steel'],
+    description: '按印章类型筛选' 
   })
   findAll(@Query() paginationDto: PaginationDto, @CurrentUser() user: User): Promise<PaginatedResponse<Order>> {
     return this.ordersService.findAll(paginationDto, user);

@@ -102,4 +102,17 @@ export class Order {
     nullable: true
   })
   orderDetails?: any;
+
+  @ApiProperty({
+    enum: ['rubber', 'steel'],
+    description: 'The type of stamp for this order',
+    example: 'rubber',
+    required: false
+  })
+  @Column({
+    type: 'enum',
+    enum: ['rubber', 'steel'],
+    nullable: true
+  })
+  stampType: string;
 } 

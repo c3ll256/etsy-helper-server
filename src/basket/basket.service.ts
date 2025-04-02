@@ -10,7 +10,7 @@ import { BasketGenerationResponseDto } from './dto/basket-generation-response.dt
 import { User } from '../users/entities/user.entity';
 import { BasketPaginationDto } from './dto/basket-pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
-import { JobQueueService } from '../orders/services/job-queue.service';
+import { JobQueueService } from '../common/services/job-queue.service';
 import { SkuConfig } from './entities/sku-config.entity';
 import { CreateSkuConfigDto } from './dto/sku-config.dto';
 import { AliyunService } from 'src/common/services/aliyun.service';
