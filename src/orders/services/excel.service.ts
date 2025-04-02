@@ -288,14 +288,35 @@ export class ExcelService {
 
     // Check if order already exists
     const existingOrder = await this.etsyOrderRepository.findOne({
-      where: { transactionId: baseTransactionId }
+      where: { transactionId: baseTransactionId },
+      relations: ['order']
     });
 
     if (existingOrder) {
-      return {
-        success: false,
-        error: 'Order with this Transaction ID already exists'
-      };
+      // If order exists and is in stamp_not_generated status, delete it and its related records
+      if (existingOrder.order?.status === OrderStatus.STAMP_NOT_GENERATED) {
+        // Delete stamp generation records if they exist
+        if (existingOrder.stampGenerationRecordIds?.length > 0) {
+          await this.orderStampService.deleteStampGenerationRecords(
+            existingOrder.stampGenerationRecordIds
+          );
+        }
+        
+        // Delete the EtsyOrder
+        await this.etsyOrderRepository.remove(existingOrder);
+        
+        // Delete the main Order
+        if (existingOrder.order) {
+          await this.orderRepository.remove(existingOrder.order);
+        }
+        
+        this.logger.log(`Deleted existing order ${orderId} with status STAMP_NOT_GENERATED for reimport`);
+      } else {
+        return {
+          success: false,
+          error: 'Order with this Transaction ID already exists'
+        };
+      }
     }
     
     try {

@@ -26,6 +26,16 @@ export class OrderStampService {
   }
 
   /**
+   * 删除印章生成记录
+   * @param recordIds 要删除的记录ID数组
+   */
+  async deleteStampGenerationRecords(recordIds: number[]): Promise<void> {
+    if (recordIds?.length > 0) {
+      await this.stampGenerationRecordRepository.delete(recordIds);
+    }
+  }
+
+  /**
    * 根据SKU查找模板
    * @param sku 完整SKU
    * @param skuBase 基础SKU（可选）
