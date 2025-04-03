@@ -79,10 +79,39 @@ export class BasketController {
   }
 
   @Get('sku-config')
-  @ApiOperation({ summary: '获取用户SKU配置列表' })
-  @ApiResponse({ status: 200, description: '返回用户的SKU配置列表', type: [SkuConfigResponseDto] })
-  async getUserSkuConfigs(@CurrentUser() user: User): Promise<SkuConfig[]> {
-    return this.basketService.getUserSkuConfigs(user.id);
+  @ApiOperation({ summary: '获取SKU配置列表' })
+  @ApiResponse({ 
+    status: 200, 
+    description: '返回SKU配置列表',
+    schema: {
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/SkuConfig' }
+        },
+        meta: {
+          type: 'object',
+          properties: {
+            total: { type: 'number' },
+            page: { type: 'number' },
+            limit: { type: 'number' },
+            totalPages: { type: 'number' }
+          }
+        }
+      }
+    }
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认为1' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: '每页数量，默认为10' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: '搜索关键词' })
+  async getUserSkuConfigs(
+    @CurrentUser() user: User,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+    @Query('search') search?: string,
+  ): Promise<PaginatedResponse<SkuConfig>> {
+    return this.basketService.getUserSkuConfigs(user, { page, limit, search });
   }
 
   @Post('sku-config')

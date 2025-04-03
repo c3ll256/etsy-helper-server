@@ -71,7 +71,10 @@ export class BasketService {
     orderType: 'basket' | 'backpack' = 'basket'
   ): Promise<BasketGenerationResponseDto> {
     // Check if user has SKU configuration
-    const userConfigs = await this.getUserSkuConfigs(user.id);
+    const userConfigs = await this.skuConfigRepository.find({
+      where: { userId: user.id },
+      order: { createdAt: 'DESC' }
+    });
     
     if (!userConfigs.length) {
       throw new BadRequestException('您尚未配置SKU匹配规则，请先前往设置页面进行配置');
@@ -108,15 +111,54 @@ export class BasketService {
   }
 
   /**
-   * Get user's SKU configurations
-   * @param userId User ID
-   * @returns Array of user's SKU configurations
+   * Get user's SKU configurations with pagination
+   * @param user Current user
+   * @param options Pagination options
+   * @returns Paginated list of SKU configurations
    */
-  async getUserSkuConfigs(userId: string): Promise<SkuConfig[]> {
-    return this.skuConfigRepository.find({ 
-      where: { userId },
-      order: { createdAt: 'DESC' }
-    });
+  async getUserSkuConfigs(
+    user: User,
+    options: { page: number; limit: number; search?: string }
+  ): Promise<PaginatedResponse<SkuConfig>> {
+    const { page = 1, limit = 10, search } = options;
+    const skip = (page - 1) * limit;
+
+    // Create query builder
+    const queryBuilder = this.skuConfigRepository.createQueryBuilder('config')
+      .leftJoinAndSelect('config.user', 'user')
+      .orderBy('config.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    // Apply search filter if provided
+    if (search) {
+      queryBuilder.andWhere(
+        '(config.sku ILIKE :search OR config.replaceValue ILIKE :search)',
+        { search: `%${search}%` }
+      );
+    }
+
+    console.log('user', user);
+
+    // Apply user filter based on role
+    if (!user.isAdmin) {
+      // Regular users can only see their own configs
+      queryBuilder.andWhere('config.userId = :userId', { userId: user.id });
+    }
+
+    // Get results with count
+    const [items, total] = await queryBuilder.getManyAndCount();
+
+    // Return paginated response
+    return {
+      items,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
   }
 
   /**
