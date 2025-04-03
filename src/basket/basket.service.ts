@@ -138,8 +138,6 @@ export class BasketService {
       );
     }
 
-    console.log('user', user);
-
     // Apply user filter based on role
     if (!user.isAdmin) {
       // Regular users can only see their own configs
