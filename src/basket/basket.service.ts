@@ -296,7 +296,7 @@ export class BasketService {
           const analyzedVariations = await this.analyzeVariations(variations, orderType);
           
           // Find matching SKU config for replacement value and font size
-          const skuConfig = skuConfigs.find(config => config.sku === sku);
+          const skuConfig = skuConfigs.find(config => sku.includes(config.sku));
           
           // Map the row data to our order structure
           const orderData: ProcessedOrder = {
