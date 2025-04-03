@@ -298,6 +298,17 @@ export class BasketService {
           // Find matching SKU config for replacement value and font size
           const skuConfig = skuConfigs.find(config => sku.includes(config.sku));
           
+          // Replace the matched part while preserving the rest
+          let replacedSku = sku;
+          if (skuConfig) {
+            const matchedIndex = sku.indexOf(skuConfig.sku);
+            if (matchedIndex !== -1) {
+              replacedSku = sku.slice(0, matchedIndex) + 
+                           skuConfig.replaceValue + 
+                           sku.slice(matchedIndex + skuConfig.sku.length);
+            }
+          }
+          
           // Map the row data to our order structure
           const orderData: ProcessedOrder = {
             id: i + 1, // Auto-increment ID
@@ -305,7 +316,7 @@ export class BasketService {
             orderId,
             shipName,
             variations: analyzedVariations,
-            sku: skuConfig?.replaceValue || sku,
+            sku: replacedSku,
             orderType,
             fontSize: skuConfig?.fontSize,
             font: skuConfig?.font,
