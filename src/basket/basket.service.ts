@@ -242,7 +242,8 @@ export class BasketService {
   private determineOrderType(sku: string, skuConfigs: SkuConfig[]): 'basket' | 'backpack' | undefined {
     if (!sku) return undefined;
     
-    const matchingConfig = skuConfigs.find(config => config.sku === sku);
+    // 使用模糊匹配，只要配置的 SKU 是订单 SKU 的一部分就匹配
+    const matchingConfig = skuConfigs.find(config => sku.includes(config.sku));
     if (matchingConfig) {
       return matchingConfig.type;
     }
