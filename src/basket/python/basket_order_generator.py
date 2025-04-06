@@ -56,11 +56,7 @@ def create_basket_order_slide(prs, order_data):
     date_box = slide.shapes.add_textbox(margin, margin, Inches(2.5), Inches(0.4))
     date_text = date_box.text_frame
     date_p = date_text.paragraphs[0]
-    
-    # Convert date format from MM/DD/YYYY to YYYY年MM月DD日
-    date_str = order_data.get('datePaid', '')
-    month, day, year = date_str.split('/')
-    date_p.text = f"{year}年{month}月{day}日"
+    date_p.text = order_data.get('datePaid', '')
     date_p.font.size = Pt(22)
     date_p.font.color.rgb = RGBColor(0, 0, 0)
     
@@ -184,7 +180,10 @@ def process_json_data(orders_data):
                 create_basket_order_slide(prs, order_data)
                 slides_created += 1
             except Exception as e:
-                errors.append(f"Error processing order {index + 1}: {str(e)}")
+                error_msg = f"Error processing order {index + 1}: {str(e)}"
+                logger.error(error_msg)
+                logger.error(traceback.format_exc())
+                errors.append(error_msg)
         
         # Save the presentation to a temporary file
         output_path = os.path.join(tempfile.gettempdir(), 'basket_orders.pptx')

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import * as fs from 'fs';
 import { read, utils } from 'xlsx';
+import * as dayjs from 'dayjs';
 
 import { BasketGenerationRecord } from './entities/basket-generation-record.entity';
 import { PythonBasketService } from './services/python-basket.service';
@@ -283,6 +284,9 @@ export class BasketService {
           const sku = row['SKU'] || '';
           const datePaid = row['Date Paid'] || row['付款日期'] || '';
           
+          // 使用dayjs格式化日期
+          const formattedDatePaid = this.formatExcelDate(datePaid);
+          
           // Determine order type based on SKU
           const orderType = this.determineOrderType(sku, skuConfigs);
           
@@ -320,7 +324,7 @@ export class BasketService {
             orderType,
             fontSize: skuConfig?.fontSize,
             font: skuConfig?.font,
-            datePaid
+            datePaid: formattedDatePaid
           };
           
           processedOrders.push(orderData);
@@ -333,6 +337,41 @@ export class BasketService {
     } catch (error) {
       this.logger.error(`Error processing Excel data: ${error.message}`);
       throw error;
+    }
+  }
+  
+  /**
+   * 将Excel日期转换为标准格式
+   * @param excelDate Excel日期值（可能是数字或字符串）
+   * @returns 格式化的日期字符串 MM/DD/YYYY
+   */
+  private formatExcelDate(excelDate: any): string {
+    if (!excelDate) return '';
+    
+    try {
+      // 如果是数字或可以转换为数字的字符串
+      const numDate = Number(excelDate);
+      if (!isNaN(numDate) && numDate > 10000) {
+        // Excel日期是从1900-01-01开始的天数（有一天的误差）
+        const excelBaseDate = dayjs('1900-01-01');
+        // 转换Excel序列号为日期
+        const date = excelBaseDate.add(numDate - 1, 'day');
+        
+        // 格式化为中文日期格式
+        return date.format('YYYY年MM月DD日');
+      }
+      
+      // 处理其他已经是字符串格式的日期
+      const parsedDate = dayjs(excelDate);
+      if (parsedDate.isValid()) {
+        return parsedDate.format('YYYY年MM月DD日');
+      }
+      
+      // 如果无法解析，返回原始字符串
+      return String(excelDate);
+    } catch (error) {
+      this.logger.warn(`Error formatting Excel date with dayjs: ${error.message}`, excelDate);
+      return String(excelDate);
     }
   }
 
