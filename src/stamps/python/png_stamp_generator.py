@@ -939,27 +939,6 @@ class PNGStampGenerator:
                 paste_x = int(char_x - rotated_char.width / 2)
                 paste_y = int(char_y - rotated_char.height / 2)
                 
-                # 修复：确保字符不会超出边界，并保持边距
-                # 定义边距，确保文本不会紧贴边界
-                margin = int(10 * self.scale_factor)  # 默认边距(单侧)
-                
-                # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
-                if custom_padding is not None:
-                    margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
-                
-                # 检查左边界
-                if paste_x < margin:
-                    paste_x = margin
-                # 检查右边界
-                if paste_x + rotated_char.width > self.width - margin:
-                    paste_x = max(margin, self.width - rotated_char.width - margin)
-                # 检查上边界
-                if paste_y < margin:
-                    paste_y = margin
-                # 检查下边界
-                if paste_y + rotated_char.height > self.height - margin:
-                    paste_y = max(margin, self.height - rotated_char.height - margin)
-                
                 # 粘贴到主图像
                 img.paste(rotated_char, (paste_x, paste_y), rotated_char)
                 
