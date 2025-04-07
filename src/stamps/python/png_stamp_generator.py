@@ -7,8 +7,8 @@ import time
 import logging
 from io import BytesIO
 import math
-import cairo
-import uharfbuzz as hb
+import freetype
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
@@ -66,6 +66,9 @@ class PNGStampGenerator:
         
         # Track font size adjustments
         self.font_size_adjustments = {}
+        
+        # Initialize glyph variant cache
+        self.glyph_variant_cache = {}
 
     def _build_font_map(self):
         """Build a mapping of font family names to font file paths and metadata"""
@@ -425,6 +428,8 @@ class PNGStampGenerator:
             variable_settings = None
             font_weight = None
             element_id = None
+            first_variant = None  # 首字符变体
+            last_variant = None   # 尾字符变体
             
             # 使用原始文本或转换后的文本来查找元素
             lookup_text = original_text if original_text is not None else text
@@ -435,6 +440,10 @@ class PNGStampGenerator:
                     position = element.get('position', {})
                     element_id = element.get('id')
                     
+                    # 获取首尾字符变体设置
+                    first_variant = element.get('firstVariant')
+                    last_variant = element.get('lastVariant')
+                    
                     # 保存字体权重信息，无论是否为可变字体都可能会用到
                     font_weight = element.get('fontWeight')
                     
@@ -444,6 +453,66 @@ class PNGStampGenerator:
                         logger.debug(f"Using explicit variableFontSettings: {variable_settings}")
                     break
             
+            # 获取字体信息
+            font_info = self._get_font_info(font_family)
+            if not font_info:
+                logger.error(f"Could not get font info for {font_family}")
+                return
+                
+            font_path = font_info.get('path')
+            if not font_path or not os.path.exists(font_path):
+                logger.error(f"Font path does not exist: {font_path}")
+                return
+            
+            # 如果指定了首尾变体，使用 FreeType 渲染
+            if first_variant is not None or last_variant is not None:
+                try:
+                    # 渲染带有变体的文本
+                    rendered_text = self._render_text_with_variants(text, font_path, scaled_font_size, first_variant, last_variant)
+                    if rendered_text:
+                        # 获取渲染后的文本尺寸
+                        text_width, text_height = rendered_text.size
+                        
+                        # 计算位置
+                        place_x = x * self.scale_factor
+                        place_y = y * self.scale_factor
+                        
+                        # 根据对齐方式调整位置
+                        if text_align == 'center':
+                            place_x -= text_width / 2
+                        elif text_align == 'right':
+                            place_x -= text_width
+                            
+                        if vert_align == 'middle':
+                            place_y -= text_height / 2
+                        elif vert_align == 'bottom':
+                            place_y -= text_height
+                            
+                        # 如果需要旋转
+                        if rotation != 0:
+                            # 创建一个新的透明图像用于旋转
+                            padding = max(text_width, text_height)
+                            rot_img = Image.new('RGBA', (padding * 2, padding * 2), (0, 0, 0, 0))
+                            # 将文本粘贴到中心
+                            paste_x = padding - text_width // 2
+                            paste_y = padding - text_height // 2
+                            rot_img.paste(rendered_text, (paste_x, paste_y), rendered_text)
+                            # 旋转
+                            rotated = rot_img.rotate(-rotation, expand=True, resample=Image.BICUBIC)
+                            # 计算新的粘贴位置
+                            final_x = int(place_x - rotated.width // 2)
+                            final_y = int(place_y - rotated.height // 2)
+                            # 粘贴到主图像
+                            img.paste(rotated, (final_x, final_y), rotated)
+                        else:
+                            # 直接粘贴
+                            img.paste(rendered_text, (int(place_x), int(place_y)), rendered_text)
+                        return
+                except Exception as e:
+                    logger.error(f"Error rendering text with variants: {e}")
+                    # 如果变体渲染失败，回退到普通渲染
+            
+            # 如果没有指定变体或变体渲染失败，使用普通的PIL渲染
             # 如果没有显式设置变量设置，则从fontWeight创建
             if not variable_settings and font_weight:
                 # 转换fontWeight为wght值
@@ -1166,6 +1235,127 @@ class PNGStampGenerator:
                 
         except Exception as e:
             logger.error(f"Error drawing circular text: {e}")
+
+    def _analyze_font_variants(self, font_path):
+        """分析字体的变体（字型）信息"""
+        try:
+            # 使用 fontTools 加载字体
+            tt = TTFont(font_path)
+            glyph_set = tt.getGlyphOrder()
+            
+            # 创建字形名称到索引的映射
+            glyph_variants = {}
+            
+            # 遍历所有字形，查找变体
+            for glyph_name in glyph_set:
+                # 检查基本字符和其变体（例如：a, a.1, a.2 等）
+                base_char = glyph_name.split('.')[0]
+                if len(base_char) == 1:  # 只处理单个字符的变体
+                    if base_char not in glyph_variants:
+                        glyph_variants[base_char] = []
+                    glyph_variants[base_char].append(glyph_name)
+            
+            # 对每个字符的变体进行排序
+            for char in glyph_variants:
+                glyph_variants[char].sort()
+            
+            return glyph_variants
+        except Exception as e:
+            logger.error(f"Error analyzing font variants: {e}")
+            return {}
+
+    def _get_glyph_variant(self, char, variant_index, font_path):
+        """获取指定字符的特定变体"""
+        try:
+            # 检查缓存
+            cache_key = (font_path, char)
+            if cache_key not in self.glyph_variant_cache:
+                # 分析字体变体并缓存结果
+                self.glyph_variant_cache[cache_key] = self._analyze_font_variants(font_path).get(char, [char])
+            
+            variants = self.glyph_variant_cache[cache_key]
+            
+            # 如果指定了有效的变体索引，返回对应的变体
+            if variant_index is not None and 0 <= variant_index < len(variants):
+                return variants[variant_index]
+            
+            # 否则返回默认变体（通常是第一个）
+            return variants[0]
+        except Exception as e:
+            logger.error(f"Error getting glyph variant: {e}")
+            return char
+
+    def _render_text_with_variants(self, text, font_path, font_size, first_variant=None, last_variant=None):
+        """使用指定的首尾变体渲染文本"""
+        try:
+            # 初始化 FreeType 字体
+            face = freetype.Face(font_path)
+            face.set_char_size(int(font_size * 64))  # 设置字体大小
+            
+            # 加载字体以获取字形映射
+            tt = TTFont(font_path)
+            glyph_set = tt.getGlyphOrder()
+            glyph_name_to_index = {name: i for i, name in enumerate(glyph_set)}
+            
+            # 计算总宽度和高度
+            total_width = 0
+            max_height = 0
+            glyph_positions = []
+            
+            # 首先计算尺寸
+            for i, char in enumerate(text):
+                # 确定是否使用变体
+                variant_index = None
+                if i == 0 and first_variant is not None:
+                    variant_index = first_variant
+                elif i == len(text) - 1 and last_variant is not None:
+                    variant_index = last_variant
+                
+                # 获取变体字形名称
+                glyph_name = self._get_glyph_variant(char, variant_index, font_path)
+                
+                # 获取字形索引并加载字形
+                glyph_index = glyph_name_to_index.get(glyph_name, glyph_name_to_index.get(char, 0))
+                face.load_glyph(glyph_index, freetype.FT_LOAD_RENDER)
+                
+                bitmap = face.glyph.bitmap
+                total_width += bitmap.width + 2  # 添加一些间距
+                max_height = max(max_height, bitmap.rows)
+                
+                glyph_positions.append({
+                    'width': bitmap.width,
+                    'height': bitmap.rows,
+                    'glyph_index': glyph_index
+                })
+            
+            # 创建最终图像
+            img = Image.new('RGBA', (total_width, max_height), (0, 0, 0, 0))
+            x_offset = 0
+            
+            # 渲染每个字符
+            for pos in glyph_positions:
+                face.load_glyph(pos['glyph_index'], freetype.FT_LOAD_RENDER)
+                bitmap = face.glyph.bitmap
+                
+                if bitmap.width > 0 and bitmap.rows > 0:
+                    # 转换为 numpy 数组
+                    glyph_array = np.array(bitmap.buffer, dtype=np.uint8).reshape((bitmap.rows, bitmap.width))
+                    # 转换为 PIL 图像
+                    glyph_img = Image.fromarray(glyph_array, mode='L')
+                    # 转换为 RGBA
+                    glyph_rgba = Image.new('RGBA', glyph_img.size, (0, 0, 0, 0))
+                    glyph_rgba.putalpha(glyph_img)
+                    
+                    # 粘贴到主图像
+                    y_offset = max_height - bitmap.rows
+                    img.paste(glyph_rgba, (x_offset, y_offset), glyph_rgba)
+                
+                x_offset += bitmap.width + 2
+            
+            return img
+        except Exception as e:
+            logger.error(f"Error rendering text with variants: {e}")
+            return None
 
     def generate(self):
         """Generate the stamp in PNG format"""
