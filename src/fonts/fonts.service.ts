@@ -50,7 +50,7 @@ export class FontsService {
     return this.fontRepository.find({
       where: { isActive },
       order: {
-        createdAt: 'DESC',
+        name: 'ASC',
       },
     });
   }
