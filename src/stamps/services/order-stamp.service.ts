@@ -196,19 +196,38 @@ export class OrderStampService {
 
       // 使用 Python 服务生成印章
       const orderId = order.order?.id || order.order_id || order.orderId;
-      const stampImageUrl = await this.pythonStampService.generateAndSaveStamp({
+      const stampResult = await this.pythonStampService.generateAndSaveStamp({
         template,
         textElements,
         orderId,
         convertTextToPaths
       });
       
+      // Process font size adjustments from Python if available
+      if (stampResult.fontSizeAdjustments) {
+        this.logger.log(`Received font size adjustments for ${Object.keys(stampResult.fontSizeAdjustments).length} elements`);
+        
+        // Apply font size adjustments to text elements
+        textElements = textElements.map(element => {
+          const elementId = element.id;
+          if (elementId && stampResult.fontSizeAdjustments[elementId]) {
+            const adjustment = stampResult.fontSizeAdjustments[elementId];
+            
+            // Update the fontSize with the adjusted value
+            element.fontSize = adjustment.adjustedSize; // Simply replace the fontSize with the adjusted value
+            
+            this.logger.debug(`Adjusted font size for element ${elementId}: original=${adjustment.originalSize}, adjusted=${adjustment.adjustedSize}`);
+          }
+          return element;
+        });
+      }
+      
       // 创建印章生成记录
       const record = this.stampGenerationRecordRepository.create({
         orderId: order.order_id || orderId,
         templateId: template.id,
         textElements: textElements,
-        stampImageUrl: stampImageUrl
+        stampImageUrl: stampResult.path
       });
       
       // 保存记录
@@ -216,7 +235,7 @@ export class OrderStampService {
 
       return {
         success: true,
-        path: stampImageUrl,
+        path: stampResult.path,
         templateId: template.id,
         textElements: textElements,
         recordId: savedRecord.id

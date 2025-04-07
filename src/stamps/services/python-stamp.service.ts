@@ -7,6 +7,16 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Font } from '../../fonts/entities/font.entity';
 
+// FontSizeAdjustment interface to handle the data returned from Python
+export interface FontSizeAdjustment {
+  originalSize: number;
+  scaledSize: number;
+  finalSize: number;
+  adjustedSize: number;
+  scaleFactor: number;
+  textScaleFactor: number;
+}
+
 @Injectable()
 export class PythonStampService {
   private readonly logger = new Logger(PythonStampService.name);
@@ -164,7 +174,7 @@ export class PythonStampService {
    * @param orderId Order ID for filename
    * @param convertTextToPaths Whether to convert text to paths in PNG
    * @param debug Whether to enable debug mode with reference points
-   * @returns Path to the saved stamp file
+   * @returns Object with path to the saved stamp file and font size adjustments
    */
   async generateAndSaveStamp({template, textElements, orderId, convertTextToPaths = false, debug = false}: {
     template: any,
@@ -172,7 +182,10 @@ export class PythonStampService {
     orderId: string,
     convertTextToPaths?: boolean;
     debug?: boolean;
-  }): Promise<string> {
+  }): Promise<{
+    path: string;
+    fontSizeAdjustments?: Record<string, FontSizeAdjustment>;
+  }> {
     return new Promise(async (resolve, reject) => {
       // Get font mapping to send to Python script
       const fontMapping = await this.getFontMapping();
@@ -226,7 +239,19 @@ export class PythonStampService {
           
           // Get the relative URL path
           const stampImageUrl = `/stamps/${filename}`;
-          resolve(stampImageUrl);
+          
+          // Get font size adjustments if available
+          const fontSizeAdjustments = result.fontSizeAdjustments;
+          
+          // Log font size adjustments for debugging
+          if (fontSizeAdjustments) {
+            this.logger.debug(`Received font size adjustments: ${JSON.stringify(fontSizeAdjustments)}`);
+          }
+          
+          resolve({
+            path: stampImageUrl,
+            fontSizeAdjustments
+          });
         } catch (error) {
           reject(new Error(`Failed to parse Python script output: ${error.message}`));
         }

@@ -63,6 +63,9 @@ class PNGStampGenerator:
         
         # Initialize variable font information cache
         self.variable_font_info = {}
+        
+        # Track font size adjustments
+        self.font_size_adjustments = {}
 
     def _build_font_map(self):
         """Build a mapping of font family names to font file paths and metadata"""
@@ -386,6 +389,7 @@ class PNGStampGenerator:
             current_element = None
             variable_settings = None
             font_weight = None
+            element_id = None
             
             # 使用原始文本或转换后的文本来查找元素
             lookup_text = original_text if original_text is not None else text
@@ -394,6 +398,7 @@ class PNGStampGenerator:
                 if element.get('value') == lookup_text:
                     current_element = element
                     position = element.get('position', {})
+                    element_id = element.get('id')
                     
                     # 保存字体权重信息，无论是否为可变字体都可能会用到
                     font_weight = element.get('fontWeight')
@@ -558,13 +563,30 @@ class PNGStampGenerator:
                 
                 # Scale down text if needed
                 text_scale_factor = 1.0
+                final_font_size = scaled_font_size
                 if text_width > max_available_width:
                     text_scale_factor = max_available_width / text_width
                     adjusted_font_size = int(scaled_font_size * text_scale_factor)
+                    final_font_size = adjusted_font_size
                     font = self._get_pil_font(exact_font_family, adjusted_font_size, variable_settings)
                     # Recalculate text dimensions
                     bbox = font.getbbox(text)
                     text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                
+                # Store the adjusted font size for this element
+                if element_id and current_element:
+                    # Calculate the actual font size (accounting for both scale_factor and text_scale_factor)
+                    # We divide by scale_factor to get the size relative to the original template dimensions
+                    actual_font_size = final_font_size / self.scale_factor
+                    self.font_size_adjustments[element_id] = {
+                        'originalSize': font_size,
+                        'scaledSize': scaled_font_size,
+                        'finalSize': final_font_size,
+                        'adjustedSize': actual_font_size,
+                        'scaleFactor': self.scale_factor,
+                        'textScaleFactor': text_scale_factor
+                    }
+                    logger.debug(f"Font size adjustment for element {element_id}: original={font_size}, adjusted={actual_font_size}")
                 
                 # Calculate position based on alignment
                 place_x = scaled_x
@@ -910,12 +932,12 @@ class PNGStampGenerator:
             img.save(output, format='PNG')
             data = output.getvalue()
             
-            return data, None
+            return data, None, self.font_size_adjustments
             
         except Exception as e:
             error_msg = f"Error generating PNG: {e}"
             logger.error(error_msg)
-            return None, error_msg
+            return None, error_msg, None
 
     def save_to_file(self, filename=None):
         """Save the generated stamp to a file"""
@@ -927,18 +949,18 @@ class PNGStampGenerator:
             filename += '.png'
         
         # Generate the stamp
-        data, error = self.generate()
+        data, error, font_size_adjustments = self.generate()
         if error:
-            return None, error
+            return None, error, None
         
         # Save to file
         output_path = os.path.join(self.output_dir, filename)
         try:
             with open(output_path, 'wb') as f:
                 f.write(data)
-            return f"/stamps/{filename}", None
+            return f"/stamps/{filename}", None, font_size_adjustments
         except Exception as e:
-            return None, f"Error saving stamp to file: {e}"
+            return None, f"Error saving stamp to file: {e}", None
 
 def main():
     # Read JSON input from stdin
@@ -951,19 +973,30 @@ def main():
         # Check if we need to save to file
         if 'filename' in input_data:
             # Save to file and return URL
-            url, error = generator.save_to_file(input_data['filename'])
+            url, error, font_size_adjustments = generator.save_to_file(input_data['filename'])
             if error:
                 print(json.dumps({'success': False, 'error': error}))
             else:
-                print(json.dumps({'success': True, 'url': url}))
+                result = {
+                    'success': True,
+                    'url': url
+                }
+                if font_size_adjustments:
+                    result['fontSizeAdjustments'] = font_size_adjustments
+                print(json.dumps(result))
         else:
             # Generate and return data as base64
-            data, error = generator.generate()
+            data, error, font_size_adjustments = generator.generate()
             if error:
                 print(json.dumps({'success': False, 'error': error}))
             else:
-                encoded_data = base64.b64encode(data).decode('utf-8')
-                print(json.dumps({'success': True, 'data': encoded_data}))
+                result = {
+                    'success': True,
+                    'data': base64.b64encode(data).decode('utf-8')
+                }
+                if font_size_adjustments:
+                    result['fontSizeAdjustments'] = font_size_adjustments
+                print(json.dumps(result))
                 
     except Exception as e:
         # Return error as JSON
