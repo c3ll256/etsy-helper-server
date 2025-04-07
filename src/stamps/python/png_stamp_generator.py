@@ -401,8 +401,6 @@ class PNGStampGenerator:
                 'variableAxes': axes_info,
                 'isTemporary': True  # 标记为临时字体
             }
-            
-            logger.info(f"临时字体已注册: {font_name_without_ext} -> {font_path}")
         except Exception as e:
             logger.error(f"注册临时字体失败: {e}")
 
@@ -1322,15 +1320,18 @@ class PNGStampGenerator:
             face = freetype.Face(font_path)
             face.set_char_size(int(font_size * 64))  # 设置字体大小
             
+            # 获取字体基本度量信息
+            metrics = face.size
+            ascender = metrics.ascender / 64  # 转换为像素
+            descender = metrics.descender / 64
+            height = metrics.height / 64
+            
+            logger.info(f"Font metrics - ascender: {ascender}, descender: {descender}, height: {height}")
+            
             # 加载字体以获取字形映射
             tt = TTFont(font_path)
             glyph_set = tt.getGlyphOrder()
             glyph_name_to_index = {name: i for i, name in enumerate(glyph_set)}
-            
-            # 获取字体度量信息
-            ascender = face.ascender / 64  # 转换为像素
-            descender = face.descender / 64
-            height = face.height / 64
             
             # 首先遍历一次计算总体尺寸和收集字形信息
             total_width = 0
@@ -1380,15 +1381,23 @@ class PNGStampGenerator:
                 })
                 
                 total_width += advance_x
+          
+            # 使用字体的实际高度
+            actual_height = height
             
-            # 计算实际需要的图像高度
-            actual_height = max_y - min_y
-            
+            # 确保图像高度足够容纳所有字形
+            required_height = max_y - min_y
+            img_height = max(actual_height, required_height)
+           
             # 创建最终图像，添加额外的空间用于字形溢出
-            extra_space = int(font_size * 0.5)  # 增加额外空间
+            extra_space = int(font_size * 0.2)  # 减少额外空间
             img_width = int(total_width + extra_space * 2)
-            img_height = int(actual_height + extra_space * 2)
+            img_height = int(img_height + extra_space * 2)
             img = Image.new('RGBA', (img_width, img_height), (0, 0, 0, 0))
+            
+            # 计算基线位置
+            # 基线位置应该在图像底部上方 |descender| 像素处
+            baseline_y = img_height - extra_space + descender
             
             # 从左边的额外空间开始
             x_offset = extra_space
@@ -1411,11 +1420,10 @@ class PNGStampGenerator:
                     # 水平位置：考虑字形的左轴承
                     x_pos = x_offset + pos['bitmap_left']
                     
-                    # 垂直位置：将字形对齐到基线
-                    # 基线位置在图像中的位置（从顶部开始）
-                    baseline_y = extra_space + max_y
-                    # 从基线减去 bitmap_top 得到顶部位置
+                    # 垂直位置：从基线减去bitmap_top
                     y_pos = baseline_y - pos['bitmap_top']
+                    
+                    logger.debug(f"Placing glyph at x: {x_pos}, y: {y_pos}")
                     
                     # 粘贴到主图像
                     img.paste(glyph_rgba, (int(x_pos), int(y_pos)), glyph_rgba)
