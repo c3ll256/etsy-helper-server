@@ -1327,12 +1327,19 @@ class PNGStampGenerator:
             glyph_set = tt.getGlyphOrder()
             glyph_name_to_index = {name: i for i, name in enumerate(glyph_set)}
             
-            # 计算总宽度和高度
+            # 获取字体度量信息
+            ascender = face.ascender / 64  # 转换为像素
+            descender = face.descender / 64
+            height = face.height / 64
+            
+            # 首先遍历一次计算总体尺寸和收集字形信息
             total_width = 0
             max_height = 0
+            min_y = float('inf')
+            max_y = float('-inf')
             glyph_positions = []
             
-            # 首先计算尺寸
+            # 第一遍：收集所有字形信息
             for i, char in enumerate(text):
                 # 确定是否使用变体
                 variant_index = None
@@ -1349,29 +1356,44 @@ class PNGStampGenerator:
                 face.load_glyph(glyph_index, freetype.FT_LOAD_RENDER)
                 
                 bitmap = face.glyph.bitmap
-                # 获取字形的水平度量
                 metrics = face.glyph.metrics
-                # 使用实际的水平步进（advance）而不是位图宽度
-                advance_x = metrics.horiAdvance / 64  # 转换为像素
                 
-                total_width += advance_x
-                max_height = max(max_height, bitmap.rows)
+                # 计算字形的垂直范围
+                glyph_top = face.glyph.bitmap_top
+                glyph_bottom = glyph_top - bitmap.rows
+                min_y = min(min_y, glyph_bottom)
+                max_y = max(max_y, glyph_top)
                 
+                # 使用实际的水平步进
+                advance_x = metrics.horiAdvance / 64
+                
+                # 存储字形信息
                 glyph_positions.append({
                     'width': bitmap.width,
                     'height': bitmap.rows,
                     'glyph_index': glyph_index,
                     'advance_x': advance_x,
                     'bitmap_left': face.glyph.bitmap_left,
-                    'bitmap_top': face.glyph.bitmap_top
+                    'bitmap_top': face.glyph.bitmap_top,
+                    'bearing_x': metrics.horiBearingX / 64,
+                    'bearing_y': metrics.horiBearingY / 64
                 })
+                
+                total_width += advance_x
+            
+            # 计算实际需要的图像高度
+            actual_height = max_y - min_y
             
             # 创建最终图像，添加额外的空间用于字形溢出
-            extra_space = int(font_size * 0.2)  # 添加字体大小的20%作为额外空间
-            img = Image.new('RGBA', (int(total_width + extra_space * 2), max_height + extra_space * 2), (0, 0, 0, 0))
-            x_offset = extra_space  # 从额外空间开始
+            extra_space = int(font_size * 0.5)  # 增加额外空间
+            img_width = int(total_width + extra_space * 2)
+            img_height = int(actual_height + extra_space * 2)
+            img = Image.new('RGBA', (img_width, img_height), (0, 0, 0, 0))
             
-            # 渲染每个字符
+            # 从左边的额外空间开始
+            x_offset = extra_space
+            
+            # 第二遍：渲染字形
             for pos in glyph_positions:
                 face.load_glyph(pos['glyph_index'], freetype.FT_LOAD_RENDER)
                 bitmap = face.glyph.bitmap
@@ -1386,15 +1408,19 @@ class PNGStampGenerator:
                     glyph_rgba.putalpha(glyph_img)
                     
                     # 计算字形的精确位置
-                    y_offset = extra_space + max_height - bitmap.rows
-                    # 考虑字形的水平偏移
+                    # 水平位置：考虑字形的左轴承
                     x_pos = x_offset + pos['bitmap_left']
-                    y_pos = y_offset + (max_height - pos['bitmap_top'])
+                    
+                    # 垂直位置：将字形对齐到基线
+                    # 基线位置在图像中的位置（从顶部开始）
+                    baseline_y = extra_space + max_y
+                    # 从基线减去 bitmap_top 得到顶部位置
+                    y_pos = baseline_y - pos['bitmap_top']
                     
                     # 粘贴到主图像
                     img.paste(glyph_rgba, (int(x_pos), int(y_pos)), glyph_rgba)
                 
-                # 使用水平步进更新x偏移
+                # 更新水平位置
                 x_offset += pos['advance_x']
             
             return img
