@@ -430,6 +430,7 @@ class PNGStampGenerator:
             element_id = None
             first_variant = None  # 首字符变体
             last_variant = None   # 尾字符变体
+            custom_padding = None # 自定义padding
             
             # 使用原始文本或转换后的文本来查找元素
             lookup_text = original_text if original_text is not None else text
@@ -443,6 +444,9 @@ class PNGStampGenerator:
                     # 获取首尾字符变体设置
                     first_variant = element.get('firstVariant')
                     last_variant = element.get('lastVariant')
+                    
+                    # 获取自定义padding
+                    custom_padding = element.get('textPadding')
                     
                     # 保存字体权重信息，无论是否为可变字体都可能会用到
                     font_weight = element.get('fontWeight')
@@ -464,6 +468,11 @@ class PNGStampGenerator:
                 logger.error(f"Font path does not exist: {font_path}")
                 return
             
+            # 计算边距
+            margin = int(10 * self.scale_factor)  # 默认边距(单侧)
+            if custom_padding is not None:
+                margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
+            
             # 如果指定了首尾变体，使用 FreeType 渲染
             if first_variant is not None or last_variant is not None:
                 try:
@@ -473,21 +482,33 @@ class PNGStampGenerator:
                         # 获取渲染后的文本尺寸
                         text_width, text_height = rendered_text.size
                         
-                        # 计算位置
+                        # 如果文本太宽，进行缩放
+                        if text_width > self.width - (margin * 2):
+                            scale_factor = (self.width - (margin * 2)) / text_width
+                            new_width = int(text_width * scale_factor)
+                            new_height = int(text_height * scale_factor)
+                            rendered_text = rendered_text.resize((new_width, new_height), Image.LANCZOS)
+                            text_width, text_height = new_width, new_height
+                        
+                        # 计算初始位置（基于未缩放的坐标）
                         place_x = x * self.scale_factor
                         place_y = y * self.scale_factor
                         
                         # 根据对齐方式调整位置
                         if text_align == 'center':
-                            place_x -= text_width / 2
+                            place_x = (self.width - text_width) / 2
                         elif text_align == 'right':
-                            place_x -= text_width
+                            place_x = self.width - text_width - margin
+                        else:  # 'left'
+                            place_x = margin
                             
                         if vert_align == 'middle':
-                            place_y -= text_height / 2
+                            place_y = (self.height - text_height) / 2
                         elif vert_align == 'bottom':
-                            place_y -= text_height
-                            
+                            place_y = self.height - text_height - margin
+                        else:  # 'top' or 'baseline'
+                            place_y = margin
+                        
                         # 如果需要旋转
                         if rotation != 0:
                             # 创建一个新的透明图像用于旋转
@@ -499,13 +520,22 @@ class PNGStampGenerator:
                             rot_img.paste(rendered_text, (paste_x, paste_y), rendered_text)
                             # 旋转
                             rotated = rot_img.rotate(-rotation, expand=True, resample=Image.BICUBIC)
-                            # 计算新的粘贴位置
-                            final_x = int(place_x - rotated.width // 2)
-                            final_y = int(place_y - rotated.height // 2)
+                            
+                            # 计算旋转后的边界框
+                            rotated_width, rotated_height = rotated.size
+                            
+                            # 计算新的粘贴位置，确保在可用区域内居中
+                            final_x = int((self.width - rotated_width) / 2)
+                            final_y = int((self.height - rotated_height) / 2)
+                            
+                            # 确保不超出边界
+                            final_x = max(margin, min(final_x, self.width - rotated_width - margin))
+                            final_y = max(margin, min(final_y, self.height - rotated_height - margin))
+                            
                             # 粘贴到主图像
                             img.paste(rotated, (final_x, final_y), rotated)
                         else:
-                            # 直接粘贴
+                            # 直接粘贴，位置已经考虑了边距
                             img.paste(rendered_text, (int(place_x), int(place_y)), rendered_text)
                         return
                 except Exception as e:
@@ -1319,18 +1349,27 @@ class PNGStampGenerator:
                 face.load_glyph(glyph_index, freetype.FT_LOAD_RENDER)
                 
                 bitmap = face.glyph.bitmap
-                total_width += bitmap.width + 2  # 添加一些间距
+                # 获取字形的水平度量
+                metrics = face.glyph.metrics
+                # 使用实际的水平步进（advance）而不是位图宽度
+                advance_x = metrics.horiAdvance / 64  # 转换为像素
+                
+                total_width += advance_x
                 max_height = max(max_height, bitmap.rows)
                 
                 glyph_positions.append({
                     'width': bitmap.width,
                     'height': bitmap.rows,
-                    'glyph_index': glyph_index
+                    'glyph_index': glyph_index,
+                    'advance_x': advance_x,
+                    'bitmap_left': face.glyph.bitmap_left,
+                    'bitmap_top': face.glyph.bitmap_top
                 })
             
-            # 创建最终图像
-            img = Image.new('RGBA', (total_width, max_height), (0, 0, 0, 0))
-            x_offset = 0
+            # 创建最终图像，添加额外的空间用于字形溢出
+            extra_space = int(font_size * 0.2)  # 添加字体大小的20%作为额外空间
+            img = Image.new('RGBA', (int(total_width + extra_space * 2), max_height + extra_space * 2), (0, 0, 0, 0))
+            x_offset = extra_space  # 从额外空间开始
             
             # 渲染每个字符
             for pos in glyph_positions:
@@ -1346,11 +1385,17 @@ class PNGStampGenerator:
                     glyph_rgba = Image.new('RGBA', glyph_img.size, (0, 0, 0, 0))
                     glyph_rgba.putalpha(glyph_img)
                     
+                    # 计算字形的精确位置
+                    y_offset = extra_space + max_height - bitmap.rows
+                    # 考虑字形的水平偏移
+                    x_pos = x_offset + pos['bitmap_left']
+                    y_pos = y_offset + (max_height - pos['bitmap_top'])
+                    
                     # 粘贴到主图像
-                    y_offset = max_height - bitmap.rows
-                    img.paste(glyph_rgba, (x_offset, y_offset), glyph_rgba)
+                    img.paste(glyph_rgba, (int(x_pos), int(y_pos)), glyph_rgba)
                 
-                x_offset += bitmap.width + 2
+                # 使用水平步进更新x偏移
+                x_offset += pos['advance_x']
             
             return img
         except Exception as e:
