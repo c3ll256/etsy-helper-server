@@ -551,15 +551,19 @@ class PNGStampGenerator:
                 if current_element:
                     custom_padding = current_element.get('textPadding')
                 
-                # 检查文本是否超出可用宽度，并考虑缩放后的图像大小
-                padding = int(50 * self.scale_factor)  # 缩放padding以匹配图像大小
+                # 边界检查：确保文本不会超出图像边界，并保持边距
+                # 定义边距，确保文本不会紧贴边界
+                margin = int(10 * self.scale_factor)  # 默认边距(单侧)
+                
+                # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
                 if custom_padding is not None:
-                    padding = int(custom_padding * self.scale_factor)
+                    margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
                     
-                max_available_width = self.width - padding
+                # 计算可用宽度 (两侧都减去 margin)
+                max_available_width = self.width - (margin * 2)
                 if rotation % 180 != 0:
                     if rotation % 180 > 45 and rotation % 180 < 135:
-                        max_available_width = self.height - padding
+                        max_available_width = self.height - (margin * 2)
                 
                 # Scale down text if needed
                 text_scale_factor = 1.0
@@ -598,10 +602,54 @@ class PNGStampGenerator:
                     actual_text_width = right - left
                     # 考虑左边界的偏移
                     place_x = scaled_x - (actual_text_width / 2) - left
+                    
+                    # 边界检查：确保文本不会超出图像边界，并保持边距
+                    # 定义边距，确保文本不会紧贴边界
+                    margin = int(10 * self.scale_factor)  # 默认边距(单侧)
+                    
+                    # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
+                    if custom_padding is not None:
+                        margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
+                        
+                    if place_x < margin:
+                        place_x = margin
+                    elif place_x + actual_text_width > self.width - margin:
+                        place_x = max(margin, self.width - actual_text_width - margin)
+                        
                 elif text_align == 'right':
                     left, _, right, _ = font.getbbox(text)
                     actual_text_width = right - left
                     place_x = scaled_x - actual_text_width - left
+                    
+                    # 边界检查：确保文本不会超出图像边界，并保持边距
+                    # 定义边距，确保文本不会紧贴边界
+                    margin = int(10 * self.scale_factor)  # 默认边距(单侧)
+                    
+                    # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
+                    if custom_padding is not None:
+                        margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
+                        
+                    if place_x < margin:
+                        place_x = margin
+                    elif place_x + actual_text_width > self.width - margin:
+                        place_x = max(margin, self.width - actual_text_width - margin)
+                else:  # 'left' alignment
+                    # 对于左对齐，也进行边界检查
+                    left, _, right, _ = font.getbbox(text)
+                    actual_text_width = right - left
+                    
+                    # 边界检查：确保文本不会超出图像边界，并保持边距
+                    # 定义边距，确保文本不会紧贴边界
+                    margin = int(10 * self.scale_factor)  # 默认边距(单侧)
+                    
+                    # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
+                    if custom_padding is not None:
+                        margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
+                        
+                    if place_x < margin:
+                        place_x = margin
+                    elif place_x + actual_text_width > self.width - margin:
+                        place_x = max(margin, self.width - actual_text_width - margin)
                 
                 place_y = scaled_y
                 ascent, descent = font.getmetrics()
@@ -649,6 +697,27 @@ class PNGStampGenerator:
                     paste_x = int(place_x) - adaptive_padding
                     paste_y = int(place_y) - adaptive_padding
                     
+                    # 修复：确保文本不会超出边界，并保持边距
+                    # 定义边距，确保文本不会紧贴边界
+                    margin = int(10 * self.scale_factor)  # 默认边距(单侧)
+                    
+                    # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
+                    if custom_padding is not None:
+                        margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
+                        
+                    # 检查左边界
+                    if paste_x < margin:
+                        paste_x = margin
+                    # 检查右边界
+                    if paste_x + rotated_txt.width > self.width - margin:
+                        paste_x = max(margin, self.width - rotated_txt.width - margin)
+                    # 检查上边界
+                    if paste_y < margin:
+                        paste_y = margin
+                    # 检查下边界
+                    if paste_y + rotated_txt.height > self.height - margin:
+                        paste_y = max(margin, self.height - rotated_txt.height - margin)
+                    
                     # 粘贴旋转后的文本到主图像
                     img.paste(rotated_txt, (paste_x, paste_y), rotated_txt)
                 else:
@@ -663,9 +732,42 @@ class PNGStampGenerator:
                     
                     # 如果不需要字间距调整，直接画文本
                     if letter_spacing == 1.0:
+                        # 修复：确保文本是否会超出边界，并保持边距
+                        # 定义边距，确保文本不会紧贴边界
+                        margin = int(10 * self.scale_factor)  # 默认边距(单侧)
+                        
+                        # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
+                        if custom_padding is not None:
+                            margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
+                        
+                        # 检查是否会超出左边界
+                        if place_x < margin:
+                            place_x = margin
+                        # 检查是否会超出右边界
+                        elif place_x + text_width > self.width - margin:
+                            place_x = max(margin, self.width - text_width - margin)
+                            
                         draw.text((place_x, place_y), text, font=font, fill=rgb_color)
                     else:
-                        # 实现字间距调整
+                        # 获取整个文本的边界框，用于边界检查
+                        left, top, right, bottom = font.getbbox(text)
+                        text_actual_width = right - left
+                        
+                        # 修复：确保文本是否会超出边界，并保持边距
+                        # 定义边距，确保文本不会紧贴边界
+                        margin = int(10 * self.scale_factor)  # 默认边距(单侧)
+                        
+                        # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
+                        if custom_padding is not None:
+                            margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
+                        
+                        # 检查是否会超出左边界
+                        if place_x < margin:
+                            place_x = margin
+                        # 检查是否会超出右边界
+                        elif place_x + text_actual_width > self.width - margin:
+                            place_x = max(margin, self.width - text_actual_width - margin)
+                            
                         self._draw_text_with_letter_spacing(draw, text, font, place_x, place_y, rgb_color, letter_spacing)
                 
         except Exception as e:
@@ -836,6 +938,27 @@ class PNGStampGenerator:
                 # 计算粘贴位置
                 paste_x = int(char_x - rotated_char.width / 2)
                 paste_y = int(char_y - rotated_char.height / 2)
+                
+                # 修复：确保字符不会超出边界，并保持边距
+                # 定义边距，确保文本不会紧贴边界
+                margin = int(10 * self.scale_factor)  # 默认边距(单侧)
+                
+                # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
+                if custom_padding is not None:
+                    margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
+                
+                # 检查左边界
+                if paste_x < margin:
+                    paste_x = margin
+                # 检查右边界
+                if paste_x + rotated_char.width > self.width - margin:
+                    paste_x = max(margin, self.width - rotated_char.width - margin)
+                # 检查上边界
+                if paste_y < margin:
+                    paste_y = margin
+                # 检查下边界
+                if paste_y + rotated_char.height > self.height - margin:
+                    paste_y = max(margin, self.height - rotated_char.height - margin)
                 
                 # 粘贴到主图像
                 img.paste(rotated_char, (paste_x, paste_y), rotated_char)
