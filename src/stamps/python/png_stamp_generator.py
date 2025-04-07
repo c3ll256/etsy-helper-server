@@ -214,7 +214,6 @@ class PNGStampGenerator:
                 return self.font_map[name]
         
         # Try to match font family regardless of weight/style suffix
-        # E.g., if "Montserrat-Bold" is requested but only "Montserrat-Regular" exists
         if '-' in font_family:
             base_family = font_family.split('-')[0]
             if base_family in self.font_map:
@@ -356,6 +355,8 @@ class PNGStampGenerator:
             
             # 如果实例已经存在，直接返回
             if os.path.exists(output_path):
+                # 确保临时字体被添加到字体映射中
+                self._register_temp_font(output_path)
                 return output_path
                 
             # 使用fontTools创建指定实例
@@ -363,10 +364,44 @@ class PNGStampGenerator:
             instance_font = instancer.instantiateVariableFont(font, axis_values)
             instance_font.save(output_path)
             
+            # 将临时字体添加到字体映射中
+            self._register_temp_font(output_path)
+            
             return output_path
         except Exception as e:
             logger.error(f"Error creating variable font instance: {e}")
             return None
+            
+    def _register_temp_font(self, font_path):
+        """
+        将临时生成的字体注册到字体映射中，确保后续可以找到它
+        
+        Parameters:
+            font_path (str): 字体文件路径
+        """
+        try:
+            # 从路径获取字体名称
+            font_name = os.path.basename(font_path)
+            font_name_without_ext = os.path.splitext(font_name)[0]
+            
+            # 避免重复注册
+            if font_name_without_ext in self.font_map:
+                return
+                
+            # 分析字体
+            is_variable, axes_info = self._analyze_font(font_path)
+            
+            # 注册到字体映射
+            self.font_map[font_name_without_ext] = {
+                'path': font_path,
+                'isVariableFont': is_variable,
+                'variableAxes': axes_info,
+                'isTemporary': True  # 标记为临时字体
+            }
+            
+            logger.info(f"临时字体已注册: {font_name_without_ext} -> {font_path}")
+        except Exception as e:
+            logger.error(f"注册临时字体失败: {e}")
 
     def _hex_to_rgb(self, hex_color):
         """Convert hex color string to RGB tuple"""
@@ -803,53 +838,237 @@ class PNGStampGenerator:
             base_angle = position.get('baseAngle', 0)
             letter_spacing = position.get('letterSpacing', 1.0)
             
+            # 获取最大角度限制(默认360度，即整圆)
+            max_angle_raw = position.get('maxAngle')
+            if max_angle_raw is not None:
+                try:
+                    # 尝试将maxAngle转换为数值类型
+                    max_angle_limit = float(max_angle_raw)
+                    logger.info(f"从JSON中获取maxAngle参数: {max_angle_raw}, 转换为: {max_angle_limit}")
+                except (ValueError, TypeError):
+                    # 如果转换失败，使用默认值
+                    max_angle_limit = 360
+                    logger.warning(f"无法将maxAngle参数转换为数值: {max_angle_raw}, 使用默认值: {max_angle_limit}")
+            else:
+                # 如果没有设置，使用默认值
+                max_angle_limit = 360
+                logger.info(f"未设置maxAngle参数，使用默认值: {max_angle_limit}")
+                
+            # 确保最大角度在有效范围内
+            max_angle_limit = min(max(0, max_angle_limit), 360)
+            
+            # 添加调试日志
+            logger.info(f"圆形文本参数 - text: '{text}', maxAngle: {max_angle_limit}, radius: {radius}")
+            
             # Adjust text sequence based on baseline position
             reverse_text = baseline_position == 'outside'
             text_to_render = text[::-1] if reverse_text else text
             
-            # Calculate text metrics for spacing
-            total_width = 0
-            char_widths = []
-            char_heights = []
-            for char in text_to_render:
-                bbox = font.getbbox(char)
-                width = bbox[2] - bbox[0]
-                height = bbox[3] - bbox[1]
-                char_widths.append(width)
-                char_heights.append(height)
-                total_width += width
+            # 计算文本参数并检查是否需要缩放
+            def calculate_text_metrics(current_font, current_font_size):
+                # Calculate text metrics for spacing
+                total_width = 0
+                char_widths = []
+                char_heights = []
+                
+                for char in text_to_render:
+                    bbox = current_font.getbbox(char)
+                    width = bbox[2] - bbox[0]
+                    height = bbox[3] - bbox[1]
+                    char_widths.append(width)
+                    char_heights.append(height)
+                    total_width += width
+                
+                # 计算最大字符高度，用于设置足够的内外边距
+                max_char_height = max(char_heights) if char_heights else 0
+                
+                # 计算文本在圆周上占据的角度
+                circumference = 2 * math.pi * radius
+                text_arc_ratio = total_width / circumference
+                
+                # 应用间距调整
+                base_spacing = 1.0
+                spacing_factor = base_spacing * letter_spacing
+                
+                # 根据文本长度微调间距
+                original_spacing_factor = spacing_factor
+                if text_arc_ratio < 0.1:
+                    spacing_factor *= 1.1
+                elif text_arc_ratio > 0.5:
+                    spacing_factor *= 0.95
+                
+                # 字体特定调整
+                pre_font_spacing_factor = spacing_factor
+                font_family_lower = current_font.path.lower()
+                if 'montserrat' in font_family_lower or 'arial' in font_family_lower or 'helvetica' in font_family_lower:
+                    spacing_factor *= 1.05
+                
+                # 计算总角度
+                total_angle_rad = (total_width / radius) * spacing_factor
+                total_angle_deg = total_angle_rad * (180 / math.pi)
+                
+                logger.debug(f"角度计算详情: radius={radius}, total_width={total_width}, text_arc_ratio={text_arc_ratio:.4f}, " +
+                            f"original_spacing={original_spacing_factor:.4f}, after_len_adjust={pre_font_spacing_factor:.4f}, " + 
+                            f"final_spacing={spacing_factor:.4f}, total_angle_deg={total_angle_deg:.2f}")
+                
+                return char_widths, char_heights, total_width, max_char_height, total_angle_deg, spacing_factor
             
-            # 计算最大字符高度，用于设置足够的内外边距
-            max_char_height = max(char_heights) if char_heights else 0
+            # 首次计算文本度量
+            char_widths, char_heights, total_width, max_char_height, total_angle_deg, spacing_factor = calculate_text_metrics(font, font_size)
             
-            # Calculate text arc ratio and spacing
-            circumference = 2 * math.pi * radius
-            text_arc_ratio = total_width / circumference
+            # 添加调试日志
+            logger.info(f"圆形文本计算结果 - total_angle_deg: {total_angle_deg}, spacing_factor: {spacing_factor}, total_width: {total_width}")
             
-            # Apply spacing adjustments
-            base_spacing = 1.0
-            spacing_factor = base_spacing * letter_spacing
+            # 检查是否超过最大角度，如果超过则缩小字体
+            if max_angle_limit > 0 and total_angle_deg > max_angle_limit:
+                # 添加调试日志
+                logger.info(f"圆形文本需要缩放 - 当前角度: {total_angle_deg}, 最大限制: {max_angle_limit}")
+                
+                # 计算需要的缩放比例
+                scale_factor = max_angle_limit / total_angle_deg
+                
+                # 计算新的字体大小
+                adjusted_font_size = int(font_size * scale_factor)
+                # 确保字体大小不会太小
+                adjusted_font_size = max(8, adjusted_font_size)
+                
+                logger.info(f"圆形文本字体缩放 - 原始大小: {font_size}, 调整后: {adjusted_font_size}, 缩放比例: {scale_factor}")
+                
+                # 获取缩小后的字体
+                element_id = None
+                if original_text:
+                    # 找到对应的元素以记录字体调整信息
+                    for element in self.text_elements:
+                        if element.get('value') == original_text:
+                            element_id = element.get('id')
+                            break
+                
+                # 找到当前字体的字体名
+                current_font_family = None
+                for name, info in self.font_map.items():
+                    if info.get('path') == font.path:
+                        current_font_family = name
+                        logger.info(f"找到匹配的字体: {name} -> {font.path}")
+                        break
+                
+                if not current_font_family:
+                    # 如果无法找到字体名，使用路径中的文件名
+                    font_name = os.path.basename(font.path)
+                    current_font_family = os.path.splitext(font_name)[0]
+                    logger.info(f"无法在字体映射中找到字体，使用文件名: {current_font_family}")
+                    
+                    # 确保这个字体被注册到字体映射中
+                    if not any(info.get('path') == font.path for info in self.font_map.values()):
+                        self._register_temp_font(font.path)
+                        logger.info(f"将未映射的字体添加到字体映射: {current_font_family}")
+                
+                # 应用新字体大小
+                logger.info(f"准备获取新字体: 字体名={current_font_family}, 调整后大小={adjusted_font_size}")
+                
+                # 检查是否为可变字体
+                is_variable_font = False
+                variable_settings = None
+                for element in self.text_elements:
+                    if element.get('value') == original_text:
+                        # 检查是否有可变字体设置
+                        if 'variableFontSettings' in element:
+                            is_variable_font = True
+                            variable_settings = element.get('variableFontSettings')
+                            logger.info(f"检测到可变字体设置: {variable_settings}")
+                        # 检查字体权重
+                        if 'fontWeight' in element:
+                            font_weight = element.get('fontWeight')
+                            logger.info(f"检测到字体权重: {font_weight}")
+                            if not variable_settings:
+                                # 从fontWeight创建变量设置
+                                wght_value = 400  # 默认值
+                                
+                                # 字符串形式的权重处理
+                                if isinstance(font_weight, str):
+                                    if font_weight.lower() == 'bold':
+                                        wght_value = 700
+                                    elif font_weight.lower() == 'medium':
+                                        wght_value = 500
+                                    elif font_weight.isdigit():
+                                        wght_value = int(font_weight)
+                                # 数字形式的权重处理
+                                elif isinstance(font_weight, (int, float)):
+                                    wght_value = int(font_weight)
+                                    
+                                variable_settings = {'wght': wght_value}
+                                logger.info(f"从字体权重创建变量设置: {variable_settings}")
+                        break
+                        
+                # 获取调整后的字体
+                adjusted_font = self._get_pil_font(current_font_family, adjusted_font_size, variable_settings)
+                # 检查是否成功获取字体
+                if adjusted_font == ImageFont.load_default():
+                    logger.warning(f"无法加载调整后的字体，使用默认字体")
+                    
+                    # 如果加载失败，尝试将该字体直接加载为普通字体
+                    try:
+                        adjusted_font = ImageFont.truetype(font.path, int(adjusted_font_size))
+                        logger.info(f"使用原始字体路径加载调整后的字体: {font.path}")
+                    except Exception as e:
+                        logger.error(f"尝试直接加载字体失败: {e}")
+                else:
+                    logger.info(f"成功加载调整后的字体: {adjusted_font.path}, 大小: {adjusted_font_size}")
+                
+                # 应用调整后的字体
+                font = adjusted_font
+                
+                # 更新字体大小值用于后续计算
+                font_size = adjusted_font_size
+                
+                # 记录字体调整
+                if element_id:
+                    # 计算原始大小（不含缩放比例影响）
+                    original_font_size = font_size / self.scale_factor
+                    # 计算调整后的大小（不含缩放比例影响）
+                    adjusted_original_size = adjusted_font_size / self.scale_factor
+                    
+                    self.font_size_adjustments[element_id] = {
+                        'originalSize': original_font_size,
+                        'scaledSize': font_size,  # 包含全局缩放的调整前大小
+                        'finalSize': adjusted_font_size,  # 实际使用的最终大小（包含全局缩放）
+                        'adjustedSize': adjusted_original_size,  # 不含全局缩放的调整后大小
+                        'scaleFactor': scale_factor,
+                        'globalScaleFactor': self.scale_factor,
+                        'reason': 'circular_text_max_angle',
+                        'maxAngle': max_angle_limit,
+                        'calculatedAngle': total_angle_deg
+                    }
+                
+                # 重新计算所有度量
+                logger.info(f"重新计算调整后文本度量 - 原始角度: {total_angle_deg}, 期望最大角度: {max_angle_limit}")
+                prev_total_width = total_width  # 保存调整前的总宽度
+                prev_total_angle = total_angle_deg  # 保存调整前的总角度
+                
+                # 重新计算
+                char_widths, char_heights, total_width, max_char_height, total_angle_deg, spacing_factor = calculate_text_metrics(font, font_size)
+                
+                # 检查重新计算结果是否达到预期
+                width_change_ratio = total_width / prev_total_width if prev_total_width > 0 else 0
+                angle_change_ratio = total_angle_deg / prev_total_angle if prev_total_angle > 0 else 0
+                
+                logger.info(f"重新计算结果 - 新宽度: {total_width}, 宽度变化比例: {width_change_ratio:.4f}")
+                logger.info(f"重新计算结果 - 新角度: {total_angle_deg}, 角度变化比例: {angle_change_ratio:.4f}")
+                logger.info(f"是否满足要求: {'是' if total_angle_deg <= max_angle_limit else '否'}")
+                
+                # 如果仍然超出限制，记录警告
+                if total_angle_deg > max_angle_limit:
+                    logger.warning(f"字体调整后仍然超出限制 - 当前角度: {total_angle_deg}, 限制: {max_angle_limit}")
             
-            # Fine-tune spacing for different text lengths
-            if text_arc_ratio < 0.1:
-                spacing_factor *= 1.1
-            elif text_arc_ratio > 0.5:
-                spacing_factor *= 0.95
-            
-            # Font-specific adjustments
-            font_family_lower = font.path.lower()
-            if 'montserrat' in font_family_lower or 'arial' in font_family_lower or 'helvetica' in font_family_lower:
-                spacing_factor *= 1.05
-            
-            # Calculate total angle
-            total_angle_rad = (total_width / radius) * spacing_factor
-            total_angle_deg = total_angle_rad * (180 / math.pi)
+            # 确保我们使用最终的total_angle_deg
+            final_total_angle_deg = total_angle_deg
             
             # Determine starting angle based on layout mode
             if layout_mode == 'centerAligned':
-                start_angle = (base_angle - total_angle_deg/2) % 360
+                start_angle = (base_angle - final_total_angle_deg/2) % 360
+                logger.info(f"圆形文本居中对齐 - base_angle: {base_angle}, final_total_angle_deg: {final_total_angle_deg}, start_angle: {start_angle}")
             else:
                 start_angle = base_angle
+                logger.info(f"圆形文本起点对齐 - base_angle: {base_angle}, start_angle: {start_angle}")
             
             # Current position tracking
             current_angle = start_angle
@@ -872,7 +1091,10 @@ class PNGStampGenerator:
             # Adjust positions for more even distribution if needed
             total_actual_angle = current_angle - start_angle
             if total_actual_angle > 10:
-                adjustment_ratio = total_angle_deg / total_actual_angle
+                # 使用最终的计算角度进行调整
+                adjustment_ratio = final_total_angle_deg / total_actual_angle
+                logger.info(f"调整字符分布 - total_actual_angle: {total_actual_angle}, final_total_angle_deg: {final_total_angle_deg}, adjustment_ratio: {adjustment_ratio}")
+                
                 current_angle = start_angle
                 for pos in char_positions:
                     pos['angle_deg'] *= adjustment_ratio
