@@ -15,6 +15,8 @@ import { ExcelService } from './services/excel.service';
 import { UpdateStampDto } from './dto/update-stamp.dto';
 import { User } from '../users/entities/user.entity';
 import { OrderStatus, StampType } from './enums/order.enum';
+import { JobQueueService } from '../common/services/job-queue.service';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class OrdersService {
@@ -29,6 +31,8 @@ export class OrdersService {
     private readonly stampsService: StampsService,
     private readonly orderStampService: OrderStampService,
     private readonly excelService: ExcelService,
+    private readonly jobQueueService: JobQueueService,
+    private readonly usersService: UsersService,
   ) {
     // 确保输出目录存在
     if (!fs.existsSync(this.stampsOutputDir)) {
@@ -38,6 +42,78 @@ export class OrdersService {
     // 确保导出目录存在
     if (!fs.existsSync(this.exportsOutputDir)) {
       fs.mkdirSync(this.exportsOutputDir, { recursive: true });
+    }
+    
+    // 注册导出印章任务处理器
+    this.jobQueueService.registerJobHandler('export-stamps', this.handleExportStampsJob.bind(this));
+  }
+
+  // 处理导出印章异步任务
+  private async handleExportStampsJob(jobId: string, data: any): Promise<any> {
+    try {
+      // 更新任务进度
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: '开始处理导出任务...',
+        progress: 10
+      });
+      
+      // 根据当前用户ID获取用户
+      let user: User | undefined;
+      if (data.userId) {
+        try {
+          user = await this.getUserById(data.userId);
+          this.jobQueueService.updateJobProgress(jobId, {
+            message: `准备为用户 ${user.username} 导出印章...`,
+            progress: 15
+          });
+        } catch (error) {
+          console.error(`获取用户失败，将继续以匿名方式处理: ${error.message}`);
+        }
+      }
+      
+      // 更新进度
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: '查询符合条件的订单...',
+        progress: 20
+      });
+      
+      // 调用原有的导出方法，传递 jobId 以支持进度更新
+      const result = await this.exportStampsAsZip(
+        data.startDate,
+        data.endDate,
+        data.search,
+        data.status,
+        user,
+        data.templateIds,
+        data.stampType,
+        jobId
+      );
+      
+      // 更新进度为完成
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: `导出完成，包含 ${result.orderCount} 个印章`,
+        progress: 100,
+        result: {
+          filePath: result.filePath,
+          fileName: result.fileName,
+          orderCount: result.orderCount
+        }
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('导出印章任务执行失败:', error);
+      throw error;
+    }
+  }
+  
+  // 获取用户辅助方法
+  private async getUserById(userId: string): Promise<User> {
+    try {
+      return await this.usersService.findOne(userId);
+    } catch (error) {
+      console.error(`获取用户信息失败: ${error.message}`);
+      throw error;
     }
   }
 
@@ -369,13 +445,22 @@ export class OrdersService {
     status?: string, 
     currentUser?: User,
     templateIds?: number[],
-    stampType?: StampType
+    stampType?: StampType,
+    jobId?: string
   ): Promise<{
     filePath: string;
     fileName: string;
     orderCount: number;
   }> {
     console.log(`开始导出图章: 开始日期=${startDate || '无'}, 结束日期=${endDate || '无'}, 搜索=${search || '无'}, 状态=${status || '全部'}, 模板IDs=${templateIds?.join(',') || '全部'}, 印章类型=${stampType || '全部'}`);
+    
+    // 如果提供了jobId，更新进度
+    if (jobId) {
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: '构建查询条件...',
+        progress: 25
+      });
+    }
     
     // Create query builder for finding orders with generated stamps
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
@@ -405,6 +490,14 @@ export class OrdersService {
         '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
         { search: `%${search}%` }
       );
+    }
+
+    // 如果提供了jobId，更新进度
+    if (jobId) {
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: '应用模板筛选条件...',
+        progress: 30
+      });
     }
 
     // Apply template filter if provided
@@ -441,6 +534,14 @@ export class OrdersService {
     // Apply user filter based on role
     if (currentUser && !currentUser.isAdmin) {
       queryBuilder.andWhere('order.userId = :userId', { userId: currentUser.id });
+    }
+
+    // 如果提供了jobId，更新进度
+    if (jobId) {
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: '查询订单中...',
+        progress: 35
+      });
     }
 
     // Get the SQL query for debugging
@@ -483,6 +584,14 @@ export class OrdersService {
     }
 
     console.log(`找到 ${orders.length} 个订单需要导出`);
+    
+    // 如果提供了jobId，更新进度
+    if (jobId) {
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: `找到 ${orders.length} 个订单，准备导出...`,
+        progress: 40
+      });
+    }
 
     // Create output directory if it doesn't exist
     const exportDir = path.join(process.cwd(), this.exportsOutputDir);
@@ -497,6 +606,14 @@ export class OrdersService {
     const filePath = path.join(exportDir, fileName);
     
     console.log(`将创建压缩包: ${filePath}`);
+    
+    // 如果提供了jobId，更新进度
+    if (jobId) {
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: `创建Excel订单信息文件...`,
+        progress: 45
+      });
+    }
 
     // First, generate the Excel file with order information
     try {
@@ -517,12 +634,29 @@ export class OrdersService {
 
     // Keep track of files added to the zip
     let addedFilesCount = 0;
+    
+    // 如果提供了jobId，更新进度
+    if (jobId) {
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: `处理订单印章文件...`,
+        progress: 50
+      });
+    }
 
     // Process each order
     for (let i = 0; i < orders.length; i++) {
       try {
         const order = orders[i];
         console.log(`处理订单 ${order.id} (platformOrderId: ${order.platformOrderId || 'N/A'})`);
+        
+        // 更新进度 - 根据订单处理进度计算
+        if (jobId) {
+          const orderProgress = Math.floor(50 + (i / orders.length) * 40); // 从50%到90%
+          this.jobQueueService.updateJobProgress(jobId, {
+            message: `处理订单 ${i+1}/${orders.length}...`,
+            progress: orderProgress
+          });
+        }
         
         // 检查关联的 EtsyOrder 是否存在且有 stampImageUrls
         if (order.etsyOrder && order.etsyOrder.stampImageUrls && order.etsyOrder.stampImageUrls.length > 0) {
@@ -584,6 +718,14 @@ export class OrdersService {
     if (addedFilesCount === 0) {
       throw new NotFoundException('未找到任何有效的图章文件。请检查文件是否存在。');
     }
+    
+    // 如果提供了jobId，更新进度
+    if (jobId) {
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: `写入 ${addedFilesCount} 个印章文件到ZIP包...`,
+        progress: 90
+      });
+    }
 
     console.log(`写入压缩文件，共有 ${addedFilesCount} 个图章`);
     
@@ -591,6 +733,14 @@ export class OrdersService {
     zip.writeZip(filePath);
     
     console.log(`压缩文件已保存到: ${filePath}`);
+    
+    // 如果提供了jobId，更新进度
+    if (jobId) {
+      this.jobQueueService.updateJobProgress(jobId, {
+        message: `导出任务完成`,
+        progress: 95
+      });
+    }
 
     return {
       filePath,

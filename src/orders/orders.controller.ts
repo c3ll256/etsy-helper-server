@@ -22,7 +22,7 @@ import { User } from '../users/entities/user.entity';
 import { OrderStatus, StampType } from 'src/orders/enums/order.enum';
 
 @ApiTags('orders')
-@Controller('orders')
+@Controller('orders')　
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class OrdersController {
@@ -240,11 +240,15 @@ export class OrdersController {
   @Get('export-stamps')
   @ApiOperation({ summary: '将指定时间段内的订单印章导出为zip包' })
   @ApiResponse({
-    status: 200,
-    description: '导出成功，返回zip文件',
+    status: 202,
+    description: '导出请求已接受，返回任务ID',
     schema: {
-      type: 'string',
-      format: 'binary'
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        jobId: { type: 'string' },
+        status: { type: 'string' }
+      }
     }
   })
   @ApiResponse({ status: 400, description: '请求处理失败' })
@@ -275,54 +279,154 @@ export class OrdersController {
   })
   async exportStamps(
     @Query() exportStampsDto: ExportStampsDto,
+    @CurrentUser() user: User
+  ) {
+    try {
+      // 启动异步任务处理导出
+      const jobId = await this.jobQueueService.addJob('export-stamps', {
+        startDate: exportStampsDto.startDate,
+        endDate: exportStampsDto.endDate,
+        search: exportStampsDto.search,
+        status: exportStampsDto.status,
+        userId: user.id,
+        templateIds: exportStampsDto.templateIds,
+        stampType: exportStampsDto.stampType
+      });
+      
+      return {
+        message: '导出任务已开始处理',
+        jobId,
+        status: 'processing'
+      };
+    } catch (error) {
+      console.error('Error starting export stamps job:', error);
+      throw new BadRequestException(error.message);
+    }
+  }
+
+  @Get('export-stamps/:jobId/status')
+  @ApiOperation({ summary: '查询导出任务状态' })
+  @ApiParam({ name: 'jobId', description: '导出任务ID' })
+  @ApiResponse({
+    status: 200,
+    description: '返回导出任务的当前状态',
+    schema: {
+      type: 'object',
+      properties: {
+        status: { 
+          type: 'string', 
+          enum: ['pending', 'processing', 'completed', 'failed'] 
+        },
+        progress: { 
+          type: 'number', 
+          description: '完成百分比 (0-100)' 
+        },
+        message: { 
+          type: 'string' 
+        },
+        result: { 
+          type: 'object',
+          properties: {
+            filePath: { type: 'string' },
+            fileName: { type: 'string' },
+            orderCount: { type: 'number' }
+          }
+        },
+        error: { 
+          type: 'string',
+          description: '任务失败时的错误信息' 
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: '任务不存在' })
+  checkExportJobStatus(@Param('jobId') jobId: string, @CurrentUser() user: User) {
+    const jobProgress = this.jobQueueService.getJobProgress(jobId);
+    
+    if (!jobProgress) {
+      throw new NotFoundException(`任务ID ${jobId} 不存在`);
+    }
+    
+    // 检查任务是否属于当前用户（非管理员）
+    if (!user.isAdmin && jobProgress.userId && jobProgress.userId !== user.id) {
+      throw new NotFoundException(`任务ID ${jobId} 不存在`);
+    }
+    
+    return {
+      status: jobProgress.status,
+      progress: jobProgress.progress,
+      message: jobProgress.message,
+      result: jobProgress.result,
+      error: jobProgress.error
+    };
+  }
+
+  @Get('export-stamps/:jobId/download')
+  @ApiOperation({ summary: '下载已完成的导出文件' })
+  @ApiParam({ name: 'jobId', description: '导出任务ID' })
+  @ApiResponse({
+    status: 200,
+    description: '返回导出的ZIP文件',
+    schema: {
+      type: 'string',
+      format: 'binary'
+    }
+  })
+  @ApiResponse({ status: 400, description: '任务未完成或处理出错' })
+  @ApiResponse({ status: 404, description: '任务不存在或文件不存在' })
+  async downloadExportFile(
+    @Param('jobId') jobId: string,
     @Res() res: Response,
     @CurrentUser() user: User
   ) {
     try {
-      const result = await this.ordersService.exportStampsAsZip(
-        exportStampsDto.startDate,
-        exportStampsDto.endDate,
-        exportStampsDto.search,
-        exportStampsDto.status,
-        user,
-        exportStampsDto.templateIds,
-        exportStampsDto.stampType
-      );
-
+      const jobProgress = this.jobQueueService.getJobProgress(jobId);
+      
+      if (!jobProgress) {
+        throw new NotFoundException(`任务ID ${jobId} 不存在`);
+      }
+      
+      // 检查任务是否属于当前用户（非管理员）
+      if (!user.isAdmin && jobProgress.userId && jobProgress.userId !== user.id) {
+        throw new NotFoundException(`任务ID ${jobId} 不存在`);
+      }
+      
+      // 检查任务是否已完成
+      if (jobProgress.status !== 'completed') {
+        throw new BadRequestException(`导出任务尚未完成，当前状态: ${jobProgress.status}`);
+      }
+      
+      const { filePath, fileName } = jobProgress.result;
+      
       // 确保文件存在且有效
-      if (!fs.existsSync(result.filePath)) {
-        throw new BadRequestException(`Generated file does not exist: ${result.filePath}`);
+      if (!fs.existsSync(filePath)) {
+        throw new NotFoundException(`导出文件不存在: ${filePath}`);
       }
 
       // 检查文件大小
-      const stats = fs.statSync(result.filePath);
+      const stats = fs.statSync(filePath);
       if (stats.size === 0) {
-        throw new BadRequestException('Generated zip file is empty');
+        throw new BadRequestException('导出的ZIP文件为空');
       }
       
-      console.log(`Sending zip file: ${result.filePath}, size: ${stats.size} bytes, contains ${result.orderCount} stamps`);
-
       // 设置响应头
       res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       res.setHeader('Content-Length', stats.size);
       
       // 创建文件流并发送文件
-      const fileStream = fs.createReadStream(result.filePath);
+      const fileStream = fs.createReadStream(filePath);
       fileStream.pipe(res);
-      
-      // 不再删除文件，而是保留
-      console.log(`ZIP文件已保存在: ${result.filePath}`);
       
       // 处理错误
       fileStream.on('error', (err) => {
-        console.error(`Error sending file: ${err.message}`);
+        console.error(`发送文件时出错: ${err.message}`);
         if (!res.headersSent) {
-          res.status(500).send(`Error sending file: ${err.message}`);
+          res.status(500).send(`发送文件时出错: ${err.message}`);
         }
       });
     } catch (error) {
-      console.error('Error in exportStamps:', error);
+      console.error('下载导出文件时出错:', error);
       if (error instanceof NotFoundException) {
         throw error;
       }
