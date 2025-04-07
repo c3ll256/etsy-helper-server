@@ -1326,8 +1326,6 @@ class PNGStampGenerator:
             descender = metrics.descender / 64
             height = metrics.height / 64
             
-            logger.info(f"Font metrics - ascender: {ascender}, descender: {descender}, height: {height}")
-            
             # 加载字体以获取字形映射
             tt = TTFont(font_path)
             glyph_set = tt.getGlyphOrder()
