@@ -430,7 +430,8 @@ export class ExcelService {
       platformOrderId: orderId,
       user: user,
       userId: user?.id,
-      templateId: templateId
+      templateId: templateId,
+      searchKey: this.generateSearchKey(item)
     });
     
     // Save the order to get its ID
@@ -716,5 +717,24 @@ ${variationsString}`;
       { id: orderId },
       { status: status }
     );
+  }
+
+  /**
+   * Generate search key for order from shipping information
+   */
+  private generateSearchKey(item: any): string {
+    const searchParts = [];
+    
+    // Add Buyer
+    if (item['Buyer']) {
+      searchParts.push(item['Buyer'].toString());
+    }
+    
+    // Add shipping name/recipient
+    if (item['Ship Name']) {
+      searchParts.push(item['Ship Name'].toString());
+    }
+    
+    return searchParts.filter(part => part.trim().length > 0).join(' ');
   }
 } 
