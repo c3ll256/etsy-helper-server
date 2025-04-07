@@ -2,7 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 import { EtsyOrder } from './etsy-order.entity';
 import { ApiProperty } from '@nestjs/swagger';
 import { User } from '../../users/entities/user.entity';
-import { OrderStatus, OrderType, StampType } from '../enums/order.enum';
+import { OrderStatus, OrderType } from '../enums/order.enum';
 
 @Entity('orders')
 export class Order {
@@ -105,15 +105,12 @@ export class Order {
   orderDetails?: any;
 
   @ApiProperty({
-    enum: StampType,
-    description: 'The type of stamp for this order',
-    example: StampType.RUBBER,
+    description: 'The template ID for this order',
+    example: 1,
     required: false
   })
   @Column({
-    type: 'enum',
-    enum: StampType,
     nullable: true
   })
-  stampType: StampType;
+  templateId: number;
 } 

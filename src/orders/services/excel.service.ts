@@ -265,6 +265,59 @@ export class ExcelService {
   }
 
   /**
+   * Find template description for an order
+   */
+  private async findTemplateDescription(item: any): Promise<{
+    templateDescription?: string;
+    error?: string;
+    templateId?: number;
+  }> {
+    const sku = item['SKU']?.toString();
+    const orderId = item['Order ID']?.toString() || '';
+    
+    if (!sku) {
+      this.logger.warn(`Order ${orderId} has no SKU, cannot find matching template`);
+      return { error: 'Order has no SKU information, cannot find matching template' };
+    }
+    
+    // Extract base part of SKU (e.g., from "AD-110-XX" to "AD-110")
+    const skuBase = sku.split('-').slice(0, 2).join('-');
+    
+    try {
+      const templates = await this.orderStampService.findTemplatesBySku(sku, skuBase);
+      
+      if (!templates || templates.length === 0) {
+        this.logger.warn(`No template found for SKU ${sku}`);
+        return { error: `No matching template found for SKU: ${sku}` };
+      }
+      
+      const template = templates[0];
+      
+      // Build template description from text elements
+      const descriptionParts = [];
+      
+      if (template.textElements && template.textElements.length > 0) {
+        template.textElements.forEach(element => {
+          descriptionParts.push({
+            id: element.id,
+            description: element.description,
+            defaultValue: element.defaultValue
+          });
+        });
+      }
+      
+      const templateDescription = JSON.stringify(descriptionParts);
+      this.logger.log(`Found template description for SKU ${sku}: ${templateDescription}`);
+      
+      return { templateDescription, templateId: template.id };
+      
+    } catch (error) {
+      this.logger.warn(`Could not find template description for SKU ${sku}: ${error.message}`);
+      return { error: `Error finding template for SKU ${sku}: ${error.message}` };
+    }
+  }
+
+  /**
    * Process order and generate stamp
    */
   private async processOrderWithStamp(
@@ -321,7 +374,7 @@ export class ExcelService {
     
     try {
       // Find template for the SKU
-      const { templateDescription, error: templateError } = await this.findTemplateDescription(item);
+      const { templateDescription, error: templateError, templateId } = await this.findTemplateDescription(item);
       
       if (templateError) {
         return { success: false, error: templateError };
@@ -340,7 +393,7 @@ export class ExcelService {
       const parsedResult = await this.parseVariations(originalVariations, templateDescription);
       
       // Generate stamp
-      return await this.generateStamp(item, parsedResult, baseTransactionId, user);
+      return await this.generateStamp(item, parsedResult, baseTransactionId, user, templateId);
       
     } catch (error) {
       this.logger.error(`Error processing order with stamp: ${error.message}`, error);
@@ -352,74 +405,20 @@ export class ExcelService {
   }
 
   /**
-   * Find template description for an order
-   */
-  private async findTemplateDescription(item: any): Promise<{
-    templateDescription?: string;
-    error?: string;
-  }> {
-    const sku = item['SKU']?.toString();
-    const orderId = item['Order ID']?.toString() || '';
-    
-    if (!sku) {
-      this.logger.warn(`Order ${orderId} has no SKU, cannot find matching template`);
-      return { error: 'Order has no SKU information, cannot find matching template' };
-    }
-    
-    // Extract base part of SKU (e.g., from "AD-110-XX" to "AD-110")
-    const skuBase = sku.split('-').slice(0, 2).join('-');
-    
-    try {
-      const templates = await this.orderStampService.findTemplatesBySku(sku, skuBase);
-      
-      if (!templates || templates.length === 0) {
-        this.logger.warn(`No template found for SKU ${sku}`);
-        return { error: `No matching template found for SKU: ${sku}` };
-      }
-      
-      const template = templates[0];
-      
-      // Build template description from text elements
-      const descriptionParts = [];
-      
-      if (template.textElements && template.textElements.length > 0) {
-        template.textElements.forEach(element => {
-          descriptionParts.push({
-            id: element.id,
-            description: element.description,
-            defaultValue: element.defaultValue
-          });
-        });
-      }
-      
-      const templateDescription = JSON.stringify(descriptionParts);
-      this.logger.log(`Found template description for SKU ${sku}: ${templateDescription}`);
-      
-      return { templateDescription };
-      
-    } catch (error) {
-      this.logger.warn(`Could not find template description for SKU ${sku}: ${error.message}`);
-      return { error: `Error finding template for SKU ${sku}: ${error.message}` };
-    }
-  }
-
-  /**
    * Generate stamp for an order
    */
   private async generateStamp(
     item: any,
     parsedResult: any,
     baseTransactionId: string,
-    user?: User
+    user?: User,
+    templateId?: number
   ): Promise<{
     success: boolean;
     stamps?: Array<{ orderId: string; transactionId: string; stampPath: string }>;
     error?: string;
   }> {
     const orderId = item['Order ID']?.toString() || '';
-    
-    // Create temporary order ID
-    const tempOrderId = uuidv4();
     
     // Create shared order record
     const stamps: Array<{ orderId: string; transactionId: string; stampPath: string }> = [];
@@ -430,7 +429,8 @@ export class ExcelService {
       orderType: OrderType.ETSY,
       platformOrderId: orderId,
       user: user,
-      userId: user?.id
+      userId: user?.id,
+      templateId: templateId
     });
     
     // Save the order to get its ID

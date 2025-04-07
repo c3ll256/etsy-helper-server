@@ -300,4 +300,16 @@ export class StampsService {
       where: whereClause
     });
   }
+
+  async getTemplatesByStampType(stampType: StampType, user: User): Promise<StampTemplate[]> {
+    const whereClause: FindOptionsWhere<StampTemplate> = { type: stampType };
+
+    if (!user.isAdmin) {
+        whereClause.userId = user.id as string;
+    }
+    
+    return this.stampTemplateRepository.find({
+      where: whereClause
+    });
+  }
 }

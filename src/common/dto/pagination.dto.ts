@@ -1,8 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsInt, Min, IsString, IsEnum, IsDateString, IsUUID, IsArray, IsNumber } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
-import { OrderStatus, StampType } from '../../orders/enums/order.enum';
-
+import { OrderStatus } from '../../orders/enums/order.enum';
+import { StampType } from '../../stamps/entities/stamp-template.entity';
 export class PaginationDto {
   @ApiPropertyOptional({
     description: '页码',

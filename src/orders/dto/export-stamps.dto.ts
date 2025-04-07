@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsDateString, IsOptional, IsString, IsEnum, IsArray, IsNumber } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
-import { OrderStatus, StampType } from '../enums/order.enum';
+import { OrderStatus } from '../enums/order.enum';
+import { StampType } from '../../stamps/entities/stamp-template.entity';
 
 
 export class ExportStampsDto {

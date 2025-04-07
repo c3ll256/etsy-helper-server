@@ -9,9 +9,4 @@ export enum OrderType {
   ETSY = 'etsy',
   MANUAL = 'manual',
   OTHER = 'other'
-}
-
-export enum StampType {
-  RUBBER = 'rubber',
-  STEEL = 'steel'
 } 

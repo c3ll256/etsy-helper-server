@@ -9,7 +9,6 @@ import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery, Api
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { Order } from './entities/order.entity';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
-import { Response } from 'express';
 import * as fs from 'fs';
 import { In } from 'typeorm';
 import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
@@ -19,8 +18,8 @@ import { JobQueueService } from '../common/services/job-queue.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
-import { OrderStatus, StampType } from 'src/orders/enums/order.enum';
-import * as path from 'path';
+import { OrderStatus } from 'src/orders/enums/order.enum';
+import { StampType } from 'src/stamps/entities/stamp-template.entity';
 
 @ApiTags('orders')
 @Controller('orders')

@@ -14,7 +14,8 @@ import { OrderStampService } from '../stamps/services/order-stamp.service';
 import { ExcelService } from './services/excel.service';
 import { UpdateStampDto } from './dto/update-stamp.dto';
 import { User } from '../users/entities/user.entity';
-import { OrderStatus, StampType } from './enums/order.enum';
+import { OrderStatus } from './enums/order.enum';
+import { StampType } from '../stamps/entities/stamp-template.entity';
 
 @Injectable()
 export class OrdersService {
@@ -116,9 +117,28 @@ export class OrdersService {
       queryBuilder.andWhere('order.status = :status', { status });
     }
 
-    // Apply stamp type filter if provided
-    if (stampType) {
-      queryBuilder.andWhere('order.stampType = :stampType', { stampType });
+    // Apply template filter if provided or filter by stampType
+    if (templateIds && templateIds.length > 0) {
+      queryBuilder.andWhere('order.templateId IN (:...templateIds)', { templateIds });
+    } else if (stampType) {
+      // Find templates with the specified stampType
+      const templatesWithType = await this.stampsService.getTemplatesByStampType(stampType, currentUser);
+      
+      if (templatesWithType && templatesWithType.length > 0) {
+        const stampTypeTemplateIds = templatesWithType.map(template => template.id);
+        queryBuilder.andWhere('order.templateId IN (:...stampTypeTemplateIds)', { stampTypeTemplateIds });
+      } else {
+        // If no templates found with this stampType, return empty result
+        return {
+          items: [],
+          meta: {
+            total: 0,
+            page,
+            limit,
+            totalPages: 0
+          }
+        };
+      }
     }
 
     // Apply date filters
@@ -130,34 +150,6 @@ export class OrdersService {
         '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
         { search: `%${search}%` }
       );
-    }
-
-    // Apply template filter if provided
-    if (templateIds && templateIds.length > 0) {
-      console.log(`应用模板筛选条件，模板IDs: ${JSON.stringify(templateIds)}`);
-      
-      // 查询模板获取SKUs
-      const templates = await this.stampsService.getTemplatesByIds(templateIds, currentUser);
-      const templateSkus = templates.map(template => template.sku).filter(sku => sku);
-      
-      console.log(`模板SKUs: ${JSON.stringify(templateSkus)}`);
-      
-      // 使用SKU进行模糊匹配
-      if (templateSkus.length > 0) {
-        // 构建模糊匹配条件
-        const skuConditions = templateSkus.map((sku, index) => {
-          const paramName = `sku${index}`;
-          return `etsyOrder.sku ILIKE :${paramName}`;
-        }).join(' OR ');
-        
-        // 构建参数对象
-        const skuParams = {};
-        templateSkus.forEach((sku, index) => {
-          skuParams[`sku${index}`] = `%${sku}%`;
-        });
-        
-        queryBuilder.andWhere(`etsyOrder.sku IS NOT NULL AND (${skuConditions})`, skuParams);
-      }
     }
 
     // Apply user filter based on role
@@ -391,9 +383,20 @@ export class OrdersService {
       });
     }
 
-    // Apply stamp type filter if provided
-    if (stampType) {
-      queryBuilder.andWhere('order.stampType = :stampType', { stampType });
+    // Apply template filter if provided or filter by stampType
+    if (templateIds && templateIds.length > 0) {
+      queryBuilder.andWhere('order.templateId IN (:...templateIds)', { templateIds });
+    } else if (stampType) {
+      // Find templates with the specified stampType
+      const templatesWithType = await this.stampsService.getTemplatesByStampType(stampType, currentUser);
+      
+      if (templatesWithType && templatesWithType.length > 0) {
+        const stampTypeTemplateIds = templatesWithType.map(template => template.id);
+        queryBuilder.andWhere('order.templateId IN (:...stampTypeTemplateIds)', { stampTypeTemplateIds });
+      } else {
+        // If no templates found with this stampType, return empty result
+        throw new NotFoundException(`No templates found with stamp type: ${stampType}`);
+      }
     }
 
     // Apply date filters
@@ -405,37 +408,6 @@ export class OrdersService {
         '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
         { search: `%${search}%` }
       );
-    }
-
-    // Apply template filter if provided
-    if (templateIds && templateIds.length > 0) {
-      console.log(`应用模板筛选条件，模板IDs: ${JSON.stringify(templateIds)}`);
-      
-      // 查询模板获取SKUs
-      const templates = await this.stampsService.getTemplatesByIds(templateIds, currentUser);
-      const templateSkus = templates.map(template => template.sku).filter(sku => sku);
-      
-      console.log(`模板SKUs: ${JSON.stringify(templateSkus)}`);
-      
-      // 使用SKU进行模糊匹配
-      if (templateSkus.length > 0) {
-        // 构建模糊匹配条件
-        const skuConditions = templateSkus.map((sku, index) => {
-          const paramName = `sku${index}`;
-          return `etsyOrder.sku ILIKE :${paramName}`;
-        }).join(' OR ');
-        
-        // 构建参数对象
-        const skuParams = {};
-        templateSkus.forEach((sku, index) => {
-          skuParams[`sku${index}`] = `%${sku}%`;
-        });
-        
-        queryBuilder.andWhere(`etsyOrder.sku IS NOT NULL AND (${skuConditions})`, skuParams);
-      }
-      
-      console.log(`模板筛选SQL: ${queryBuilder.getSql()}`);
-      console.log(`模板筛选参数: ${JSON.stringify(queryBuilder.getParameters())}`);
     }
 
     // Apply user filter based on role
