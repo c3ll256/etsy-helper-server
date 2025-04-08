@@ -12,7 +12,9 @@ import {
   Put,
   Req,
   UseGuards,
-  Query
+  Query,
+  NotFoundException,
+  ForbiddenException
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Response, Request } from 'express';
@@ -34,6 +36,7 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import { StampType } from './entities/stamp-template.entity';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { StampTemplate } from './entities/stamp-template.entity';
+import { JobQueueService } from '../common/services/job-queue.service';
 
 const UPLOAD_DIR = 'uploads/backgrounds';
 
@@ -49,7 +52,8 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 export class StampsController {
   constructor(
     private readonly stampsService: StampsService,
-    private readonly pythonStampService: PythonStampService, 
+    private readonly pythonStampService: PythonStampService,
+    private readonly jobQueueService: JobQueueService,
   ) {}
 
   @Post('templates')
@@ -287,8 +291,56 @@ export class StampsController {
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateStampTemplateDto: UpdateStampTemplateDto,
+    @CurrentUser() user: User,
+    @Query('regenerateOrders') regenerateOrders?: boolean
+  ) {
+    const updatedTemplate = await this.stampsService.update(id, updateStampTemplateDto, user);
+
+    // 如果指定了需要重新生成订单，创建一个异步任务
+    if (regenerateOrders) {
+      const jobId = this.jobQueueService.createJob(user.id as string);
+      
+      // 启动异步处理
+      this.stampsService.regenerateOrderStamps(id, updatedTemplate, jobId).catch(error => {
+        console.error('Failed to regenerate stamps:', error);
+        this.jobQueueService.updateJobProgress(jobId, {
+          status: 'failed',
+          message: `Failed to regenerate stamps: ${error.message}`,
+          error: error.message
+        });
+      });
+
+      return {
+        template: updatedTemplate,
+        regenerationJob: {
+          jobId,
+          status: 'pending',
+          message: 'Stamp regeneration started'
+        }
+      };
+    }
+    
+    return updatedTemplate;
+  }
+
+  @Get('regeneration/:jobId')
+  @ApiOperation({ summary: 'Get stamp regeneration job status' })
+  @ApiResponse({ status: 200, description: 'Return the job status' })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  async getRegenerationStatus(
+    @Param('jobId') jobId: string,
     @CurrentUser() user: User
   ) {
-    return this.stampsService.update(id, updateStampTemplateDto, user);
+    const jobProgress = this.jobQueueService.getJobProgress(jobId);
+    if (!jobProgress) {
+      throw new NotFoundException('Regeneration job not found');
+    }
+
+    // 验证作业所有权
+    if (!user.isAdmin && jobProgress.userId !== user.id) {
+      throw new ForbiddenException('You do not have permission to access this job');
+    }
+
+    return jobProgress;
   }
 } 

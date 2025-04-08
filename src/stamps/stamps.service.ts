@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
 import * as fs from 'fs';
@@ -13,6 +13,9 @@ import { PythonStampService } from './services/python-stamp.service';
 import { User } from '../users/entities/user.entity';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
+import { JobQueueService } from '../common/services/job-queue.service';
+import { OrdersService } from '../orders/orders.service';
+import { Order } from '../orders/entities/order.entity';
 
 @Injectable()
 export class StampsService {
@@ -21,7 +24,12 @@ export class StampsService {
     private stampTemplateRepository: Repository<StampTemplate>,
     @InjectRepository(StampGenerationRecord)
     private stampGenerationRecordRepository: Repository<StampGenerationRecord>,
-    private readonly pythonStampService: PythonStampService
+    @InjectRepository(Order)
+    private orderRepository: Repository<Order>,
+    private readonly pythonStampService: PythonStampService,
+    private readonly jobQueueService: JobQueueService,
+    @Inject(forwardRef(() => OrdersService))
+    private readonly ordersService: OrdersService,
   ) {
   }
 
@@ -255,6 +263,14 @@ export class StampsService {
     });
   }
 
+  async getGenerationRecordsByTemplateId(templateId: number): Promise<StampGenerationRecord[]> {
+    return this.stampGenerationRecordRepository.find({
+      where: { templateId },
+      order: { createdAt: 'DESC' },
+      relations: ['template']
+    });
+  }
+
   async update(
     id: number, 
     updateStampTemplateDto: UpdateStampTemplateDto, 
@@ -311,5 +327,128 @@ export class StampsService {
     return this.stampTemplateRepository.find({
       where: whereClause
     });
+  }
+
+  async regenerateOrderStamps(templateId: number, updatedTemplate: StampTemplate, jobId: string): Promise<void> {
+    try {
+      // 查找使用该模板的所有订单
+      const orders = await this.orderRepository.find({
+        where: { templateId },
+        relations: ['etsyOrder']
+      });
+
+      const totalOrders = orders.length;
+      
+      this.jobQueueService.updateJobProgress(jobId, {
+        status: 'processing',
+        progress: 0,
+        message: `Starting regeneration of stamps for ${totalOrders} orders`
+      });
+
+      let successCount = 0;
+      let failedCount = 0;
+
+      // 对每个订单重新生成印章
+      for (let i = 0; i < orders.length; i++) {
+        const order = orders[i];
+        
+        try {
+          if (order.etsyOrder?.stampGenerationRecordIds?.length > 0) {
+            // 对每个生成记录重新生成印章
+            for (const recordId of order.etsyOrder.stampGenerationRecordIds) {
+              // 获取原始生成记录
+              const record = await this.getGenerationRecordById(recordId);
+              
+              if (record) {
+                // 使用更新后的模板参数，只保留原始记录中的文本值
+                const formattedTextElements = updatedTemplate.textElements.map(templateElement => {
+                  // 从原始记录中找到对应的文本元素
+                  const originalElement = record.textElements.find(e => e.id === templateElement.id);
+                  
+                  // 确保所有必需的属性都存在
+                  return {
+                    id: templateElement.id,
+                    value: originalElement?.value || templateElement.defaultValue || '',
+                    fontFamily: templateElement.fontFamily,  // 必需属性
+                    fontSize: templateElement.fontSize,      // 必需属性
+                    fontWeight: templateElement.fontWeight,
+                    fontStyle: templateElement.fontStyle,
+                    color: templateElement.color,
+                    description: templateElement.description,
+                    isUppercase: templateElement.isUppercase,
+                    textPadding: templateElement.textPadding,
+                    position: {
+                      x: templateElement.position.x,
+                      y: templateElement.position.y,
+                      width: templateElement.position.width,
+                      height: templateElement.position.height,
+                      rotation: templateElement.position.rotation,
+                      textAlign: templateElement.position.textAlign,
+                      verticalAlign: templateElement.position.verticalAlign,
+                      isCircular: templateElement.position.isCircular,
+                      radius: templateElement.position.radius,
+                      baseAngle: templateElement.position.baseAngle,
+                      direction: templateElement.position.direction,
+                      baselinePosition: templateElement.position.baselinePosition,
+                      letterSpacing: templateElement.position.letterSpacing
+                    }
+                  };
+                });
+
+                // 使用更新后的模板和文本元素重新生成印章
+                const result = await this.ordersService.updateOrderStamp(order.id, {
+                  templateId: updatedTemplate.id,
+                  textElements: formattedTextElements,
+                  oldRecordId: recordId,
+                  convertTextToPaths: true
+                });
+
+                if (result.success) {
+                  successCount++;
+                } else {
+                  failedCount++;
+                  console.error(`Failed to regenerate stamp for order ${order.id}, record ${recordId}:`, result.error);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Failed to process order ${order.id}:`, error);
+          failedCount++;
+        }
+
+        // 更新进度
+        const progress = Math.round((i + 1) * 100 / totalOrders);
+        this.jobQueueService.updateJobProgress(jobId, {
+          status: 'processing',
+          progress,
+          message: `Processed ${i + 1}/${totalOrders} orders. Success: ${successCount}, Failed: ${failedCount}`
+        });
+      }
+
+      // 更新最终状态
+      this.jobQueueService.updateJobProgress(jobId, {
+        status: 'completed',
+        progress: 100,
+        message: `Completed regenerating stamps for ${totalOrders} orders. Success: ${successCount}, Failed: ${failedCount}`,
+        result: {
+          totalOrders,
+          successCount,
+          failedCount
+        }
+      });
+
+      // 设置作业清理定时器
+      this.jobQueueService.startJobCleanup(jobId);
+    } catch (error) {
+      console.error('Failed to regenerate stamps:', error);
+      this.jobQueueService.updateJobProgress(jobId, {
+        status: 'failed',
+        progress: 0,
+        message: `Failed to regenerate stamps: ${error.message}`,
+        error: error.message
+      });
+      throw error;
+    }
   }
 }

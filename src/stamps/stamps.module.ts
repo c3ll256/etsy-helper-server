@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -13,6 +13,8 @@ import { OrderStampService } from './services/order-stamp.service';
 import { PythonStampService } from './services/python-stamp.service';
 import { CommonModule } from '../common/common.module';
 import { Font } from '../fonts/entities/font.entity';
+import { OrdersModule } from 'src/orders/orders.module';
+import { Order } from '../orders/entities/order.entity';
 
 // Ensure uploads directory exists
 const UPLOADS_DIR = 'uploads';
@@ -22,8 +24,9 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StampTemplate, StampGenerationRecord, Font]),
+    TypeOrmModule.forFeature([StampTemplate, StampGenerationRecord, Font, Order]),
     CommonModule,
+    forwardRef(() => OrdersModule),
     MulterModule.register({
       storage: diskStorage({
         destination: (req, file, cb) => {

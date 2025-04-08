@@ -16,6 +16,7 @@ import { UpdateStampDto } from './dto/update-stamp.dto';
 import { User } from '../users/entities/user.entity';
 import { OrderStatus } from './enums/order.enum';
 import { StampType } from '../stamps/entities/stamp-template.entity';
+import { Inject, forwardRef } from '@nestjs/common';
 
 @Injectable()
 export class OrdersService {
@@ -27,6 +28,7 @@ export class OrdersService {
     private ordersRepository: Repository<Order>,
     @InjectRepository(EtsyOrder)
     private etsyOrderRepository: Repository<EtsyOrder>,
+    @Inject(forwardRef(() => StampsService))
     private readonly stampsService: StampsService,
     private readonly orderStampService: OrderStampService,
     private readonly excelService: ExcelService,
