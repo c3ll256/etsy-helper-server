@@ -237,6 +237,72 @@ export class OrdersController {
     return this.ordersService.findAll(paginationDto, user);
   }
 
+  @ApiOperation({ summary: '导出订单为Excel，包含印章图片' })
+  @ApiResponse({
+    status: 200,
+    description: '导出成功，返回Excel文件路径',
+    schema: {
+      type: 'object',
+      properties: {
+        filePath: { type: 'string' },
+        fileName: { type: 'string' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: '请求处理失败' })
+  @ApiResponse({ status: 404, description: '没有找到符合条件的订单' })
+  @ApiQuery({ 
+    name: 'search', 
+    required: false, 
+    description: '搜索订单号' 
+  })
+  @ApiQuery({ 
+    name: 'status', 
+    required: false, 
+    enum: OrderStatus,
+    description: '按订单状态筛选' 
+  })
+  @ApiQuery({ 
+    name: 'templateIds', 
+    required: false, 
+    description: '按印章模板ID筛选（多选）', 
+    type: [Number],
+    isArray: true
+  })
+  @ApiQuery({ 
+    name: 'stampType', 
+    required: false, 
+    enum: StampType,
+    description: '按印章类型筛选' 
+  })
+  @Get('export-excel')
+  async exportOrdersToExcel(
+    @Query() exportDto: ExportStampsDto,
+    @CurrentUser() user: User
+  ) {
+    try {
+      const result = await this.ordersService.exportOrdersToExcel(
+        exportDto.startDate ? new Date(exportDto.startDate) : undefined,
+        exportDto.endDate ? new Date(exportDto.endDate) : undefined,
+        exportDto.search,
+        exportDto.status,
+        user,
+        exportDto.templateIds,
+        exportDto.stampType
+      );
+
+      return {
+        filePath: `/${result.filePath}`,
+        fileName: result.fileName
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException(error.message);
+    }
+  }
+
   @Get('export-stamps')
   @ApiOperation({ summary: '将指定时间段内的订单印章导出为zip包' })
   @ApiResponse({

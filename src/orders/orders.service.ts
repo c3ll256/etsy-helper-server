@@ -17,6 +17,9 @@ import { User } from '../users/entities/user.entity';
 import { OrderStatus } from './enums/order.enum';
 import { StampType } from '../stamps/entities/stamp-template.entity';
 import { Inject, forwardRef } from '@nestjs/common';
+import { In } from 'typeorm';
+import { OrderType } from './enums/order.enum';
+import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
 
 @Injectable()
 export class OrdersService {
@@ -32,6 +35,8 @@ export class OrdersService {
     private readonly stampsService: StampsService,
     private readonly orderStampService: OrderStampService,
     private readonly excelService: ExcelService,
+    @InjectRepository(StampGenerationRecord)
+    private readonly stampGenerationRecordRepository: Repository<StampGenerationRecord>,
   ) {
     // 确保输出目录存在
     if (!fs.existsSync(this.stampsOutputDir)) {
@@ -572,6 +577,106 @@ export class OrdersService {
       filePath: relativeFilePath,
       fileName,
       orderCount: addedFilesCount
+    };
+  }
+
+  async exportOrdersToExcel(
+    startDate: Date,
+    endDate: Date,
+    search?: string,
+    status?: OrderStatus,
+    user?: User,
+    templateIds?: number[],
+    stampType?: StampType
+  ): Promise<{ filePath: string; fileName: string }> {
+    // Build query with filters
+    const query = this.ordersRepository.createQueryBuilder('order')
+      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.template', 'template');
+
+    // Apply date range filter
+    if (startDate && endDate) {
+      query.andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
+        startDate,
+        endDate,
+      });
+    }
+
+    // Apply search filter
+    if (search) {
+      query.andWhere('order.platformOrderId LIKE :search', {
+        search: `%${search}%`,
+      });
+    }
+
+    // Apply status filter
+    if (status) {
+      query.andWhere('order.status = :status', { status });
+    }
+
+    // Apply template filter
+    if (templateIds && templateIds.length > 0) {
+      query.andWhere('order.templateId IN (:...templateIds)', { templateIds });
+    }
+
+    // Apply stamp type filter
+    if (stampType) {
+      query.andWhere('template.type = :stampType', { stampType });
+    }
+
+    // Apply user filter for non-admin users
+    if (!user.isAdmin) {
+      query.andWhere('order.userId = :userId', { userId: user.id });
+    }
+
+    // Get orders
+    const orders = await query.getMany();
+
+    if (!orders || orders.length === 0) {
+      throw new NotFoundException('No orders found matching the criteria');
+    }
+
+    // Prepare data for Excel
+    const excelData = [];
+    for (let i = 0; i < orders.length; i++) {
+      const order = orders[i];
+      if (order.orderType === OrderType.ETSY && order.etsyOrder) {
+        // Get stamp generation records for this order
+        const stampRecords = await this.stampGenerationRecordRepository.find({
+          where: { 
+            id: In(order.etsyOrder.stampGenerationRecordIds || [])
+          },
+          relations: ['template']
+        });
+
+        // Add each stamp as a row
+        for (let j = 0; j < stampRecords.length; j++) {
+          const record = stampRecords[j];
+          const template = record.template;
+          
+          excelData.push({
+            '序号': `${i + 1}-${j + 1}`,
+            '订单号': order.platformOrderId,
+            '设计图': record.stampImageUrl,
+            '数量': order.etsyOrder.quantity || 1,
+            '尺寸': `${template.width}x${template.height}`,
+            'SKU': order.etsyOrder.sku || 'N/A',
+            '店铺': order.user?.shopName || 'N/A',
+            '导入时间': order.createdAt
+          });
+        }
+      }
+    }
+
+    // Create Excel file
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `orders_with_stamps_${timestamp}.xlsx`;
+    const filePath = await this.excelService.createOrdersExcelWithStamps(excelData, fileName);
+
+    return {
+      filePath,
+      fileName
     };
   }
 } 

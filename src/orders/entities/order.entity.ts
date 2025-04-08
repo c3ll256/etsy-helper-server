@@ -3,6 +3,7 @@ import { EtsyOrder } from './etsy-order.entity';
 import { ApiProperty } from '@nestjs/swagger';
 import { User } from '../../users/entities/user.entity';
 import { OrderStatus, OrderType } from '../enums/order.enum';
+import { StampTemplate } from '../../stamps/entities/stamp-template.entity';
 
 @Entity('orders')
 export class Order {
@@ -113,4 +114,12 @@ export class Order {
     nullable: true
   })
   templateId: number;
+
+  @ApiProperty({
+    description: 'The stamp template associated with this order',
+    type: () => StampTemplate,
+    required: false
+  })
+  @ManyToOne(() => StampTemplate)
+  template: StampTemplate;
 } 

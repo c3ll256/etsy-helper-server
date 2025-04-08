@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import { User } from '../../users/entities/user.entity';
 import { AliyunService } from 'src/common/services/aliyun.service';
 import { OrderStatus, OrderType } from '../enums/order.enum';
+import * as ExcelJS from 'exceljs';
 
 type ProcessingResult = {
   total: number;
@@ -737,4 +738,118 @@ ${variationsString}`;
     
     return searchParts.filter(part => part.trim().length > 0).join(' ');
   }
-} 
+
+  /**
+   * Create Excel file with stamps for orders
+   */
+  async createOrdersExcelWithStamps(excelData: any[], fileName: string): Promise<string> {
+    try {
+      // Create workbook and worksheet
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('订单印章');
+
+      // Set headers
+      const headers = [
+        '序号',
+        '订单号',
+        '设计图',
+        '数量',
+        '尺寸',
+        'SKU',
+        '店铺',
+        '导入时间'
+      ];
+
+      // Set column widths and properties
+      worksheet.columns = [
+        { header: '序号', key: 'index', width: 10 },
+        { header: '订单号', key: 'orderId', width: 20 },
+        { header: '设计图', key: 'image', width: 40 },
+        { header: '数量', key: 'quantity', width: 10 },
+        { header: '尺寸', key: 'size', width: 15 },
+        { header: 'SKU', key: 'sku', width: 20 },
+        { header: '店铺', key: 'shop', width: 20 },
+        { header: '导入时间', key: 'importTime', width: 20 }
+      ];
+
+      // Style the header row
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      headerRow.height = 25;
+
+      // Process each row
+      for (let i = 0; i < excelData.length; i++) {
+        const row = excelData[i];
+        const rowNumber = i + 2; // +2 because row 1 is header
+
+        // Add row data
+        const dataRow = worksheet.getRow(rowNumber);
+        dataRow.getCell('index').value = row['序号'];
+        dataRow.getCell('orderId').value = row['订单号'];
+        dataRow.getCell('quantity').value = row['数量'];
+        dataRow.getCell('size').value = row['尺寸'];
+        dataRow.getCell('sku').value = row['SKU'];
+        dataRow.getCell('shop').value = row['店铺'];
+        dataRow.getCell('importTime').value = new Date(row['导入时间']).toLocaleString('zh-CN');
+
+        // Set row height for image
+        dataRow.height = 120;
+
+        // Handle image
+        if (row['设计图']) {
+          try {
+            const imagePath = path.join(process.cwd(), 'uploads', row['设计图']);
+            if (fs.existsSync(imagePath)) {
+              const imageId = workbook.addImage({
+                filename: imagePath,
+                extension: 'png',
+              });
+
+              // Calculate image dimensions based on template size
+              const templateWidth = parseInt(row['尺寸'].split('x')[0]);
+              const templateHeight = parseInt(row['尺寸'].split('x')[1]);
+              const aspectRatio = templateWidth / templateHeight;
+
+              // Base size (in Excel units)
+              const baseHeight = 100;
+              const width = baseHeight * aspectRatio;
+              const height = baseHeight;
+
+              // Add image to worksheet with calculated dimensions
+              worksheet.addImage(imageId, {
+                tl: { col: 2, row: rowNumber - 1 }, // -1 because row is 1-based
+                ext: { width, height }
+              });
+            } else {
+              dataRow.getCell('image').value = '图片不存在';
+              this.logger.warn(`Image not found: ${imagePath}`);
+            }
+          } catch (error) {
+            this.logger.error(`Failed to process image for row ${rowNumber}: ${error.message}`);
+            dataRow.getCell('image').value = '图片处理失败';
+          }
+        }
+
+        // Style the row
+        dataRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      }
+
+      // Create output directory
+      const exportDir = path.join(process.cwd(), 'uploads', 'exports');
+      if (!fs.existsSync(exportDir)) {
+        fs.mkdirSync(exportDir, { recursive: true });
+      }
+
+      // Save workbook
+      const filePath = path.join(exportDir, fileName);
+      await workbook.xlsx.writeFile(filePath);
+
+      // Return relative path
+      return path.relative(process.cwd(), filePath);
+    } catch (error) {
+      this.logger.error(`Failed to create Excel file with stamps: ${error.message}`, error.stack);
+      throw new Error(`Failed to create Excel file: ${error.message}`);
+    }
+  }
+}
