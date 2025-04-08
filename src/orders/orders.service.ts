@@ -655,11 +655,15 @@ export class OrdersService {
           const record = stampRecords[j];
           const template = record.template;
           
+          // Calculate display quantity based on number of stamps
+          const orderQuantity = order.etsyOrder.quantity || 1;
+          const displayQuantity = stampRecords.length > 1 ? 1 : orderQuantity;
+          
           excelData.push({
             '序号': `${i + 1}-${j + 1}`,
             '订单号': order.platformOrderId,
             '设计图': record.stampImageUrl,
-            '数量': order.etsyOrder.quantity || 1,
+            '数量': displayQuantity,
             '尺寸': `${template.width}x${template.height}`,
             'SKU': order.etsyOrder.sku || 'N/A',
             '店铺': order.user?.shopName || 'N/A',

@@ -748,18 +748,6 @@ ${variationsString}`;
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('订单印章');
 
-      // Set headers
-      const headers = [
-        '序号',
-        '订单号',
-        '设计图',
-        '数量',
-        '尺寸',
-        'SKU',
-        '店铺',
-        '导入时间'
-      ];
-
       // Set column widths and properties
       worksheet.columns = [
         { header: '序号', key: 'index', width: 10 },
