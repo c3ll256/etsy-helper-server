@@ -697,17 +697,63 @@ class PNGStampGenerator:
                     if rotation % 180 > 45 and rotation % 180 < 135:
                         max_available_width = self.height - (margin * 2)
                 
-                # Scale down text if needed
+                # Calculate text width with letter spacing
                 text_scale_factor = 1.0
                 final_font_size = scaled_font_size
-                if text_width > max_available_width:
-                    text_scale_factor = max_available_width / text_width
+                
+                # First calculate base width without spacing
+                base_width = 0
+                char_widths = []
+                for char in text:
+                    bbox = font.getbbox(char)
+                    char_width = bbox[2] - bbox[0]
+                    char_widths.append(char_width)
+                    base_width += char_width
+                
+                # Calculate total width with spacing
+                # When letter_spacing > 1, we add extra space between characters
+                # When letter_spacing < 1, we reduce space between characters
+                spacing_width = 0
+                if len(text) > 1:  # Only apply spacing if there's more than one character
+                    # Calculate spacing width based on all characters
+                    total_spacing = sum(char_widths[:-1])  # Sum of all character widths except last
+                    spacing_width = total_spacing * (letter_spacing - 1.0)
+                
+                text_width = base_width + spacing_width
+                
+                # Calculate the actual space needed including padding
+                # Since padding is split between left and right sides, we need to consider both sides
+                total_width_with_padding = text_width + (margin * 2)  # Add padding for both sides
+                
+                # Scale down text if needed
+                if total_width_with_padding > self.width:  # Compare with full width
+                    # Calculate scale factor based on width minus total padding
+                    text_scale_factor = (self.width - (margin * 2)) / text_width
                     adjusted_font_size = int(scaled_font_size * text_scale_factor)
                     final_font_size = adjusted_font_size
                     font = self._get_pil_font(exact_font_family, adjusted_font_size, variable_settings)
-                    # Recalculate text dimensions
-                    bbox = font.getbbox(text)
-                    text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                    
+                    # Recalculate text dimensions with new font size
+                    base_width = 0
+                    char_widths = []
+                    for char in text:
+                        bbox = font.getbbox(char)
+                        char_width = bbox[2] - bbox[0]
+                        char_widths.append(char_width)
+                        base_width += char_width
+                    
+                    # Recalculate spacing with new font size
+                    spacing_width = 0
+                    if len(text) > 1:
+                        total_spacing = sum(char_widths[:-1])
+                        spacing_width = total_spacing * (letter_spacing - 1.0)
+                    
+                    text_width = base_width + spacing_width
+                    total_width_with_padding = text_width + (margin * 2)
+                
+                # Get text height
+                bbox = font.getbbox(text)
+                text_height = bbox[3] - bbox[1]
                 
                 # Store the adjusted font size for this element
                 if element_id and current_element:
@@ -727,61 +773,19 @@ class PNGStampGenerator:
                 # Calculate position based on alignment
                 place_x = scaled_x
                 if text_align == 'center':
-                    # 使用更准确的方法计算文本宽度
-                    # 获取左边界和右边界
-                    left, top, right, bottom = font.getbbox(text)
-                    # 使用实际边界计算文本宽度
-                    actual_text_width = right - left
-                    # 考虑左边界的偏移
-                    place_x = scaled_x - (actual_text_width / 2) - left
-                    
-                    # 边界检查：确保文本不会超出图像边界，并保持边距
-                    # 定义边距，确保文本不会紧贴边界
-                    margin = int(10 * self.scale_factor)  # 默认边距(单侧)
-                    
-                    # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
-                    if custom_padding is not None:
-                        margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
-                        
-                    if place_x < margin:
-                        place_x = margin
-                    elif place_x + actual_text_width > self.width - margin:
-                        place_x = max(margin, self.width - actual_text_width - margin)
-                        
+                    # Center align considering the actual text width with spacing
+                    place_x = (self.width - text_width) / 2
                 elif text_align == 'right':
-                    left, _, right, _ = font.getbbox(text)
-                    actual_text_width = right - left
-                    place_x = scaled_x - actual_text_width - left
-                    
-                    # 边界检查：确保文本不会超出图像边界，并保持边距
-                    # 定义边距，确保文本不会紧贴边界
-                    margin = int(10 * self.scale_factor)  # 默认边距(单侧)
-                    
-                    # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
-                    if custom_padding is not None:
-                        margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
-                        
-                    if place_x < margin:
-                        place_x = margin
-                    elif place_x + actual_text_width > self.width - margin:
-                        place_x = max(margin, self.width - actual_text_width - margin)
+                    # Right align considering the actual text width with spacing
+                    place_x = self.width - text_width - margin
                 else:  # 'left' alignment
-                    # 对于左对齐，也进行边界检查
-                    left, _, right, _ = font.getbbox(text)
-                    actual_text_width = right - left
-                    
-                    # 边界检查：确保文本不会超出图像边界，并保持边距
-                    # 定义边距，确保文本不会紧贴边界
-                    margin = int(10 * self.scale_factor)  # 默认边距(单侧)
-                    
-                    # 使用自定义 padding 如果有指定 (将总 padding 分为两侧)
-                    if custom_padding is not None:
-                        margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
-                        
-                    if place_x < margin:
-                        place_x = margin
-                    elif place_x + actual_text_width > self.width - margin:
-                        place_x = max(margin, self.width - actual_text_width - margin)
+                    place_x = margin
+                
+                # Ensure we don't exceed margins
+                if place_x < margin:
+                    place_x = margin
+                elif place_x + text_width > self.width - margin:
+                    place_x = self.width - text_width - margin
                 
                 place_y = scaled_y
                 ascent, descent = font.getmetrics()
@@ -914,17 +918,36 @@ class PNGStampGenerator:
 
     def _draw_text_with_letter_spacing(self, draw, text, font, x, y, color, spacing):
         """Draw text with custom letter spacing"""
-        x_offset = 0
+        # First calculate total width to ensure it matches our calculations
+        total_width = 0
+        char_widths = []
+        
+        # Get all character widths first
         for char in text:
-            # Get character dimensions
             bbox = font.getbbox(char)
             char_width = bbox[2] - bbox[0]
-            
+            char_widths.append(char_width)
+            total_width += char_width
+        
+        # Calculate spacing contribution the same way as in _draw_text_with_pil
+        spacing_width = 0
+        if len(text) > 1:
+            total_spacing = sum(char_widths[:-1])
+            spacing_width = total_spacing * (spacing - 1.0)
+        
+        # Calculate spacing per character gap
+        num_gaps = len(text) - 1
+        spacing_per_gap = spacing_width / num_gaps if num_gaps > 0 else 0
+        
+        # Draw each character with the calculated spacing
+        current_x = x
+        for i, char in enumerate(text):
             # Draw the character
-            draw.text((x + x_offset, y), char, font=font, fill=color)
+            draw.text((current_x, y), char, font=font, fill=color)
             
-            # Move to the next position with spacing
-            x_offset += char_width + (char_width * (spacing - 1.0) * 0.5)
+            # Move to the next position with the exact spacing we calculated
+            if i < len(text) - 1:  # Don't add spacing after the last character
+                current_x += char_widths[i] + spacing_per_gap
 
     def _draw_circular_text(self, img, text, font, font_size, center_x, center_y, color, radius, 
                           start_angle, baseline_position, position, original_text=None):
