@@ -492,20 +492,22 @@ class PNGStampGenerator:
                         place_x = x * self.scale_factor
                         place_y = y * self.scale_factor
                         
-                        # 根据对齐方式调整位置
+                        # 根据对齐方式调整位置，保持与标准文本渲染一致的逻辑
                         if text_align == 'center':
-                            place_x = (self.width - text_width) / 2
+                            # 在当前x位置居中对齐
+                            place_x = place_x - (text_width / 2)
                         elif text_align == 'right':
-                            place_x = self.width - text_width - margin
-                        else:  # 'left'
-                            place_x = margin
+                            # 在当前x位置右对齐
+                            place_x = place_x - text_width
+                        # 对于'left'，不需要调整，默认就是左对齐
                             
                         if vert_align == 'middle':
-                            place_y = (self.height - text_height) / 2
+                            # 在当前y位置垂直居中
+                            place_y = place_y - (text_height / 2)
                         elif vert_align == 'bottom':
-                            place_y = self.height - text_height - margin
-                        else:  # 'top' or 'baseline'
-                            place_y = margin
+                            # 在当前y位置底对齐
+                            place_y = place_y - text_height
+                        # 对于'top'或'baseline'，使用当前y位置
                         
                         # 如果需要旋转
                         if rotation != 0:
@@ -522,18 +524,14 @@ class PNGStampGenerator:
                             # 计算旋转后的边界框
                             rotated_width, rotated_height = rotated.size
                             
-                            # 计算新的粘贴位置，确保在可用区域内居中
-                            final_x = int((self.width - rotated_width) / 2)
-                            final_y = int((self.height - rotated_height) / 2)
+                            # 使用原始位置作为旋转中心
+                            final_x = int(place_x - (rotated_width / 2) + (text_width / 2))
+                            final_y = int(place_y - (rotated_height / 2) + (text_height / 2))
                             
-                            # 确保不超出边界
-                            final_x = max(margin, min(final_x, self.width - rotated_width - margin))
-                            final_y = max(margin, min(final_y, self.height - rotated_height - margin))
-                            
-                            # 粘贴到主图像
+                            # 粘贴到主图像，不强制限制在边界内
                             img.paste(rotated, (final_x, final_y), rotated)
                         else:
-                            # 直接粘贴，位置已经考虑了边距
+                            # 直接粘贴，使用计算的位置，不强制限制在边界内
                             img.paste(rendered_text, (int(place_x), int(place_y)), rendered_text)
                         return
                 except Exception as e:
