@@ -490,7 +490,8 @@ class PNGStampGenerator:
                         
                         # 计算初始位置（基于未缩放的坐标）
                         place_x = x * self.scale_factor
-                        place_y = y * self.scale_factor
+                        # 调整y坐标，使其与PIL一致（从底部开始计算）
+                        place_y = (y * self.scale_factor) - (text_height * 0.8)
                         
                         # 根据对齐方式调整位置，保持与标准文本渲染一致的逻辑
                         if text_align == 'center':
@@ -502,12 +503,12 @@ class PNGStampGenerator:
                         # 对于'left'，不需要调整，默认就是左对齐
                             
                         if vert_align == 'middle':
-                            # 在当前y位置垂直居中
-                            place_y = place_y - (text_height / 2)
-                        elif vert_align == 'bottom':
-                            # 在当前y位置底对齐
-                            place_y = place_y - text_height
-                        # 对于'top'或'baseline'，使用当前y位置
+                            # 在当前y位置垂直居中（注意y已经是从底部计算的）
+                            place_y = place_y + (text_height / 2)
+                        elif vert_align == 'top':
+                            # 在当前y位置顶对齐（注意y已经是从底部计算的）
+                            place_y = place_y + text_height
+                        # 对于'bottom'或'baseline'，使用当前y位置，因为已经是从底部计算的
                         
                         # 如果需要旋转
                         if rotation != 0:
@@ -524,7 +525,7 @@ class PNGStampGenerator:
                             # 计算旋转后的边界框
                             rotated_width, rotated_height = rotated.size
                             
-                            # 使用原始位置作为旋转中心
+                            # 使用原始位置作为旋转中心，考虑到y是从底部计算的
                             final_x = int(place_x - (rotated_width / 2) + (text_width / 2))
                             final_y = int(place_y - (rotated_height / 2) + (text_height / 2))
                             
