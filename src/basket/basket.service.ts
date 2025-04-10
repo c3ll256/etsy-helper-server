@@ -75,13 +75,24 @@ export class BasketService {
     orderType: 'basket' | 'backpack' | 'all' = 'basket'
   ): Promise<BasketGenerationResponseDto> {
     // Check if user has SKU configuration
-    const userConfigs = await this.skuConfigRepository.find({
+    const findOptions: any = {
       where: { userId: user.id },
       order: { createdAt: 'DESC' }
-    });
+    };
+
+    // Filter configs by type if orderType is specific
+    if (orderType === 'basket' || orderType === 'backpack') {
+      findOptions.where.type = orderType;
+    }
+    
+    const userConfigs = await this.skuConfigRepository.find(findOptions);
     
     if (!userConfigs.length) {
-      throw new BadRequestException('您尚未配置SKU匹配规则，请先前往设置页面进行配置');
+      let message = '您尚未配置SKU匹配规则，请先前往设置页面进行配置';
+      if (orderType !== 'all') {
+          message = `您尚未配置类型为 '${orderType}' 的SKU匹配规则，请先前往设置页面进行配置或选择 '所有类型'`;
+      }
+      throw new BadRequestException(message);
     }
     
     // Create a new record
