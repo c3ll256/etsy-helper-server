@@ -2,7 +2,7 @@ import { Injectable, Logger, ForbiddenException, NotFoundException, BadRequestEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import * as fs from 'fs';
-import { read, utils, writeFile } from 'xlsx';
+import { read, utils, write, writeFile } from 'xlsx';
 import * as dayjs from 'dayjs';
 import * as AdmZip from 'adm-zip';
 import * as path from 'path';
@@ -317,9 +317,13 @@ export class BasketService {
             }
           }
           
+          // 保存数据行号（注意：第一行是标题行，不包含在rawData中）
+          // 因此实际的Excel行号需要加2（1是因为Excel从1开始，再加1是因为标题行）
+          const excelRowIndex = i + 2;
+          
           // Map the row data to our order structure
           const orderData: ProcessedOrder = {
-            id: i + 1, // Auto-increment ID
+            id: excelRowIndex, // 使用正确的Excel行号
             quantity,
             orderId,
             shipName,
@@ -416,7 +420,7 @@ export class BasketService {
     orderType: 'basket' | 'backpack'
   ): Promise<void> {
     // Declare file paths outside the try block so they're available in catch block
-    let highlightedExcelPath: string | null = null;
+    let modifiedExcelPath: string | null = null; // Declare modifiedExcelPath here
     let pptFilePath: string | null = null;
     let zipFilePath: string | null = null;
     
@@ -444,11 +448,11 @@ export class BasketService {
         message: '解析Excel数据',
       });
 
-      // Read the file from disk
+      // Read the file from disk - workbook is already read using xlsx
       const fileBuffer = fs.readFileSync(file.path);
-      const workbook = read(fileBuffer, { type: 'buffer' });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rawData = utils.sheet_to_json(worksheet, { header: 'A' });
+      const workbook = read(fileBuffer, { type: 'buffer' }); // Use the initially read workbook
+      // const worksheet = workbook.Sheets[workbook.SheetNames[0]]; // worksheet obtained below
+      // const rawData = utils.sheet_to_json(worksheet, { header: 'A' }); // rawData not needed here again
       
       // Process the data and keep track of processed row indices
       const processedOrders = await this.processExcelData(fileBuffer, skuConfigs);
@@ -462,37 +466,52 @@ export class BasketService {
       if (filteredOrders.length === 0) {
         throw new Error(`没有找到匹配的${orderType === 'basket' ? '篮子' : '书包'}订单，请检查您的SKU配置是否正确`);
       }
-
-      // Create a new workbook for highlighting
-      const processedWorkbook = read(fileBuffer, { type: 'buffer' });
-      const processedWorksheet = processedWorkbook.Sheets[processedWorkbook.SheetNames[0]];
-
-      // Add yellow highlight to processed rows
-      const processedRowIndices = new Set(filteredOrders.map(order => order.id));
       
-      // Get the range of the worksheet
-      const range = utils.decode_range(processedWorksheet['!ref']);
+      // --- Start: Modify Excel using xlsx ---
+      this.logger.debug('Adding "Processed" column to Excel file using xlsx');
       
-      // Add fill to processed rows
-      for (let R = range.s.r + 1; R <= range.e.r; R++) {
-        if (processedRowIndices.has(R)) {
-          for (let C = range.s.c; C <= range.e.c; C++) {
-            const cellAddress = utils.encode_cell({ r: R, c: C });
-            const cell = processedWorksheet[cellAddress] || {};
-            if (!cell.s) cell.s = {};
-            cell.s.fill = {
-              fgColor: { rgb: "FFFF00" }, // Yellow highlight
-              patternType: "solid"
-            };
-            processedWorksheet[cellAddress] = cell;
-          }
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const validRowIds = new Set(filteredOrders.map(order => order.id));
+      
+      // 1. Determine new column index and header cell
+      const range = utils.decode_range(worksheet['!ref']);
+      const newColIndex = (range.e.c || 0) + 1; // 0-indexed new column
+      const headerCellAddress = utils.encode_cell({ r: 0, c: newColIndex }); // Header at first row (index 0)
+      
+      // 2. Add Header
+      worksheet[headerCellAddress] = { v: 'Processed', t: 's' }; // 's' for string type
+      
+      // 3. Add Data Markers
+      let processedCount = 0;
+      for (let R = 1; R <= range.e.r; ++R) { // Iterate data rows (starting index 1)
+        const excelRowNumber = R + 1; // Excel row number is 1-based index + 1
+        if (validRowIds.has(excelRowNumber)) {
+          const dataCellAddress = utils.encode_cell({ r: R, c: newColIndex });
+          worksheet[dataCellAddress] = { v: true, t: 'b' }; // Use boolean 'true', type 'b'
+          processedCount++;
         }
       }
-
-      // Save the highlighted Excel file
-      highlightedExcelPath = path.join(this.uploadsDir, `highlighted_${file.originalname}`);
-      writeFile(processedWorkbook, highlightedExcelPath);
+      this.logger.debug(`Marked ${processedCount} rows in new 'Processed' column.`);
       
+      // 4. Update Sheet Range to include the new column
+      range.e.c = newColIndex;
+      worksheet['!ref'] = utils.encode_range(range);
+      
+      // 5. Define path and save modified Excel file
+      const modifiedExcelFileName = `processed_${path.basename(file.originalname)}`;
+      const modifiedExcelPath = path.join(this.uploadsDir, modifiedExcelFileName);
+      // Use writeFile from xlsx library
+      writeFile(workbook, modifiedExcelPath); 
+      this.logger.debug(`Saved modified Excel with 'Processed' column to: ${modifiedExcelPath}`);
+      // --- End: Modify Excel using xlsx ---
+
+      // Remove the exceljs highlighting block previously here
+
+      // Declare pptFilePath and zipFilePath (moved declaration earlier)
+      // let highlightedExcelPath: string | null = null; // No longer needed
+      let pptFilePath: string | null = null;
+      let zipFilePath: string | null = null; // Physical path for zip creation
+
       // Update progress after processing Excel data
       await this.basketRecordRepository.update(recordId, {
         progress: 50,
@@ -575,19 +594,19 @@ export class BasketService {
         }
       }
       
-      // Check if highlighted Excel file exists
-      if (!fs.existsSync(highlightedExcelPath)) {
-        this.logger.error(`Excel file not found at path: ${highlightedExcelPath}`);
-        throw new Error(`Excel file not found at path: ${highlightedExcelPath}`);
+      // Check if modified Excel file exists
+      if (!fs.existsSync(modifiedExcelPath)) {
+        this.logger.error(`Modified Excel file not found at path: ${modifiedExcelPath}`);
+        throw new Error(`Modified Excel file not found at path: ${modifiedExcelPath}`);
       }
       
       // Add PPT file to zip
       const pptFileName = path.basename(pptFilePath);
       zip.addFile(pptFileName, fs.readFileSync(pptFilePath));
       
-      // Add highlighted Excel file to zip
-      const excelFileName = path.basename(highlightedExcelPath);
-      zip.addFile(excelFileName, fs.readFileSync(highlightedExcelPath));
+      // Add modified Excel file to zip
+      const excelFileName = path.basename(modifiedExcelPath); // Use modifiedExcelPath
+      zip.addFile(excelFileName, fs.readFileSync(modifiedExcelPath)); // Use modifiedExcelPath
 
       // Write zip file to the physical path
       zip.writeZip(physicalZipPath);
@@ -627,7 +646,7 @@ export class BasketService {
       this.logger.log(`Successfully generated order package for record #${recordId}`);
       
       // Clean up temporary files using physical paths
-      this.safeDeleteFile(highlightedExcelPath);
+      this.safeDeleteFile(modifiedExcelPath); // Use modifiedExcelPath
       this.safeDeleteFile(pptFilePath);
       
       // Start job cleanup after 3 hours
@@ -636,7 +655,7 @@ export class BasketService {
       this.logger.error(`Error generating order package for record #${recordId}: ${error.message}`);
 
       // Clean up any temporary files that might have been created
-      this.safeDeleteFile(highlightedExcelPath);
+      this.safeDeleteFile(modifiedExcelPath); // Use modifiedExcelPath
       this.safeDeleteFile(pptFilePath);
       
       // Update record with error
