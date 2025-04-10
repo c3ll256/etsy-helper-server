@@ -2,8 +2,11 @@ import { Injectable, Logger, ForbiddenException, NotFoundException, BadRequestEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import * as fs from 'fs';
-import { read, utils } from 'xlsx';
+import { read, utils, writeFile } from 'xlsx';
 import * as dayjs from 'dayjs';
+import * as AdmZip from 'adm-zip';
+import * as path from 'path';
+import * as process from 'process';
 
 import { BasketGenerationRecord } from './entities/basket-generation-record.entity';
 import { PythonBasketService } from './services/python-basket.service';
@@ -107,7 +110,8 @@ export class BasketService {
       progress: savedRecord.progress,
       originalFilename: savedRecord.originalFilename,
       createdAt: savedRecord.createdAt,
-      orderType: orderType // 在响应中包含订单类型
+      orderType: orderType, // 在响应中包含订单类型
+      output: null // 初始状态下output为null，完成后将包含zip文件信息
     };
   }
 
@@ -376,6 +380,27 @@ export class BasketService {
   }
 
   /**
+   * Helper method to safely clean up a file
+   * @param filePath File path to clean up
+   */
+  private safeDeleteFile(filePath: string | null): void {
+    if (!filePath) {
+      return; // Skip if path is null or undefined
+    }
+    
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        this.logger.debug(`Successfully deleted file: ${filePath}`);
+      } else {
+        this.logger.debug(`File not found, cannot delete: ${filePath}`);
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to delete file: ${filePath}`, error.message);
+    }
+  }
+
+  /**
    * Process basket orders asynchronously
    * @param recordId Generation record ID
    * @param file Uploaded file
@@ -390,20 +415,25 @@ export class BasketService {
     skuConfigs: SkuConfig[],
     orderType: 'basket' | 'backpack'
   ): Promise<void> {
-    // Update status to processing
-    await this.basketRecordRepository.update(recordId, {
-      status: 'processing',
-      progress: 10,
-    });
+    // Declare file paths outside the try block so they're available in catch block
+    let highlightedExcelPath: string | null = null;
+    let pptFilePath: string | null = null;
+    let zipFilePath: string | null = null;
     
-    // Update job progress
-    this.jobQueueService.updateJobProgress(jobId, {
-      status: 'processing',
-      progress: 10,
-      message: '开始处理Excel文件',
-    });
-
     try {
+      // Update status to processing
+      await this.basketRecordRepository.update(recordId, {
+        status: 'processing',
+        progress: 10,
+      });
+      
+      // Update job progress
+      this.jobQueueService.updateJobProgress(jobId, {
+        status: 'processing',
+        progress: 10,
+        message: '开始处理Excel文件',
+      });
+
       // Parse Excel data
       await this.basketRecordRepository.update(recordId, {
         progress: 20,
@@ -414,8 +444,13 @@ export class BasketService {
         message: '解析Excel数据',
       });
 
-      // Read the file from disk instead of using buffer
+      // Read the file from disk
       const fileBuffer = fs.readFileSync(file.path);
+      const workbook = read(fileBuffer, { type: 'buffer' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rawData = utils.sheet_to_json(worksheet, { header: 'A' });
+      
+      // Process the data and keep track of processed row indices
       const processedOrders = await this.processExcelData(fileBuffer, skuConfigs);
       
       // Filter orders by specified orderType if needed
@@ -427,6 +462,36 @@ export class BasketService {
       if (filteredOrders.length === 0) {
         throw new Error(`没有找到匹配的${orderType === 'basket' ? '篮子' : '书包'}订单，请检查您的SKU配置是否正确`);
       }
+
+      // Create a new workbook for highlighting
+      const processedWorkbook = read(fileBuffer, { type: 'buffer' });
+      const processedWorksheet = processedWorkbook.Sheets[processedWorkbook.SheetNames[0]];
+
+      // Add yellow highlight to processed rows
+      const processedRowIndices = new Set(filteredOrders.map(order => order.id));
+      
+      // Get the range of the worksheet
+      const range = utils.decode_range(processedWorksheet['!ref']);
+      
+      // Add fill to processed rows
+      for (let R = range.s.r + 1; R <= range.e.r; R++) {
+        if (processedRowIndices.has(R)) {
+          for (let C = range.s.c; C <= range.e.c; C++) {
+            const cellAddress = utils.encode_cell({ r: R, c: C });
+            const cell = processedWorksheet[cellAddress] || {};
+            if (!cell.s) cell.s = {};
+            cell.s.fill = {
+              fgColor: { rgb: "FFFF00" }, // Yellow highlight
+              patternType: "solid"
+            };
+            processedWorksheet[cellAddress] = cell;
+          }
+        }
+      }
+
+      // Save the highlighted Excel file
+      highlightedExcelPath = path.join(this.uploadsDir, `highlighted_${file.originalname}`);
+      writeFile(processedWorkbook, highlightedExcelPath);
       
       // Update progress after processing Excel data
       await this.basketRecordRepository.update(recordId, {
@@ -459,7 +524,6 @@ export class BasketService {
         relations: ['user']
       });
       
-      // 从用户信息中获取店铺名称，如果不存在则使用空字符串
       const shopName = record?.user?.shopName || '';
       
       // Prepare data for PPT generation
@@ -469,6 +533,64 @@ export class BasketService {
       const result = await this.pythonBasketService.generateBasketOrderPPT(
         Buffer.from(JSON.stringify(pptData)).toString('base64')
       );
+
+      // Create zip file containing both PPT and highlighted Excel
+      const zip = new AdmZip();
+      const zipFileName = `order_package_${Date.now()}.zip`;
+      
+      // Create the physical file path (absolute)
+      const physicalZipPath = path.resolve(this.uploadsDir, zipFileName);
+      
+      // Create the web-accessible path (starting with /uploads)
+      const webAccessiblePath = `/uploads/baskets/${zipFileName}`;
+      
+      // Store both paths for later use
+      zipFilePath = physicalZipPath;
+      
+      this.logger.debug(`Python service returned PPT file path: ${result.filePath}`);
+      
+      // Handle different path formats that might be returned from Python service
+      pptFilePath = result.filePath;
+      
+      // Try multiple approaches to locate the file if needed
+      if (!fs.existsSync(pptFilePath)) {
+        const possiblePaths = [
+          pptFilePath,
+          path.resolve(pptFilePath),
+          path.join(process.cwd(), pptFilePath),
+          // Try without leading slash
+          pptFilePath.startsWith('/') ? pptFilePath.substring(1) : pptFilePath,
+          // Try with workspace root
+          path.join(process.cwd(), pptFilePath.startsWith('/') ? pptFilePath.substring(1) : pptFilePath)
+        ];
+        
+        // Find the first path that exists
+        const existingPath = possiblePaths.find(p => fs.existsSync(p));
+        if (existingPath) {
+          pptFilePath = existingPath;
+          this.logger.debug(`Found PPT file at: ${pptFilePath}`);
+        } else {
+          this.logger.error(`PPT file not found. Tried paths: ${possiblePaths.join(', ')}`);
+          throw new Error(`PPT file not found. Original path: ${result.filePath}`);
+        }
+      }
+      
+      // Check if highlighted Excel file exists
+      if (!fs.existsSync(highlightedExcelPath)) {
+        this.logger.error(`Excel file not found at path: ${highlightedExcelPath}`);
+        throw new Error(`Excel file not found at path: ${highlightedExcelPath}`);
+      }
+      
+      // Add PPT file to zip
+      const pptFileName = path.basename(pptFilePath);
+      zip.addFile(pptFileName, fs.readFileSync(pptFilePath));
+      
+      // Add highlighted Excel file to zip
+      const excelFileName = path.basename(highlightedExcelPath);
+      zip.addFile(excelFileName, fs.readFileSync(highlightedExcelPath));
+
+      // Write zip file to the physical path
+      zip.writeZip(physicalZipPath);
       
       await this.basketRecordRepository.update(recordId, {
         progress: 90,
@@ -476,36 +598,47 @@ export class BasketService {
       
       this.jobQueueService.updateJobProgress(jobId, {
         progress: 90,
-        message: 'PPT生成完成，更新记录',
+        message: '文件打包完成，更新记录',
       });
 
-      // Update record with the results
+      // Update record with the web-accessible path
       await this.basketRecordRepository.update(recordId, {
         status: 'completed',
         progress: 100,
-        outputFilePath: result.filePath,
+        outputFilePath: webAccessiblePath, // Use web-accessible path
         ordersProcessed: filteredOrders.length,
         totalOrders: filteredOrders.length,
       });
       
-      // Update job progress with success result
+      // Update job progress with success result and web-accessible path
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'completed',
         progress: 100,
-        message: `${orderType === 'basket' ? '篮子' : '书包'}订单PPT生成成功`,
+        message: `${orderType === 'basket' ? '篮子' : '书包'}订单文件生成成功`,
         result: {
-          filePath: result.filePath,
+          filePath: webAccessiblePath, // Use web-accessible path
           totalOrders: filteredOrders.length,
+          fileType: 'zip',
+          containsPpt: true,
+          containsExcel: true
         }
       });
 
-      this.logger.log(`Successfully generated basket orders PPT for record #${recordId}`);
+      this.logger.log(`Successfully generated order package for record #${recordId}`);
+      
+      // Clean up temporary files using physical paths
+      this.safeDeleteFile(highlightedExcelPath);
+      this.safeDeleteFile(pptFilePath);
       
       // Start job cleanup after 3 hours
       this.jobQueueService.startJobCleanup(jobId, 3 * 60 * 60 * 1000);
     } catch (error) {
-      this.logger.error(`Error generating basket orders PPT for record #${recordId}: ${error.message}`);
+      this.logger.error(`Error generating order package for record #${recordId}: ${error.message}`);
 
+      // Clean up any temporary files that might have been created
+      this.safeDeleteFile(highlightedExcelPath);
+      this.safeDeleteFile(pptFilePath);
+      
       // Update record with error
       await this.basketRecordRepository.update(recordId, {
         status: 'failed',
@@ -517,7 +650,7 @@ export class BasketService {
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'failed',
         progress: 0,
-        message: `${orderType === 'basket' ? '篮子' : '书包'}订单PPT生成失败`,
+        message: `${orderType === 'basket' ? '篮子' : '书包'}订单文件生成失败`,
         error: error.message
       });
       
@@ -789,7 +922,29 @@ export class BasketService {
     
     // Add result if available
     if (jobProgress.result) {
-      response.result = jobProgress.result;
+      // Ensure filePath is in the web-accessible format
+      let filePath = jobProgress.result.filePath;
+      
+      // If path doesn't start with /uploads, transform it
+      if (filePath && !filePath.startsWith('/uploads')) {
+        const fileName = path.basename(filePath);
+        filePath = `/uploads/baskets/${fileName}`;
+        this.logger.debug(`Transformed file path for web access: ${filePath}`);
+      }
+      
+      response.result = {
+        ...jobProgress.result,
+        filePath,
+        isZipFile: filePath && filePath.endsWith('.zip')
+      };
+
+      // If this is a completed job, update the response to match BasketGenerationResponseDto format
+      if (jobProgress.status === 'completed') {
+        response.output = {
+          zipPath: filePath,
+          totalOrders: jobProgress.result.totalOrders || 0
+        };
+      }
     }
     
     // Add error if available

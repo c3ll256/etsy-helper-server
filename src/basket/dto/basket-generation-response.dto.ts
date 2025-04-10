@@ -21,4 +21,23 @@ export class BasketGenerationResponseDto {
 
   @ApiProperty({ description: '创建时间', example: '2023-01-01T00:00:00.000Z' })
   createdAt: Date;
+
+  @ApiProperty({ 
+    description: '输出文件信息',
+    type: 'object',
+    properties: {
+      zipPath: { 
+        type: 'string',
+        description: 'ZIP文件路径，包含PPT和带高亮的Excel文件'
+      },
+      totalOrders: {
+        type: 'number',
+        description: '处理的订单总数'
+      }
+    }
+  })
+  output?: {
+    zipPath: string;
+    totalOrders: number;
+  };
 } 

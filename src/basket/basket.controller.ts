@@ -37,9 +37,13 @@ export class BasketController {
   constructor(private readonly basketService: BasketService) {}
 
   @Post('generate')
-  @ApiOperation({ summary: '生成篮子或书包订单PPT' })
+  @ApiOperation({ summary: '生成篮子或书包订单文件包' })
   @ApiConsumes('multipart/form-data')
-  @ApiResponse({ status: 201, description: '订单PPT生成任务已创建', type: BasketGenerationResponseDto })
+  @ApiResponse({ 
+    status: 201, 
+    description: '订单文件生成任务已创建。返回的文件包将包含：1. 订单PPT文件 2. 带有高亮标记的Excel文件', 
+    type: BasketGenerationResponseDto 
+  })
   @ApiResponse({ status: 400, description: '无效的文件类型或参数' })
   @ApiResponse({ status: 401, description: '未授权' })
   @UseInterceptors(FileInterceptor('file'))
