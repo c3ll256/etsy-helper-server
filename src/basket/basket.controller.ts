@@ -62,8 +62,8 @@ export class BasketController {
         },
         orderType: {
           type: 'string',
-          enum: ['basket', 'backpack'],
-          description: '订单类型：篮子或书包',
+          enum: ['basket', 'backpack', 'all'],
+          description: '订单类型：篮子、书包或所有已配置类型',
           default: 'basket'
         }
       }
@@ -72,7 +72,7 @@ export class BasketController {
   async generateBasketOrders(
     @UploadedFile() file: Express.Multer.File,
     @Body('originalFilename') originalFilename: string,
-    @Body('orderType') orderType: 'basket' | 'backpack' = 'basket',
+    @Body('orderType') orderType: 'basket' | 'backpack' | 'all' = 'basket',
     @CurrentUser() user: User,
   ): Promise<BasketGenerationResponseDto> {
     if (!file) {

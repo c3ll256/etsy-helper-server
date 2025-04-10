@@ -16,8 +16,8 @@ export class BasketGenerationResponseDto {
   @ApiProperty({ description: '原始文件名', example: 'basket_orders.xlsx' })
   originalFilename: string;
 
-  @ApiProperty({ description: '订单类型', enum: ['basket', 'backpack'], example: 'basket' })
-  orderType: 'basket' | 'backpack';
+  @ApiProperty({ description: '订单类型', enum: ['basket', 'backpack', 'all'], example: 'basket' })
+  orderType: 'basket' | 'backpack' | 'all';
 
   @ApiProperty({ description: '创建时间', example: '2023-01-01T00:00:00.000Z' })
   createdAt: Date;

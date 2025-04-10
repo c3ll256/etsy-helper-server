@@ -72,7 +72,7 @@ export class BasketService {
     file: Express.Multer.File, 
     user: User,
     originalFilename?: string,
-    orderType: 'basket' | 'backpack' = 'basket'
+    orderType: 'basket' | 'backpack' | 'all' = 'basket'
   ): Promise<BasketGenerationResponseDto> {
     // Check if user has SKU configuration
     const userConfigs = await this.skuConfigRepository.find({
@@ -417,7 +417,7 @@ export class BasketService {
     file: Express.Multer.File, 
     jobId: string,
     skuConfigs: SkuConfig[],
-    orderType: 'basket' | 'backpack'
+    orderType: 'basket' | 'backpack' | 'all'
   ): Promise<void> {
     // Declare file paths outside the try block so they're available in catch block
     let modifiedExcelPath: string | null = null; // Declare modifiedExcelPath here
@@ -457,14 +457,20 @@ export class BasketService {
       // Process the data and keep track of processed row indices
       const processedOrders = await this.processExcelData(fileBuffer, skuConfigs);
       
-      // Filter orders by specified orderType if needed
-      const filteredOrders = processedOrders.filter(order => 
-        !orderType || order.orderType === orderType
-      );
+      // Filter orders based on orderType, unless it's 'all'
+      const filteredOrders = orderType === 'all' 
+          ? processedOrders // Include all processed orders if type is 'all'
+          : processedOrders.filter(order => order.orderType === orderType); // Filter by specific type otherwise
       
       // Check if any orders were found
       if (filteredOrders.length === 0) {
-        throw new Error(`没有找到匹配的${orderType === 'basket' ? '篮子' : '书包'}订单，请检查您的SKU配置是否正确`);
+        let errorMessage = '';
+        if (orderType === 'all') {
+          errorMessage = '没有找到任何与您已配置的SKU匹配的订单，请检查您的SKU配置是否正确';
+        } else {
+          errorMessage = `没有找到匹配的${orderType === 'basket' ? '篮子' : '书包'}订单，请检查您的SKU配置是否正确`;
+        }
+        throw new Error(errorMessage);
       }
       
       // --- Start: Modify Excel using xlsx ---
@@ -639,7 +645,8 @@ export class BasketService {
           totalOrders: filteredOrders.length,
           fileType: 'zip',
           containsPpt: true,
-          containsExcel: true
+          containsExcel: true,
+          orderType // Include the processed order type in the result
         }
       });
 
@@ -669,7 +676,7 @@ export class BasketService {
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'failed',
         progress: 0,
-        message: `${orderType === 'basket' ? '篮子' : '书包'}订单文件生成失败`,
+        message: `订单文件生成失败 (${orderType === 'all' ? '所有类型' : (orderType === 'basket' ? '篮子' : '书包')})`, // Update message
         error: error.message
       });
       
