@@ -775,9 +775,10 @@ class PNGStampGenerator:
                     # Right align the text at the user-specified x position
                     place_x = scaled_x - text_width
                 else:  # 'left' alignment
-                    place_x = margin
+                    # Use the user-specified x position directly for left alignment
+                    place_x = scaled_x 
                 
-                # Ensure we don't exceed margins
+                # Ensure we don't exceed margins AFTER alignment is calculated
                 if place_x < margin:
                     place_x = margin
                 elif place_x + text_width > self.width - margin:
