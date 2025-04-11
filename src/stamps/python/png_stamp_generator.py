@@ -709,7 +709,7 @@ class PNGStampGenerator:
                 spacing_width = 0
                 if letter_spacing != 1.0 and len(text) > 1:
                      # Calculate the width without any letter spacing adjustments first
-                    base_width_no_spacing = draw.textlength(text, font=font, spacing=0) 
+                    base_width_no_spacing = base_width # Use the previously calculated base_width
                     # Calculate the adjustment needed based on the difference and the factor
                     # This is an approximation, as ideal spacing depends on character pairs
                     spacing_width = base_width_no_spacing * (letter_spacing - 1.0)
@@ -733,7 +733,8 @@ class PNGStampGenerator:
                     base_width = draw.textlength(text, font=font)
                     spacing_width = 0
                     if letter_spacing != 1.0 and len(text) > 1:
-                        base_width_no_spacing = draw.textlength(text, font=font, spacing=0) 
+                        # Use the recalculated base_width
+                        base_width_no_spacing = base_width 
                         spacing_width = base_width_no_spacing * (letter_spacing - 1.0)
                     text_width = base_width + spacing_width
                     total_width_with_padding = text_width + (margin * 2)
@@ -913,36 +914,34 @@ class PNGStampGenerator:
 
     def _draw_text_with_letter_spacing(self, draw, text, font, x, y, color, spacing):
         """Draw text with custom letter spacing"""
-        # First calculate total width to ensure it matches our calculations
-        total_width = 0
-        char_widths = []
+        # Use textlength for better width calculation
+        char_advances = [draw.textlength(char, font=font) for char in text]
         
-        # Get all character widths first
-        for char in text:
-            bbox = font.getbbox(char)
-            char_width = bbox[2] - bbox[0]
-            char_widths.append(char_width)
-            total_width += char_width
-        
-        # Calculate spacing contribution the same way as in _draw_text_with_pil
-        spacing_width = 0
-        if len(text) > 1:
-            total_spacing = sum(char_widths[:-1])
-            spacing_width = total_spacing * (spacing - 1.0)
-        
-        # Calculate spacing per character gap
+        # Calculate total extra space based on the spacing factor
+        # The spacing factor applies to the *default* spacing/advance.
+        # Example: spacing=1.2 means 20% extra space per gap.
+        # Default advance already includes minimal spacing. We add extra space.
         num_gaps = len(text) - 1
-        spacing_per_gap = spacing_width / num_gaps if num_gaps > 0 else 0
-        
+        if num_gaps <= 0:
+             # No gaps, draw normally
+             draw.text((x, y), text, font=font, fill=color)
+             return
+
+        # Calculate the average advance width to determine extra space per gap
+        # This is an approximation, but better than using bbox.
+        # A more robust way might involve font metrics, but textlength is accessible.
+        avg_advance = sum(char_advances) / len(char_advances) if char_advances else 0
+        extra_space_per_gap = avg_advance * (spacing - 1.0)
+
         # Draw each character with the calculated spacing
         current_x = x
         for i, char in enumerate(text):
             # Draw the character
             draw.text((current_x, y), char, font=font, fill=color)
             
-            # Move to the next position with the exact spacing we calculated
-            if i < len(text) - 1:  # Don't add spacing after the last character
-                current_x += char_widths[i] + spacing_per_gap
+            # Move to the next position using the character's advance and extra spacing
+            if i < num_gaps:  # Add spacing only between characters
+                current_x += char_advances[i] + extra_space_per_gap
 
     def _draw_circular_text(self, img, text, font, font_size, center_x, center_y, color, radius, 
                           start_angle, baseline_position, position, original_text=None):
