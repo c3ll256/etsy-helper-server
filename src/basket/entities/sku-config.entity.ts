@@ -46,11 +46,11 @@ export class SkuConfig {
   @ApiProperty({ description: '字体名称' })
   font: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   @ApiProperty({ description: '创建时间' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   @ApiProperty({ description: '更新时间' })
   updatedAt: Date;
 } 

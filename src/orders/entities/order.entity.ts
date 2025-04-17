@@ -89,14 +89,14 @@ export class Order {
     description: 'The creation timestamp',
     example: '2024-02-20T12:00:00Z'
   })
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   @ApiProperty({
     description: 'The last update timestamp',
     example: '2024-02-20T12:00:00Z'
   })
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @ApiProperty({

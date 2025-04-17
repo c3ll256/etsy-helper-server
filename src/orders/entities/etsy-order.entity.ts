@@ -146,11 +146,11 @@ export class EtsyOrder {
   order: Order;
 
   @ApiProperty({ description: 'Creation timestamp' })
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   @ApiProperty({ description: 'Last update timestamp' })
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @ApiProperty({ 
