@@ -178,6 +178,11 @@ export class OrderStampService {
             else if (element.defaultValue) {
               value = element.defaultValue;
             }
+
+            // 如果开启了自动大写，则将value转换为大写
+            if (element.isUppercase) {
+              value = value.toUpperCase();
+            }
             
             // 创建包含完整信息的文本元素
             return {
@@ -188,7 +193,8 @@ export class OrderStampService {
               fontWeight: element.fontWeight,
               fontStyle: element.fontStyle,
               color: element.color,
-              position: { ...element.position } // 复制位置信息
+              position: { ...element.position }, // 复制位置信息
+              isUppercase: element.isUppercase
             };
           }).filter(Boolean);
         }
