@@ -13,6 +13,11 @@ import { User } from '../../users/entities/user.entity';
 import { AliyunService } from 'src/common/services/aliyun.service';
 import { OrderStatus, OrderType } from '../enums/order.enum';
 import * as ExcelJS from 'exceljs';
+import * as dayjs from 'dayjs';
+import * as customParseFormat from 'dayjs/plugin/customParseFormat';
+
+// Initialize dayjs plugins
+dayjs.extend(customParseFormat);
 
 type ProcessingResult = {
   total: number;
@@ -420,6 +425,7 @@ export class ExcelService {
     error?: string;
   }> {
     const orderId = item['Order ID']?.toString() || '';
+    const platformOrderDate = item['Date Paid'] ? this.parseDate(item['Date Paid']) : null;
     
     // Create shared order record
     const stamps: Array<{ orderId: string; transactionId: string; stampPath: string }> = [];
@@ -429,6 +435,7 @@ export class ExcelService {
       status: OrderStatus.STAMP_NOT_GENERATED,
       orderType: OrderType.ETSY,
       platformOrderId: orderId,
+      platformOrderDate: platformOrderDate,
       user: user,
       userId: user?.id,
       templateId: templateId,
@@ -462,8 +469,8 @@ export class ExcelService {
       buyer: item['Buyer']?.toString(),
       quantity: item['Quantity'] ? Number(item['Quantity']) : null,
       price: item['Price'] ? Number(item['Price']) : null,
-      datePaid: item['Date Paid'] ? new Date(item['Date Paid']) : null,
-      saleDate: item['Sale Date'] ? new Date(item['Sale Date']) : null,
+      datePaid: item['Date Paid'] ? this.parseDate(item['Date Paid']) : null,
+      saleDate: item['Sale Date'] ? this.parseDate(item['Sale Date']) : null,
       currency: item['Currency']?.toString(),
       couponCode: item['Coupon Code']?.toString(),
       couponDetails: item['Coupon Details']?.toString(),
@@ -838,6 +845,30 @@ ${variationsString}`;
     } catch (error) {
       this.logger.error(`Failed to create Excel file with stamps: ${error.message}`, error.stack);
       throw new Error(`Failed to create Excel file: ${error.message}`);
+    }
+  }
+
+  /**
+   * Parse date string that might be in various formats including dd/mm/yyyy
+   */
+  private parseDate(dateStr: string): Date | null {
+    if (!dateStr) return null;
+    
+    try {
+      // Try to parse with dayjs using common formats
+      const formats = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'YYYY/MM/DD', 'DD-MM-YYYY', 'MM-DD-YYYY'];
+      const date = dayjs(dateStr, formats, true);
+      
+      if (date.isValid()) {
+        return date.toDate();
+      }
+      
+      // Fallback to JavaScript Date parsing for other formats
+      const jsDate = new Date(dateStr);
+      return isNaN(jsDate.getTime()) ? null : jsDate;
+    } catch (error) {
+      this.logger.warn(`Failed to parse date: ${dateStr}`);
+      return null;
     }
   }
 }
