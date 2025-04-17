@@ -194,7 +194,8 @@ export class OrderStampService {
               fontStyle: element.fontStyle,
               color: element.color,
               position: { ...element.position }, // 复制位置信息
-              isUppercase: element.isUppercase
+              isUppercase: element.isUppercase,
+              textPadding: element.textPadding
             };
           }).filter(Boolean);
         }
