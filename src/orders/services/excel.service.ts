@@ -273,7 +273,7 @@ export class ExcelService {
   /**
    * Find template description for an order
    */
-  private async findTemplateDescription(item: any): Promise<{
+  public async findTemplateDescription(item: any): Promise<{
     templateDescription?: string;
     error?: string;
     templateId?: number;
@@ -297,7 +297,34 @@ export class ExcelService {
         return { error: `No matching template found for SKU: ${sku}` };
       }
       
-      const template = templates[0];
+      // 按SKU长度从长到短排序，优先匹配更具体的模板
+      templates.sort((a, b) => {
+        // 首先按包含关系排序：如果订单SKU包含模板SKU，那么这个模板排在前面
+        const aIncluded = sku.includes(a.sku);
+        const bIncluded = sku.includes(b.sku);
+        
+        if (aIncluded && !bIncluded) return -1;
+        if (!aIncluded && bIncluded) return 1;
+        
+        // 如果两个模板都被包含，或者都不被包含，则按长度排序
+        return b.sku.length - a.sku.length;
+      });
+      
+      // 记录排序后的模板顺序（用于调试）
+      this.logger.debug(`Sorted templates for SKU ${sku}: ${templates.map(t => t.sku).join(', ')}`);
+      
+      // 1. 优先完全匹配
+      let matchedTemplate = templates.find(template => template.sku === sku);
+      
+      // 2. 如果没有完全匹配，则查找订单SKU包含模板SKU的情况
+      if (!matchedTemplate) {
+        matchedTemplate = templates.find(template => sku.includes(template.sku));
+      }
+      
+      // 3. 如果以上都没匹配到，则使用第一个模板作为兜底（现在第一个模板是按长度排序后的）
+      const template = matchedTemplate || templates[0];
+      
+      this.logger.log(`Selected template ${template.sku} for SKU ${sku} (match type: ${matchedTemplate ? (template.sku === sku ? 'exact' : 'includes') : 'fallback'})`);
       
       // Build template description from text elements
       const descriptionParts = [];
@@ -347,7 +374,10 @@ export class ExcelService {
 
     // Check if order already exists
     const existingOrder = await this.etsyOrderRepository.findOne({
-      where: { transactionId: baseTransactionId },
+      where: { 
+        transactionId: baseTransactionId,
+        sku: item['SKU']?.toString()
+      },
       relations: ['order']
     });
 
