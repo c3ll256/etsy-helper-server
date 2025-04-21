@@ -581,8 +581,8 @@ export class OrdersService {
   }
 
   async exportOrdersToExcel(
-    startDate: Date,
-    endDate: Date,
+    startDate: string,
+    endDate: string,
     search?: string,
     status?: OrderStatus,
     user?: User,
@@ -595,13 +595,8 @@ export class OrdersService {
       .leftJoinAndSelect('order.user', 'user')
       .leftJoinAndSelect('order.template', 'template');
 
-    // Apply date range filter
-    if (startDate && endDate) {
-      query.andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
-        startDate,
-        endDate,
-      });
-    }
+    // Apply date filters using the helper method
+    this.applyDateFilters(query, startDate, endDate);
 
     // Apply search filter
     if (search) {

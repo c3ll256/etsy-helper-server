@@ -282,8 +282,8 @@ export class OrdersController {
   ) {
     try {
       const result = await this.ordersService.exportOrdersToExcel(
-        exportDto.startDate ? new Date(exportDto.startDate) : undefined,
-        exportDto.endDate ? new Date(exportDto.endDate) : undefined,
+        exportDto.startDate,
+        exportDto.endDate,
         exportDto.search,
         exportDto.status,
         user,
