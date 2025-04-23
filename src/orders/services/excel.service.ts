@@ -193,7 +193,7 @@ export class ExcelService {
       }
 
       try {
-        const { orderId, transactionId, sku, validationError } = await this.validateOrderData(item);
+        const { orderId, transactionId, validationError } = this.validateOrderData(item);
         
         if (validationError) {
           skipped++;
@@ -250,48 +250,24 @@ export class ExcelService {
   /**
    * Validate order data from Excel
    */
-  private async validateOrderData(item: any): Promise<{
+  private validateOrderData(item: any): {
     orderId: string;
     transactionId: string;
-    sku: string;
     validationError?: string;
-  }> {
+  } {
     const orderId = item['Order ID']?.toString() || '';
     const transactionId = item['Transaction ID']?.toString() || '';
-    const sku = item['SKU']?.toString() || '';
     
     if (!orderId) {
-      return { orderId, transactionId, sku, validationError: 'Order ID is required' };
+      return { orderId, transactionId, validationError: 'Order ID is required' };
     }
     
     if (!transactionId) {
-      return { orderId, transactionId, sku, validationError: 'Transaction ID is required' };
+      return { orderId, transactionId, validationError: 'Transaction ID is required' };
     }
 
-    if (!sku) {
-      return { orderId, transactionId, sku, validationError: 'SKU is required' };
-    }
-
-    // 检查是否已存在相同组合的订单
-    const existingOrder = await this.etsyOrderRepository.findOne({
-      where: { 
-        orderId: orderId,
-        transactionId: transactionId,
-        sku: sku
-      },
-      relations: ['order']
-    });
-
-    if (existingOrder && existingOrder.order?.status !== OrderStatus.STAMP_NOT_GENERATED) {
-      return { 
-        orderId, 
-        transactionId, 
-        sku,
-        validationError: `Order with this Order ID (${orderId}), Transaction ID (${transactionId}) and SKU (${sku}) already exists` 
-      };
-    }
-    
-    return { orderId, transactionId, sku };
+    // Check if order with same Transaction ID exists
+    return { orderId, transactionId };
   }
 
   /**
@@ -388,21 +364,19 @@ export class ExcelService {
   }> {
     const orderId = item['Order ID']?.toString() || '';
     const baseTransactionId = item['Transaction ID']?.toString() || '';
-    const sku = item['SKU']?.toString() || '';
     
-    if (!orderId || !baseTransactionId || !sku) {
+    if (!orderId || !baseTransactionId) {
       return {
         success: false,
-        error: 'Missing order ID, transaction ID or SKU'
+        error: 'Missing order ID or transaction ID'
       };
     }
 
-    // Check if order already exists with this specific combination
+    // Check if order already exists
     const existingOrder = await this.etsyOrderRepository.findOne({
       where: { 
-        orderId: orderId,
         transactionId: baseTransactionId,
-        sku: sku
+        sku: item['SKU']?.toString()
       },
       relations: ['order']
     });
@@ -425,11 +399,11 @@ export class ExcelService {
           await this.orderRepository.remove(existingOrder.order);
         }
         
-        this.logger.log(`Deleted existing order ${orderId}, transaction ${baseTransactionId}, SKU ${sku} with status STAMP_NOT_GENERATED for reimport`);
+        this.logger.log(`Deleted existing order ${orderId} with status STAMP_NOT_GENERATED for reimport`);
       } else {
         return {
           success: false,
-          error: `Order with this Order ID (${orderId}), Transaction ID (${baseTransactionId}) and SKU (${sku}) combination already exists`
+          error: 'Order with this Transaction ID already exists'
         };
       }
     }
@@ -481,32 +455,12 @@ export class ExcelService {
     error?: string;
   }> {
     const orderId = item['Order ID']?.toString() || '';
-    const sku = item['SKU']?.toString() || '';
     const platformOrderDate = item['Date Paid'] ? this.parseDate(item['Date Paid']) : null;
     
-    // 检查是否已经存在具有相同 orderId 和 transactionId 的订单
-    // 这里增加同时检查 orderId 和 transactionId 的组合
-    const existingEtsyOrder = await this.etsyOrderRepository.findOne({
-      where: { 
-        orderId: orderId,
-        transactionId: baseTransactionId,
-        sku: sku
-      },
-      relations: ['order']
-    });
-
-    if (existingEtsyOrder) {
-      this.logger.warn(`Found existing order with orderId ${orderId}, transactionId ${baseTransactionId}, and SKU ${sku}. Reusing it would be a problem.`);
-      return {
-        success: false,
-        error: `Order with this Order ID, Transaction ID and SKU combination already exists`
-      };
-    }
-    
-    // Create stamps array for result
+    // Create shared order record
     const stamps: Array<{ orderId: string; transactionId: string; stampPath: string }> = [];
     
-    // Create basic order - 确保每个 transactionId 都创建一个新的 order
+    // Create basic order
     const order = this.orderRepository.create({
       status: OrderStatus.STAMP_NOT_GENERATED,
       orderType: OrderType.ETSY,
@@ -526,7 +480,7 @@ export class ExcelService {
       orderId,
       transactionId: baseTransactionId,
       order: order,
-      sku: sku,
+      sku: item['SKU']?.toString(),
       variations: parsedResult.variations,
       originalVariations: parsedResult.originalVariations,
       stampImageUrls: [],
@@ -564,10 +518,6 @@ export class ExcelService {
     // Save the EtsyOrder to get its ID
     await this.etsyOrderRepository.save(etsyOrder);
     
-    // Create a local array to collect stamp URLs and record IDs
-    const localStampImageUrls: string[] = [];
-    const localStampGenerationRecordIds: number[] = [];
-    
     // Process each personalization group
     for (let i = 0; i < parsedResult.personalizations.length; i++) {
       const personalizationGroup = parsedResult.personalizations[i];
@@ -577,7 +527,7 @@ export class ExcelService {
         orderId,
         transactionId: baseTransactionId,
         order_id: order.id,
-        sku: sku,
+        sku: item['SKU']?.toString(),
         variations: {
           ...parsedResult.variations,
           personalization: personalizationGroup.reduce((acc, curr) => {
@@ -588,7 +538,7 @@ export class ExcelService {
         originalVariations: parsedResult.originalVariations
       };
       
-      this.logger.log(`Processing personalization group #${i + 1} for orderId: ${orderId}, transactionId: ${baseTransactionId}: ${JSON.stringify(personalizationGroup)}`);
+      this.logger.log(`Processing personalization group #${i + 1}: ${JSON.stringify(personalizationGroup)}`);
       
       // Generate stamp for this personalization group
       const stampResult = await this.orderStampService.generateStampFromOrder({
@@ -612,29 +562,24 @@ export class ExcelService {
           stampPath
         });
         
-        // Add to local arrays
-        localStampImageUrls.push(stampPath);
-        localStampGenerationRecordIds.push(Number(stampResult.recordId));
+        // Update the EtsyOrder with the stamp information
+        etsyOrder.stampImageUrls = [...(etsyOrder.stampImageUrls || []), stampPath];
+        etsyOrder.stampGenerationRecordIds = [...(etsyOrder.stampGenerationRecordIds || []), stampResult.recordId];
+        
+        // Save the updated EtsyOrder
+        await this.etsyOrderRepository.save(etsyOrder);
       }
     }
     
-    // After all personalizations are processed, update the EtsyOrder once
-    if (localStampImageUrls.length > 0) {
-      // 根据类型要求进行处理
-      etsyOrder.stampImageUrls = localStampImageUrls;
-      etsyOrder.stampGenerationRecordIds = localStampGenerationRecordIds;
-      
-      // Save the updated EtsyOrder
-      await this.etsyOrderRepository.save(etsyOrder);
-      
-      // Update order status
+    // Update order status if at least one stamp was generated
+    if (stamps.length > 0) {
       await this.orderRepository.update(
         { id: order.id },
         { status: OrderStatus.STAMP_GENERATED_PENDING_REVIEW }
       );
     }
     
-    this.logger.log(`Generated ${stamps.length} stamps for order ${orderId}, transaction ${baseTransactionId}, SKU ${sku}`);
+    this.logger.log(`Generated ${stamps.length} stamps for order ${orderId}`);
     
     return {
       success: stamps.length > 0,

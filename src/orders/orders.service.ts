@@ -295,7 +295,7 @@ export class OrdersService {
           
           // 更新EtsyOrder的印章URL和记录ID（替换模式）
           await this.etsyOrderRepository.update(
-            { orderId: order.etsyOrder.orderId },
+            { order: { id: order.id } },
             { 
               stampImageUrls: updatedStampUrls,
               stampGenerationRecordIds: updatedRecordIds
@@ -304,7 +304,7 @@ export class OrdersService {
         } else {
           // 如果没找到旧记录ID，追加新记录ID和URL
           await this.etsyOrderRepository.update(
-            { orderId: order.etsyOrder.orderId },
+            { order: { id: order.id } },
             { 
               stampImageUrls: [...currentStampUrls, result.path],
               stampGenerationRecordIds: [...currentRecordIds, result.recordId]
@@ -314,7 +314,7 @@ export class OrdersService {
       } else if (result.recordId) {
         // 没有提供oldRecordId，追加新记录ID和URL
         await this.etsyOrderRepository.update(
-          { orderId: order.etsyOrder.orderId },
+          { order: { id: order.id } },
           { 
             stampImageUrls: [...currentStampUrls, result.path],
             stampGenerationRecordIds: [...currentRecordIds, result.recordId]
@@ -323,7 +323,7 @@ export class OrdersService {
       } else {
         // 如果没有记录ID，只更新最新的URL（追加）
         await this.etsyOrderRepository.update(
-          { orderId: order.etsyOrder.orderId },
+          { order: { id: order.id } },
           { 
             stampImageUrls: [...currentStampUrls, result.path]
           }
