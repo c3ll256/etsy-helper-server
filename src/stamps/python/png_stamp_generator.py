@@ -1359,32 +1359,72 @@ class PNGStampGenerator:
             # 第一遍：收集所有字形信息
             for i, char in enumerate(text):
                 # 确定是否使用变体
+                use_variant = False
                 variant_index = None
                 if i == 0 and first_variant is not None:
                     variant_index = first_variant
+                    use_variant = True
                 elif i == len(text) - 1 and last_variant is not None:
                     variant_index = last_variant
-                
-                # 获取变体字形名称
-                glyph_name = self._get_glyph_variant(char, variant_index, font_path)
-                
-                # 获取字形索引并加载字形
-                glyph_index = glyph_name_to_index.get(glyph_name, glyph_name_to_index.get(char, 0))
-                face.load_glyph(glyph_index, freetype.FT_LOAD_RENDER)
-                
-                bitmap = face.glyph.bitmap
-                metrics = face.glyph.metrics
-                
-                # 计算字形的垂直范围
-                glyph_top = face.glyph.bitmap_top
-                glyph_bottom = glyph_top - bitmap.rows
-                min_y = min(min_y, glyph_bottom)
-                max_y = max(max_y, glyph_top)
-                
-                # 使用实际的水平步进
-                advance_x = metrics.horiAdvance / 64
-                
-                # 存储字形信息
+                    use_variant = True
+
+                glyph_index = 0
+                glyph_name = char # Default to base char
+
+                # 只对字母和数字尝试查找变体
+                if use_variant and char.isalnum():
+                    # 获取变体字形名称
+                    glyph_name = self._get_glyph_variant(char, variant_index, font_path)
+                    # 获取字形索引
+                    glyph_index = glyph_name_to_index.get(glyph_name, 0)
+                    # 如果变体名称无效，回退到基本字符索引
+                    if glyph_index == 0:
+                         glyph_index = face.get_char_index(char)
+                else:
+                    # 对于空格、符号等，直接获取默认字形索引
+                    glyph_index = face.get_char_index(char)
+
+                # 加载字形，添加错误处理
+                try:
+                    # 先加载度量信息，不加载位图
+                    face.load_glyph(glyph_index, freetype.FT_LOAD_RENDER | freetype.FT_LOAD_NO_BITMAP)
+                    metrics = face.glyph.metrics
+                    advance_x = metrics.horiAdvance / 64
+
+                    # 再加载位图用于渲染
+                    face.load_glyph(glyph_index, freetype.FT_LOAD_RENDER)
+                    bitmap = face.glyph.bitmap
+                    glyph_top = face.glyph.bitmap_top
+                    glyph_bottom = glyph_top - bitmap.rows
+                    min_y = min(min_y, glyph_bottom)
+                    max_y = max(max_y, glyph_top)
+
+                except freetype.ft_errors.FT_Exception as ft_error:
+                    logger.warning(f"FreeType error loading glyph for char '{char}' (index {glyph_index}, name '{glyph_name}'): {ft_error}. Skipping character.")
+                    advance_x = 0
+                    # 尝试获取空格的默认宽度
+                    if char == ' ':
+                        try:
+                            # 尝试加载默认空格度量
+                            face.load_char(' ', freetype.FT_LOAD_DEFAULT | freetype.FT_LOAD_NO_BITMAP)
+                            advance_x = face.glyph.metrics.horiAdvance / 64
+                        except Exception:
+                             # 如果失败，估算空格宽度
+                             advance_x = font_size / 3
+                             logger.warning(f"Could not load space metrics, estimating advance to {advance_x}")
+
+                    # 存储占位符信息，只包含前进距离
+                    glyph_positions.append({
+                        'width': 0, 'height': 0, 'glyph_index': 0,
+                        'advance_x': advance_x,
+                        'bitmap_left': 0, 'bitmap_top': 0,
+                        'bearing_x': 0, 'bearing_y': 0,
+                        'is_placeholder': True # 标记为占位符
+                    })
+                    total_width += advance_x
+                    continue # 继续处理下一个字符
+
+                # 存储有效的字形信息
                 glyph_positions.append({
                     'width': bitmap.width,
                     'height': bitmap.rows,
@@ -1393,11 +1433,12 @@ class PNGStampGenerator:
                     'bitmap_left': face.glyph.bitmap_left,
                     'bitmap_top': face.glyph.bitmap_top,
                     'bearing_x': metrics.horiBearingX / 64,
-                    'bearing_y': metrics.horiBearingY / 64
+                    'bearing_y': metrics.horiBearingY / 64,
+                    'is_placeholder': False
                 })
                 
                 total_width += advance_x
-          
+            
             # 使用字体的实际高度
             actual_height = height
             
@@ -1420,6 +1461,11 @@ class PNGStampGenerator:
             
             # 第二遍：渲染字形
             for pos in glyph_positions:
+                # 如果是占位符（加载失败的字形），只移动x偏移量
+                if pos.get('is_placeholder', False):
+                    x_offset += pos['advance_x']
+                    continue
+
                 face.load_glyph(pos['glyph_index'], freetype.FT_LOAD_RENDER)
                 bitmap = face.glyph.bitmap
                 
