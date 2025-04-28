@@ -422,38 +422,6 @@ export class OrdersService {
       queryBuilder.andWhere('order.userId = :userId', { userId: currentUser.id });
     }
 
-    // Get the SQL query for debugging
-    const sqlQuery = queryBuilder.getSql();
-    console.log(`查询SQL: ${sqlQuery}`);
-    
-    // Also log the parameters
-    const sqlParams = queryBuilder.getParameters();
-    console.log(`查询参数: ${JSON.stringify(sqlParams)}`);
-
-    // First, let's check all orders with their dates, without filtering
-    const allOrdersQuery = this.ordersRepository.createQueryBuilder('order')
-      .leftJoinAndSelect('order.etsyOrder', 'etsyOrder');
-      
-    // If status is provided, use it for the check query as well
-    if (status) {
-      allOrdersQuery.where('order.status = :status', { status });
-    } else {
-      allOrdersQuery.where('order.status IN (:...statuses)', { 
-        statuses: [OrderStatus.STAMP_GENERATED_PENDING_REVIEW, OrderStatus.STAMP_GENERATED_REVIEWED] 
-      });
-    }
-    
-    // Apply user filter for non-admin users
-    if (currentUser && !currentUser.isAdmin) {
-      allOrdersQuery.andWhere('order.userId = :userId', { userId: currentUser.id });
-    }
-    
-    const allOrders = await allOrdersQuery.getMany();
-    console.log(`总共找到 ${allOrders.length} 个状态符合的订单`);
-    for (const order of allOrders) {
-      console.log(`订单ID: ${order.id}, 创建时间: ${order.createdAt}`);
-    }
-
     // Find all relevant orders with date filtering
     const orders = await queryBuilder.getMany();
     
@@ -479,12 +447,126 @@ export class OrdersService {
     
     console.log(`将创建压缩包: ${absoluteFilePath}`);
 
-    // First, generate the Excel file with order information
-    try {
-      // Create Excel file with order info
-      const excelFilePath = await this.excelService.createOrdersExcelForExport(orders);
+    // 按订单号(platformOrderId或orderId)对订单进行分组
+    const orderGroups = new Map<string, Array<{order: Order, stamps: Array<{url: string, path: string}>}>>();
+    
+    // 第一步：收集所有有效的图章并按订单分组
+    for (const order of orders) {
+      try {
+        // 跳过没有Etsy订单或没有图章URL的订单
+        if (!order.etsyOrder || !order.etsyOrder.stampImageUrls || order.etsyOrder.stampImageUrls.length === 0) {
+          console.log(`订单 ${order.id} 没有关联的 EtsyOrder 或没有 stampImageUrls`);
+          continue;
+        }
+
+        // 使用平台订单ID或Etsy订单ID作为分组键
+        const groupKey = order.platformOrderId || order.etsyOrder.orderId || order.id.toString();
+        
+        if (!orderGroups.has(groupKey)) {
+          orderGroups.set(groupKey, []);
+        }
+        
+        // 处理订单的每个图章
+        const validStamps = [];
+        
+        for (const stampUrl of order.etsyOrder.stampImageUrls) {
+          // 获取图章文件的绝对路径
+          let relativePath = stampUrl.startsWith('/') ? stampUrl.substring(1) : stampUrl;
+          
+          // 如果路径不包含uploads/stamps，使用stampsOutputDir
+          if (!relativePath.includes('uploads/stamps')) {
+            // 提取文件名
+            const fileName = path.basename(relativePath);
+            relativePath = path.join(this.stampsOutputDir, fileName);
+          }
+          
+          const stampPath = path.join(process.cwd(), relativePath);
+          
+          // 只有在文件存在且有效的情况下才添加
+          if (fs.existsSync(stampPath)) {
+            const stats = fs.statSync(stampPath);
+            if (stats.size > 0) {
+              validStamps.push({
+                url: stampUrl,
+                path: stampPath
+              });
+            }
+          }
+        }
+        
+        if (validStamps.length > 0) {
+          orderGroups.get(groupKey).push({
+            order,
+            stamps: validStamps
+          });
+        }
+        
+      } catch (error) {
+        console.error(`处理订单时发生错误:`, error);
+        // 继续处理其他订单
+      }
+    }
+    
+    // 对订单组进行排序
+    const sortedOrderGroupKeys = Array.from(orderGroups.keys()).sort();
+
+    // 准备Excel数据和图章文件信息
+    const excelData = [];
+    const stampFilesInfo = [];
+    let orderIndex = 0;
+
+    // 处理每个订单组
+    for (const groupKey of sortedOrderGroupKeys) {
+      const ordersWithStamps = orderGroups.get(groupKey);
+      orderIndex++; // 每个不同的订单号递增订单索引
       
-      // Add Excel file to the zip
+      // 收集该订单组的所有图章
+      const allStampsInGroup = [];
+      
+      for (const item of ordersWithStamps) {
+        for (const stamp of item.stamps) {
+          allStampsInGroup.push({
+            stampPath: stamp.path,
+            stampUrl: stamp.url,
+            order: item.order
+          });
+        }
+      }
+      
+      // 为该订单组的每个图章创建Excel数据行和文件信息
+      for (let stampIndex = 0; stampIndex < allStampsInGroup.length; stampIndex++) {
+        const { stampPath, stampUrl, order } = allStampsInGroup[stampIndex];
+        
+        // 添加到Excel数据
+        excelData.push({
+          '序号': `${orderIndex}-${stampIndex + 1}`,
+          '订单号': order.etsyOrder.orderId,
+          'SKU': order.etsyOrder.sku || 'N/A',
+          '解析前的variants': order.etsyOrder.originalVariations || 'N/A',
+          '解析后的variants': JSON.stringify(order.etsyOrder.variations) || 'N/A',
+          '下单日期': order.platformOrderDate || order.createdAt,
+          '文件名': `${orderIndex}-${stampIndex + 1}${path.extname(stampPath)}` // 一致的文件名编号
+        });
+        
+        // 存储文件路径和编号信息
+        stampFilesInfo.push({
+          filePath: stampPath,
+          orderIndex,
+          stampIndex: stampIndex + 1,
+          fileExtension: path.extname(stampPath)
+        });
+      }
+    }
+
+    if (excelData.length === 0 || stampFilesInfo.length === 0) {
+      throw new NotFoundException('未找到任何有效的图章文件。请检查文件是否存在。');
+    }
+
+    // 生成Excel文件
+    try {
+      const excelFilePath = await this.excelService.createOrdersExcelForExport(excelData);
+      
+      // 将Excel文件添加到zip
       if (fs.existsSync(excelFilePath)) {
         zip.addLocalFile(excelFilePath, '', 'orders_info.xlsx');
         console.log(`已添加订单信息Excel文件到压缩包`);
@@ -493,82 +575,19 @@ export class OrdersService {
       }
     } catch (error) {
       console.error(`生成Excel文件时出错: ${error.message}`);
-      // Continue even if Excel file generation fails
+      // 即使Excel文件生成失败，也继续执行
     }
 
-    // Keep track of files added to the zip
-    let addedFilesCount = 0;
-
-    // Process each order
-    for (let i = 0; i < orders.length; i++) {
-      try {
-        const order = orders[i];
-        console.log(`处理订单 ${order.id} (platformOrderId: ${order.platformOrderId || 'N/A'})`);
-        
-        // 检查关联的 EtsyOrder 是否存在且有 stampImageUrls
-        if (order.etsyOrder && order.etsyOrder.stampImageUrls && order.etsyOrder.stampImageUrls.length > 0) {
-          console.log(`订单 ${order.id} 有关联的 EtsyOrder, stampImageUrls: ${JSON.stringify(order.etsyOrder.stampImageUrls)}`);
-          
-          // 导出该订单的所有印章，而不仅仅是最新的
-          for (let stampIndex = 0; stampIndex < order.etsyOrder.stampImageUrls.length; stampIndex++) {
-            const stampUrl = order.etsyOrder.stampImageUrls[stampIndex];
-            
-            // Get absolute path to the stamp file
-            let relativePath = stampUrl.startsWith('/') 
-              ? stampUrl.substring(1) 
-              : stampUrl;
-            
-            // If the path doesn't already include uploads/stamps, use the stampsOutputDir
-            if (!relativePath.includes('uploads/stamps')) {
-              // Extract just the filename from the path
-              const fileName = path.basename(relativePath);
-              relativePath = path.join(this.stampsOutputDir, fileName);
-            }
-            
-            const stampPath = path.join(process.cwd(), relativePath);
-            
-            console.log(`检查文件路径: ${stampPath}, 存在: ${fs.existsSync(stampPath)}`);
-            
-            if (fs.existsSync(stampPath)) {
-              // 获取文件大小
-              const stats = fs.statSync(stampPath);
-              console.log(`文件大小: ${stats.size} 字节`);
-              
-              if (stats.size === 0) {
-                console.log(`警告: 文件 ${stampPath} 大小为0`);
-                continue;
-              }
-              
-              // Use Excel row index and stamp index for filename
-              const fileExtension = path.extname(stampPath);
-              // Match the exact filename pattern used in Excel - order index (1-based) followed by stamp index (1-based)
-              const numberedFileName = `${order.platformOrderId}-${stampIndex + 1}${fileExtension}`;
-              
-              console.log(`添加文件到压缩包: ${numberedFileName}`);
-              
-              // Add the file to the zip
-              zip.addLocalFile(stampPath, '', numberedFileName);
-              addedFilesCount++;
-            } else {
-              console.log(`错误: 文件不存在 ${stampPath}`);
-            }
-          }
-        } else {
-          console.log(`订单 ${order.id} 没有关联的 EtsyOrder 或没有 stampImageUrls`);
-        }
-      } catch (error) {
-        console.error(`处理订单时发生错误:`, error);
-        // Continue with other orders even if one fails
-      }
+    // 将图章文件添加到zip并保持一致的命名
+    for (const stampInfo of stampFilesInfo) {
+      const numberedFileName = `${stampInfo.orderIndex}-${stampInfo.stampIndex}${stampInfo.fileExtension}`;
+      console.log(`添加文件到压缩包: ${numberedFileName}`);
+      zip.addLocalFile(stampInfo.filePath, '', numberedFileName);
     }
 
-    if (addedFilesCount === 0) {
-      throw new NotFoundException('未找到任何有效的图章文件。请检查文件是否存在。');
-    }
-
-    console.log(`写入压缩文件，共有 ${addedFilesCount} 个图章`);
+    console.log(`写入压缩文件，共有 ${stampFilesInfo.length} 个图章`);
     
-    // Save the zip file
+    // 保存zip文件
     zip.writeZip(absoluteFilePath);
     
     console.log(`压缩文件已保存到: ${absoluteFilePath}`);
@@ -576,7 +595,7 @@ export class OrdersService {
     return {
       filePath: relativeFilePath,
       fileName,
-      orderCount: addedFilesCount
+      orderCount: stampFilesInfo.length
     };
   }
 
@@ -632,39 +651,80 @@ export class OrdersService {
       throw new NotFoundException('No orders found matching the criteria');
     }
 
-    // Prepare data for Excel
-    const excelData = [];
-    for (let i = 0; i < orders.length; i++) {
-      const order = orders[i];
+    // 按订单号(platformOrderId或orderId)对订单进行分组
+    const orderGroups = new Map<string, Array<{order: Order, records: any[]}>>(); 
+    
+    // 首先收集所有订单的印章记录
+    for (const order of orders) {
       if (order.orderType === OrderType.ETSY && order.etsyOrder) {
-        // Get stamp generation records for this order
+        // 获取订单的印章生成记录
         const stampRecords = await this.stampGenerationRecordRepository.find({
           where: { 
             id: In(order.etsyOrder.stampGenerationRecordIds || [])
           },
           relations: ['template']
         });
-
-        // Add each stamp as a row
-        for (let j = 0; j < stampRecords.length; j++) {
-          const record = stampRecords[j];
-          const template = record.template;
+        
+        if (stampRecords.length > 0) {
+          // 使用平台订单ID或Etsy订单ID作为分组键
+          const groupKey = order.platformOrderId || order.etsyOrder.orderId || order.id.toString();
           
-          // Calculate display quantity based on number of stamps
-          const orderQuantity = order.etsyOrder.quantity || 1;
-          const displayQuantity = stampRecords.length > 1 ? 1 : orderQuantity;
+          if (!orderGroups.has(groupKey)) {
+            orderGroups.set(groupKey, []);
+          }
           
-          excelData.push({
-            '序号': `${i + 1}-${j + 1}`,
-            '订单号': order.platformOrderId,
-            '设计图': record.stampImageUrl,
-            '数量': displayQuantity,
-            '尺寸': `${template.width}x${template.height}`,
-            'SKU': order.etsyOrder.sku || 'N/A',
-            '店铺': order.user?.shopName || 'N/A',
-            '导入时间': order.createdAt
+          // 将订单及其印章记录添加到组中
+          orderGroups.get(groupKey).push({
+            order,
+            records: stampRecords
           });
         }
+      }
+    }
+    
+    // 对订单组进行排序
+    const sortedOrderGroupKeys = Array.from(orderGroups.keys()).sort();
+    
+    // Prepare data for Excel
+    const excelData = [];
+    let orderIndex = 0;
+
+    // 处理每个订单组
+    for (const groupKey of sortedOrderGroupKeys) {
+      const ordersWithRecords = orderGroups.get(groupKey);
+      orderIndex++; // 每个不同的订单号递增订单索引
+      
+      // 收集该订单组的所有印章记录
+      const allRecordsInGroup: Array<{record: any, order: Order}> = [];
+      
+      for (const item of ordersWithRecords) {
+        for (const record of item.records) {
+          allRecordsInGroup.push({
+            record,
+            order: item.order
+          });
+        }
+      }
+      
+      // 为该订单组的每个印章记录创建Excel数据行
+      for (let stampIndex = 0; stampIndex < allRecordsInGroup.length; stampIndex++) {
+        const { record, order } = allRecordsInGroup[stampIndex];
+        const template = record.template;
+        
+        // 计算显示数量，基于印章数量
+        const orderQuantity = order.etsyOrder.quantity || 1;
+        const displayQuantity = allRecordsInGroup.length > 1 ? 1 : orderQuantity;
+        
+        excelData.push({
+          '序号': `${orderIndex}-${stampIndex + 1}`,
+          '订单号': order.platformOrderId,
+          '设计图': record.stampImageUrl,
+          '数量': displayQuantity,
+          '尺寸': `${template?.width || 0}x${template?.height || 0}`,
+          'SKU': order.etsyOrder.sku || 'N/A',
+          '店铺': order.user?.shopName || 'N/A',
+          '导入时间': order.createdAt
+        });
       }
     }
 

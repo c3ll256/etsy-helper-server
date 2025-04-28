@@ -594,20 +594,59 @@ export class ExcelService {
   private prepareOrdersExportData(orders: Order[]): any[] {
     const excelData = [];
     
-    for (let i = 0; i < orders.length; i++) {
-      const order = orders[i];
-      
+    // 按订单号(platformOrderId 或 orderId)对订单进行分组
+    const orderGroups = new Map<string, Array<{order: Order, stamps: string[]}>>(); 
+    
+    for (const order of orders) {
       if (order.orderType === 'etsy' && order.etsyOrder) {
-        order.etsyOrder.stampImageUrls.forEach((stampUrl, stampIndex) => {
-          excelData.push({
-            '序号': `${i + 1}-${stampIndex + 1}`,
-            '订单号': order.etsyOrder.orderId,
-            'SKU': order.etsyOrder.sku || 'N/A',
-            '解析前的variants': order.etsyOrder.originalVariations || 'N/A',
-            '解析后的variants': JSON.stringify(order.etsyOrder.variations) || 'N/A',
-            '下单日期': order.platformOrderDate || order.createdAt,
-            '文件名': `${order.platformOrderId}-${stampIndex + 1}${path.extname(stampUrl)}`
+        // 使用平台订单ID或Etsy订单ID作为分组键
+        const groupKey = order.platformOrderId || order.etsyOrder.orderId || order.id.toString();
+        
+        if (!orderGroups.has(groupKey)) {
+          orderGroups.set(groupKey, []);
+        }
+        
+        // 将订单及其图章URL添加到组中
+        orderGroups.get(groupKey).push({
+          order,
+          stamps: order.etsyOrder.stampImageUrls || []
+        });
+      }
+    }
+    
+    // 对订单组进行排序
+    const sortedOrderGroupKeys = Array.from(orderGroups.keys()).sort();
+    let orderIndex = 0;
+    
+    // 处理每个订单组
+    for (const groupKey of sortedOrderGroupKeys) {
+      const orderWithStamps = orderGroups.get(groupKey);
+      orderIndex++; // 每个不同的订单号递增订单索引
+      
+      // 收集该订单组的所有图章URL
+      const allStampsInGroup: Array<{stamp: string, order: Order}> = [];
+      
+      for (const item of orderWithStamps) {
+        for (const stamp of item.stamps) {
+          allStampsInGroup.push({
+            stamp,
+            order: item.order
           });
+        }
+      }
+      
+      // 为该订单组的每个图章创建Excel数据行
+      for (let stampIndex = 0; stampIndex < allStampsInGroup.length; stampIndex++) {
+        const { stamp, order } = allStampsInGroup[stampIndex];
+        
+        excelData.push({
+          '序号': `${orderIndex}-${stampIndex + 1}`,
+          '订单号': order.etsyOrder.orderId,
+          'SKU': order.etsyOrder.sku || 'N/A',
+          '解析前的variants': order.etsyOrder.originalVariations || 'N/A',
+          '解析后的variants': JSON.stringify(order.etsyOrder.variations) || 'N/A',
+          '下单日期': order.platformOrderDate || order.createdAt,
+          '文件名': `${orderIndex}-${stampIndex + 1}${path.extname(stamp)}`
         });
       }
     }
