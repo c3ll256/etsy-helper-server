@@ -543,6 +543,7 @@ export class ExcelService {
       // Generate stamp for this personalization group
       const stampResult = await this.orderStampService.generateStampFromOrder({
         order: tempEtsyOrder,
+        templateId: templateId,
         convertTextToPaths: true
       });
       

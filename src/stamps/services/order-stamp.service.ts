@@ -72,10 +72,10 @@ export class OrderStampService {
    * @param customTemplateId 可选的自定义模板ID，如果提供则使用这个模板而不是从SKU查找
    * @param convertTextToPaths 是否将文本转换为路径，默认是 false
    */
-  async generateStampFromOrder({order, customTextElements, customTemplateId, convertTextToPaths = false}: {
+  async generateStampFromOrder({order, customTextElements, templateId, convertTextToPaths = false}: {
     order: any,
     customTextElements?: any[], 
-    customTemplateId?: number,
+    templateId?: number,
     convertTextToPaths?: boolean
   }): Promise<{ 
     success: boolean; 
@@ -90,16 +90,16 @@ export class OrderStampService {
       let textElements: any[] = [];
       
       // 如果提供了自定义模板ID，则使用它
-      if (customTemplateId) {
+      if (templateId) {
         try {
           template = await this.stampTemplateRepository.findOne({
-            where: { id: customTemplateId }
+            where: { id: templateId }
           });
           
           if (!template) {
             return {
               success: false,
-              error: `Template with ID ${customTemplateId} not found`
+              error: `Template with ID ${templateId} not found`
             };
           }
         } catch (error) {
@@ -109,31 +109,11 @@ export class OrderStampService {
           };
         }
       } else {
-        // 否则从SKU查找模板
-        // 检查是否有 SKU
-        if (!order.sku) {
-          return {
-            success: false,
-            error: '订单没有 SKU'
-          };
-        }
-
-        // 从 SKU 中提取基础部分（例如从 "AD-110-XX" 提取 "AD-110"）
-        const skuBase = order.sku.split('-').slice(0, 2).join('-');
-        
-        // 查找匹配的模板
-        const templates = await this.findTemplatesBySku(order.sku, skuBase);
-
-        if (templates.length === 0) {
-          return {
-            success: false,
-            error: `未能找到 SKU ${order.sku} 的模板`
-          };
-        }
-
-        // 使用找到的第一个模板
-        template = templates[0];
-        this.logger.log(`使用模板 ${template.sku} 生成订单 ${order.orderId} 的印章`);
+        // 没提供模板ID要报错
+        return {
+          success: false,
+          error: 'No template ID provided'
+        };
       }
 
       // 如果提供了自定义文本元素，则使用它们

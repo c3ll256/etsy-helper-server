@@ -258,7 +258,7 @@ export class OrdersService {
       const result = await this.orderStampService.generateStampFromOrder({
         order: orderForStampGeneration,
         customTextElements: updateStampDto.textElements,
-        customTemplateId: updateStampDto.templateId,
+        templateId: updateStampDto.templateId,
         convertTextToPaths: updateStampDto.convertTextToPaths || true
       });
 
