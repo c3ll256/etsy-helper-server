@@ -1243,8 +1243,15 @@ class PNGStampGenerator:
                 rotation_deg = rotation_angle * (180 / math.pi)
                 
                 # Create a small image for this character with adaptive padding
+                # Get font metrics for robust height
+                ascent, descent = font.getmetrics()
+                full_glyph_height = ascent + descent
+
                 bbox = font.getbbox(char)
-                char_width, char_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                # Use ink width for the character's contribution to the char_img width
+                char_ink_width = bbox[2] - bbox[0]
+                # Note: char_height from bbox (bbox[3] - bbox[1]) might not capture full glyph height robustly.
+                # We use full_glyph_height derived from ascent/descent for the vertical dimension.
                 
                 # 使用更大的填充来处理圆形文本
                 padding_ratio = 0.6  # 增加填充比例从0.4到0.6
@@ -1263,10 +1270,18 @@ class PNGStampGenerator:
                     adaptive_padding = int(custom_padding * self.scale_factor)
                 
                 # 确保每个字符有足够的空间，尤其是对于特殊字符
-                char_img = Image.new('RGBA', (char_width + 2*adaptive_padding, char_height + 2*adaptive_padding), (0, 0, 0, 0))
+                # Adjust char_img dimensions to use full_glyph_height
+                char_img_actual_width = char_ink_width + 2 * adaptive_padding
+                char_img_actual_height = full_glyph_height + 2 * adaptive_padding
+                
+                char_img = Image.new('RGBA', (char_img_actual_width, char_img_actual_height), (0, 0, 0, 0))
                 char_draw = ImageDraw.Draw(char_img)
                 
                 # 在字符图像中心绘制字符
+                # Drawing at (adaptive_padding, adaptive_padding) places the top-left of the text's bounding box there.
+                # The baseline will be at adaptive_padding + ascent.
+                # The character's lowest point will be at adaptive_padding + full_glyph_height.
+                # This fits within char_img_actual_height.
                 char_draw.text((adaptive_padding, adaptive_padding), char, font=font, fill=color)
                 
                 # 旋转字符
