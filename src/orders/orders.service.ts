@@ -550,6 +550,7 @@ export class OrdersService {
         
         // 存储文件路径和编号信息
         stampFilesInfo.push({
+          orderId: order.etsyOrder.orderId,
           filePath: stampPath,
           orderIndex,
           stampIndex: stampIndex + 1,
@@ -580,7 +581,7 @@ export class OrdersService {
 
     // 将图章文件添加到zip，命名为平台订单ID_订单索引-图章索引
     for (const stampInfo of stampFilesInfo) {
-      const numberedFileName = `${stampInfo.order.platformOrderId}_${stampInfo.orderIndex}-${stampInfo.stampIndex}${stampInfo.fileExtension}`;
+      const numberedFileName = `${stampInfo.orderId}_${stampInfo.orderIndex}-${stampInfo.stampIndex}${stampInfo.fileExtension}`;
       console.log(`添加文件到压缩包: ${numberedFileName}`);
       zip.addLocalFile(stampInfo.filePath, '', numberedFileName);
     }
