@@ -64,9 +64,8 @@ export class ExcelService {
   /**
    * Create Excel file for exporting orders
    */
-  async createOrdersExcelForExport(orders: Order[]): Promise<string> {
+  async createOrdersExcelForExport(excelData: any[]): Promise<string> {
     try {
-      const excelData = this.prepareOrdersExportData(orders);
       return this.generateExcelFile(excelData);
     } catch (error) {
       this.logger.error(`Failed to create Excel file: ${error.message}`, error.stack);
