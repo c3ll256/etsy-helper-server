@@ -545,7 +545,7 @@ export class OrdersService {
           '解析前的variants': order.etsyOrder.originalVariations || 'N/A',
           '解析后的variants': JSON.stringify(order.etsyOrder.variations) || 'N/A',
           '下单日期': order.platformOrderDate || order.createdAt,
-          '文件名': `${orderIndex}-${stampIndex + 1}${path.extname(stampPath)}` // 一致的文件名编号
+          '文件名': `${order.etsyOrder.orderId}_${orderIndex}-${stampIndex + 1}${path.extname(stampPath)}` // 一致的文件名编号
         });
         
         // 存储文件路径和编号信息
