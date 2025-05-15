@@ -251,33 +251,10 @@ export class OrdersController {
   })
   @ApiResponse({ status: 400, description: '请求处理失败' })
   @ApiResponse({ status: 404, description: '没有找到符合条件的订单' })
-  @ApiQuery({ 
-    name: 'search', 
-    required: false, 
-    description: '搜索订单号' 
-  })
-  @ApiQuery({ 
-    name: 'status', 
-    required: false, 
-    enum: OrderStatus,
-    description: '按订单状态筛选' 
-  })
-  @ApiQuery({ 
-    name: 'templateIds', 
-    required: false, 
-    description: '按印章模板ID筛选（多选）', 
-    type: [Number],
-    isArray: true
-  })
-  @ApiQuery({ 
-    name: 'stampType', 
-    required: false, 
-    enum: StampType,
-    description: '按印章类型筛选' 
-  })
-  @Get('export-excel')
+  @ApiBody({ type: ExportStampsDto })
+  @Post('export-excel')
   async exportOrdersToExcel(
-    @Query() exportDto: ExportStampsDto,
+    @Body() exportDto: ExportStampsDto,
     @CurrentUser() user: User
   ) {
     try {
@@ -303,7 +280,7 @@ export class OrdersController {
     }
   }
 
-  @Get('export-stamps')
+  @Post('export-stamps')
   @ApiOperation({ summary: '将指定时间段内的订单印章导出为zip包' })
   @ApiResponse({
     status: 200,
@@ -319,32 +296,9 @@ export class OrdersController {
   })
   @ApiResponse({ status: 400, description: '请求处理失败' })
   @ApiResponse({ status: 404, description: '没有找到符合条件的订单印章' })
-  @ApiQuery({ 
-    name: 'search', 
-    required: false, 
-    description: '搜索订单号' 
-  })
-  @ApiQuery({ 
-    name: 'status', 
-    required: false, 
-    enum: OrderStatus,
-    description: '按订单状态筛选' 
-  })
-  @ApiQuery({ 
-    name: 'templateIds', 
-    required: false, 
-    description: '按印章模板ID筛选（多选）', 
-    type: [Number],
-    isArray: true
-  })
-  @ApiQuery({ 
-    name: 'stampType', 
-    required: false, 
-    enum: StampType,
-    description: '按印章类型筛选' 
-  })
+  @ApiBody({ type: ExportStampsDto })
   async exportStamps(
-    @Query() exportStampsDto: ExportStampsDto,
+    @Body() exportStampsDto: ExportStampsDto,
     @CurrentUser() user: User
   ) {
     try {
