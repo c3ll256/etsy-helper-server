@@ -237,7 +237,7 @@ export class OrdersController {
     return this.ordersService.findAll(paginationDto, user);
   }
 
-  @ApiOperation({ summary: '导出订单为Excel，包含印章图片' })
+  @ApiOperation({ summary: '导出订单为Excel，包含印章图片，可按条件筛选或直接指定订单ID导出' })
   @ApiResponse({
     status: 200,
     description: '导出成功，返回Excel文件路径',
@@ -265,7 +265,8 @@ export class OrdersController {
         exportDto.status,
         user,
         exportDto.templateIds,
-        exportDto.stampType
+        exportDto.stampType,
+        exportDto.orderIds
       );
 
       return {
@@ -281,7 +282,7 @@ export class OrdersController {
   }
 
   @Post('export-stamps')
-  @ApiOperation({ summary: '将指定时间段内的订单印章导出为zip包' })
+  @ApiOperation({ summary: '将指定时间段内的订单印章导出为zip包，或指定订单ID直接导出' })
   @ApiResponse({
     status: 200,
     description: '导出成功，返回zip文件路径',
@@ -309,7 +310,8 @@ export class OrdersController {
         exportStampsDto.status,
         user,
         exportStampsDto.templateIds,
-        exportStampsDto.stampType
+        exportStampsDto.stampType,
+        exportStampsDto.orderIds
       );
 
       // 确保文件存在且有效

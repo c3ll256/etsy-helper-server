@@ -77,4 +77,14 @@ export class ExportStampsDto {
   })
   @IsOptional()
   stampType?: StampType;
+
+  @ApiProperty({
+    description: '指定要导出的订单ID列表（如果提供，其他筛选条件将被忽略，除了用户权限）',
+    type: [String],
+    required: false
+  })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  orderIds?: string[];
 } 

@@ -368,56 +368,62 @@ export class OrdersService {
     status?: string, 
     currentUser?: User,
     templateIds?: number[],
-    stampType?: StampType
+    stampType?: StampType,
+    orderIds?: string[]
   ): Promise<{
     filePath: string;
     fileName: string;
     orderCount: number;
   }> {
-    console.log(`开始导出图章: 开始日期=${startDate || '无'}, 结束日期=${endDate || '无'}, 搜索=${search || '无'}, 状态=${status || '全部'}, 模板IDs=${templateIds?.join(',') || '全部'}, 印章类型=${stampType || '全部'}`);
+    console.log(`开始导出图章: 开始日期=${startDate || '无'}, 结束日期=${endDate || '无'}, 搜索=${search || '无'}, 状态=${status || '全部'}, 模板IDs=${templateIds?.join(',') || '全部'}, 印章类型=${stampType || '全部'}, 指定订单IDs=${orderIds?.join(',') || '无'}`);
     
     // Create query builder for finding orders with generated stamps
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
       .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
       .leftJoinAndSelect('order.user', 'user');
 
-    // Apply status filter if provided, otherwise use default filter for generated stamps
-    if (status) {
-      queryBuilder.where('order.status = :status', { status });
+    // If orderIds is provided, use them and ignore other filters (except user)
+    if (orderIds && orderIds.length > 0) {
+      queryBuilder.where('order.id IN (:...orderIds)', { orderIds });
     } else {
-      queryBuilder.where('order.status IN (:...statuses)', { 
-        statuses: [OrderStatus.STAMP_GENERATED_PENDING_REVIEW, OrderStatus.STAMP_GENERATED_REVIEWED] 
-      });
-    }
-
-    // Apply template filter if provided or filter by stampType
-    if (templateIds && templateIds.length > 0) {
-      queryBuilder.andWhere('order.templateId IN (:...templateIds)', { templateIds });
-    } else if (stampType) {
-      // Find templates with the specified stampType
-      const templatesWithType = await this.stampsService.getTemplatesByStampType(stampType, currentUser);
-      
-      if (templatesWithType && templatesWithType.length > 0) {
-        const stampTypeTemplateIds = templatesWithType.map(template => template.id);
-        queryBuilder.andWhere('order.templateId IN (:...stampTypeTemplateIds)', { stampTypeTemplateIds });
+      // Apply status filter if provided, otherwise use default filter for generated stamps
+      if (status) {
+        queryBuilder.where('order.status = :status', { status });
       } else {
-        // If no templates found with this stampType, return empty result
-        throw new NotFoundException(`No templates found with stamp type: ${stampType}`);
+        queryBuilder.where('order.status IN (:...statuses)', { 
+          statuses: [OrderStatus.STAMP_GENERATED_PENDING_REVIEW, OrderStatus.STAMP_GENERATED_REVIEWED] 
+        });
+      }
+
+      // Apply template filter if provided or filter by stampType
+      if (templateIds && templateIds.length > 0) {
+        queryBuilder.andWhere('order.templateId IN (:...templateIds)', { templateIds });
+      } else if (stampType) {
+        // Find templates with the specified stampType
+        const templatesWithType = await this.stampsService.getTemplatesByStampType(stampType, currentUser);
+        
+        if (templatesWithType && templatesWithType.length > 0) {
+          const stampTypeTemplateIds = templatesWithType.map(template => template.id);
+          queryBuilder.andWhere('order.templateId IN (:...stampTypeTemplateIds)', { stampTypeTemplateIds });
+        } else {
+          // If no templates found with this stampType, return empty result
+          throw new NotFoundException(`No templates found with stamp type: ${stampType}`);
+        }
+      }
+
+      // Apply date filters
+      this.applyDateFilters(queryBuilder, startDate, endDate);
+
+      // Apply search filter if provided
+      if (search) {
+        queryBuilder.andWhere(
+          '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
+          { search: `%${search}%` }
+        );
       }
     }
 
-    // Apply date filters
-    this.applyDateFilters(queryBuilder, startDate, endDate);
-
-    // Apply search filter if provided
-    if (search) {
-      queryBuilder.andWhere(
-        '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
-        { search: `%${search}%` }
-      );
-    }
-
-    // Apply user filter based on role
+    // Apply user filter based on role - this filter is always applied
     if (currentUser && !currentUser.isAdmin) {
       queryBuilder.andWhere('order.userId = :userId', { userId: currentUser.id });
     }
@@ -607,49 +613,65 @@ export class OrdersService {
     status?: OrderStatus,
     user?: User,
     templateIds?: number[],
-    stampType?: StampType
+    stampType?: StampType,
+    orderIds?: string[]
   ): Promise<{ filePath: string; fileName: string }> {
     // Build query with filters
-    const query = this.ordersRepository.createQueryBuilder('order')
+    const queryBuilder = this.ordersRepository.createQueryBuilder('order')
       .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
-      .leftJoinAndSelect('order.user', 'user')
-      .leftJoinAndSelect('order.template', 'template');
+      .leftJoinAndSelect('order.user', 'user');
 
-    // Apply date filters using the helper method
-    this.applyDateFilters(query, startDate, endDate);
+    // If orderIds is provided, use them and ignore other filters (except user)
+    if (orderIds && orderIds.length > 0) {
+      queryBuilder.where('order.id IN (:...orderIds)', { orderIds });
+    } else {
+      // Apply normal filters
+      if (status) {
+        queryBuilder.where('order.status = :status', { status });
+      } else {
+        queryBuilder.where('order.status IN (:...statuses)', { 
+          statuses: [OrderStatus.STAMP_GENERATED_PENDING_REVIEW, OrderStatus.STAMP_GENERATED_REVIEWED] 
+        });
+      }
 
-    // Apply search filter
-    if (search) {
-      query.andWhere('order.platformOrderId LIKE :search', {
-        search: `%${search}%`,
-      });
+      // Apply template filter if provided
+      if (templateIds && templateIds.length > 0) {
+        queryBuilder.andWhere('order.templateId IN (:...templateIds)', { templateIds });
+      } else if (stampType) {
+        // Find templates with the specified stampType
+        const templatesWithType = await this.stampsService.getTemplatesByStampType(stampType, user);
+        
+        if (templatesWithType && templatesWithType.length > 0) {
+          const stampTypeTemplateIds = templatesWithType.map(template => template.id);
+          queryBuilder.andWhere('order.templateId IN (:...stampTypeTemplateIds)', { stampTypeTemplateIds });
+        } else {
+          // If no templates found with this stampType, return empty result
+          throw new NotFoundException(`No templates found with stamp type: ${stampType}`);
+        }
+      }
+
+      // Apply date filters
+      this.applyDateFilters(queryBuilder, startDate, endDate);
+
+      // Apply search filter if provided
+      if (search) {
+        queryBuilder.andWhere(
+          '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
+          { search: `%${search}%` }
+        );
+      }
+    }
+    
+    // Apply user filter based on role - this filter is always applied
+    if (user && !user.isAdmin) {
+      queryBuilder.andWhere('order.userId = :userId', { userId: user.id });
     }
 
-    // Apply status filter
-    if (status) {
-      query.andWhere('order.status = :status', { status });
-    }
+    // Find all orders with filters
+    const orders = await queryBuilder.getMany();
 
-    // Apply template filter
-    if (templateIds && templateIds.length > 0) {
-      query.andWhere('order.templateId IN (:...templateIds)', { templateIds });
-    }
-
-    // Apply stamp type filter
-    if (stampType) {
-      query.andWhere('template.type = :stampType', { stampType });
-    }
-
-    // Apply user filter for non-admin users
-    if (!user.isAdmin) {
-      query.andWhere('order.userId = :userId', { userId: user.id });
-    }
-
-    // Get orders
-    const orders = await query.getMany();
-
-    if (!orders || orders.length === 0) {
-      throw new NotFoundException('No orders found matching the criteria');
+    if (orders.length === 0) {
+      throw new NotFoundException('没有找到符合条件的订单');
     }
 
     // 按订单号(platformOrderId或orderId)对订单进行分组
