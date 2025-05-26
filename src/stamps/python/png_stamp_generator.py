@@ -988,8 +988,21 @@ class PNGStampGenerator:
                 
                 for char in text_to_render:
                     bbox = current_font.getbbox(char)
-                    width = bbox[2] - bbox[0]
-                    height = bbox[3] - bbox[1]
+                    if bbox:
+                        # 使用完整的边界框宽度，包括任何负偏移
+                        width = bbox[2] - bbox[0]
+                        height = bbox[3] - bbox[1]
+                        
+                        # 如果边界框有负偏移，增加额外的宽度补偿
+                        if bbox[0] < 0:
+                            width += abs(bbox[0])
+                        if bbox[2] > width:
+                            width = bbox[2]
+                    else:
+                        # 如果无法获取边界框，使用估算值
+                        width = int(current_font_size * 0.8)
+                        height = current_font_size
+                    
                     char_widths.append(width)
                     char_heights.append(height)
                     total_width += width
@@ -1247,42 +1260,63 @@ class PNGStampGenerator:
                 ascent, descent = font.getmetrics()
                 full_glyph_height = ascent + descent
 
+                # 获取字符的边界框
                 bbox = font.getbbox(char)
-                # Use ink width for the character's contribution to the char_img width
-                char_ink_width = bbox[2] - bbox[0]
-                # Note: char_height from bbox (bbox[3] - bbox[1]) might not capture full glyph height robustly.
-                # We use full_glyph_height derived from ascent/descent for the vertical dimension.
+                if bbox:
+                    # 使用完整的边界框尺寸，包括任何延伸部分
+                    char_ink_width = bbox[2] - bbox[0]
+                    char_ink_height = bbox[3] - bbox[1]
+                    
+                    # 考虑边界框的偏移量
+                    bbox_left_offset = abs(bbox[0]) if bbox[0] < 0 else 0
+                    bbox_top_offset = abs(bbox[1]) if bbox[1] < 0 else 0
+                else:
+                    # 如果无法获取边界框，使用估算值
+                    char_ink_width = int(font_size * 0.8)
+                    char_ink_height = full_glyph_height
+                    bbox_left_offset = 0
+                    bbox_top_offset = 0
                 
-                # 使用更大的填充来处理圆形文本
-                padding_ratio = 0.6  # 增加填充比例从0.4到0.6
-                base_padding = int(20 * self.scale_factor)  # 增加并缩放基础填充
+                # 使用更大的填充来处理圆形文本，确保字符不被裁剪
+                padding_ratio = 0.8  # 增加填充比例从0.6到0.8
+                base_padding = int(30 * self.scale_factor)  # 增加基础填充从20到30
                 
                 # 根据字体大小和字符大小计算更合适的填充
                 # 对于尤其大的字体，使用更大的填充
-                font_size_factor = min(font_size / 30, 3.0)  # 字体越大，填充越大，最多3倍
+                font_size_factor = min(font_size / 30, 4.0)  # 增加最大倍数从3.0到4.0
+                
+                # 计算自适应填充，考虑字符的实际尺寸
+                char_size_factor = max(char_ink_width, char_ink_height) / font_size
                 adaptive_padding = max(
                     base_padding, 
-                    int(font_size * padding_ratio * font_size_factor)
+                    int(font_size * padding_ratio * font_size_factor * max(1.0, char_size_factor))
                 )
+                
+                # 对于特殊字符（如带重音符号的字符），增加额外的填充
+                if char_ink_height > full_glyph_height * 1.2:
+                    adaptive_padding = int(adaptive_padding * 1.5)
                 
                 # Apply custom padding if specified
                 if custom_padding is not None:
-                    adaptive_padding = int(custom_padding * self.scale_factor)
+                    # 确保自定义填充也足够大
+                    adaptive_padding = max(int(custom_padding * self.scale_factor), adaptive_padding)
                 
-                # 确保每个字符有足够的空间，尤其是对于特殊字符
-                # Adjust char_img dimensions to use full_glyph_height
-                char_img_actual_width = char_ink_width + 2 * adaptive_padding
-                char_img_actual_height = full_glyph_height + 2 * adaptive_padding
+                # 计算字符图像的实际尺寸，确保有足够的空间
+                # 考虑边界框的偏移量
+                char_img_actual_width = char_ink_width + bbox_left_offset + 2 * adaptive_padding
+                char_img_actual_height = max(char_ink_height, full_glyph_height) + bbox_top_offset + 2 * adaptive_padding
                 
+                # 创建字符图像
                 char_img = Image.new('RGBA', (char_img_actual_width, char_img_actual_height), (0, 0, 0, 0))
                 char_draw = ImageDraw.Draw(char_img)
                 
-                # 在字符图像中心绘制字符
-                # Drawing at (adaptive_padding, adaptive_padding) places the top-left of the text's bounding box there.
-                # The baseline will be at adaptive_padding + ascent.
-                # The character's lowest point will be at adaptive_padding + full_glyph_height.
-                # This fits within char_img_actual_height.
-                char_draw.text((adaptive_padding, adaptive_padding), char, font=font, fill=color)
+                # 在字符图像中绘制字符，考虑边界框偏移
+                # 调整绘制位置以确保字符完全在图像内
+                draw_x = adaptive_padding + bbox_left_offset
+                draw_y = adaptive_padding + bbox_top_offset
+                
+                # 绘制字符
+                char_draw.text((draw_x, draw_y), char, font=font, fill=color)
                 
                 # 旋转字符
                 rotated_char = char_img.rotate(-rotation_deg, expand=True, resample=Image.BICUBIC)
