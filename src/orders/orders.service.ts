@@ -454,7 +454,7 @@ export class OrdersService {
     console.log(`将创建压缩包: ${absoluteFilePath}`);
 
     // 按订单号(platformOrderId或orderId)对订单进行分组
-    const orderGroups = new Map<string, Array<{order: Order, stamps: Array<{url: string, path: string}>}>>();
+    const orderGroups = new Map<string, Array<{order: Order, stamps: Array<{url: string, path: string, recordId?: number}>}>>();
     
     // 第一步：收集所有有效的图章并按订单分组
     for (const order of orders) {
@@ -474,8 +474,12 @@ export class OrdersService {
         
         // 处理订单的每个图章
         const validStamps = [];
+        const stampRecordIds = order.etsyOrder.stampGenerationRecordIds || [];
         
-        for (const stampUrl of order.etsyOrder.stampImageUrls) {
+        for (let i = 0; i < order.etsyOrder.stampImageUrls.length; i++) {
+          const stampUrl = order.etsyOrder.stampImageUrls[i];
+          const recordId = stampRecordIds[i]; // 对应的记录ID
+          
           // 获取图章文件的绝对路径
           let relativePath = stampUrl.startsWith('/') ? stampUrl.substring(1) : stampUrl;
           
@@ -494,7 +498,8 @@ export class OrdersService {
             if (stats.size > 0) {
               validStamps.push({
                 url: stampUrl,
-                path: stampPath
+                path: stampPath,
+                recordId: recordId
               });
             }
           }
@@ -534,6 +539,7 @@ export class OrdersService {
           allStampsInGroup.push({
             stampPath: stamp.path,
             stampUrl: stamp.url,
+            recordId: stamp.recordId,
             order: item.order
           });
         }
@@ -541,22 +547,47 @@ export class OrdersService {
       
       // 为该订单组的每个图章创建Excel数据行和文件信息
       for (let stampIndex = 0; stampIndex < allStampsInGroup.length; stampIndex++) {
-        const { stampPath, stampUrl, order } = allStampsInGroup[stampIndex];
+        const { stampPath, stampUrl, recordId, order } = allStampsInGroup[stampIndex];
+        
+        // 获取模板信息
+        let templateName = 'Unknown';
+        if (recordId) {
+          try {
+            const stampRecord = await this.stampGenerationRecordRepository.findOne({
+              where: { id: recordId },
+              relations: ['template']
+            });
+            if (stampRecord && stampRecord.template) {
+              templateName = stampRecord.template.name;
+            }
+          } catch (error) {
+            console.error(`获取模板信息失败，记录ID: ${recordId}`, error);
+          }
+        }
+        
+        // 获取客户名称
+        const customerName = order.etsyOrder.shipName || 'N/A';
+        
+        // 获取原始定制信息
+        const originalCustomization = order.etsyOrder.originalVariations || 'N/A';
         
         // 添加到Excel数据
         excelData.push({
           '序号': `${orderIndex}-${stampIndex + 1}`,
           '订单号': order.etsyOrder.orderId,
+          '客户名称': customerName,
+          '客户原始定制信息': originalCustomization,
           'SKU': order.etsyOrder.sku || 'N/A',
           '解析前的variants': order.etsyOrder.originalVariations || 'N/A',
           '解析后的variants': JSON.stringify(order.etsyOrder.variations) || 'N/A',
           '下单日期': order.platformOrderDate || order.createdAt,
-          '文件名': `${order.etsyOrder.orderId}_${orderIndex}-${stampIndex + 1}${path.extname(stampPath)}` // 一致的文件名编号
+          '文件名': `${templateName}_${order.etsyOrder.orderId}_${orderIndex}-${stampIndex + 1}${path.extname(stampPath)}` // 模板名称_订单号_编号
         });
         
-        // 存储文件路径和编号信息
+        // 存储文件路径和编号信息，包含模板名称
         stampFilesInfo.push({
           orderId: order.etsyOrder.orderId,
+          templateName: templateName,
           filePath: stampPath,
           orderIndex,
           stampIndex: stampIndex + 1,
@@ -585,9 +616,9 @@ export class OrdersService {
       // 即使Excel文件生成失败，也继续执行
     }
 
-    // 将图章文件添加到zip，命名为平台订单ID_订单索引-图章索引
+    // 将图章文件添加到zip，命名为模板名称_平台订单ID_订单索引-图章索引
     for (const stampInfo of stampFilesInfo) {
-      const numberedFileName = `${stampInfo.orderId}_${stampInfo.orderIndex}-${stampInfo.stampIndex}${stampInfo.fileExtension}`;
+      const numberedFileName = `${stampInfo.templateName}_${stampInfo.orderId}_${stampInfo.orderIndex}-${stampInfo.stampIndex}${stampInfo.fileExtension}`;
       console.log(`添加文件到压缩包: ${numberedFileName}`);
       zip.addLocalFile(stampInfo.filePath, '', numberedFileName);
     }
