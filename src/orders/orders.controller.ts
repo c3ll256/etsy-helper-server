@@ -311,7 +311,8 @@ export class OrdersController {
         user,
         exportStampsDto.templateIds,
         exportStampsDto.stampType,
-        exportStampsDto.orderIds
+        exportStampsDto.orderIds,
+        exportStampsDto.sku
       );
 
       // 确保文件存在且有效

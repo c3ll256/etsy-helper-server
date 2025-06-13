@@ -369,7 +369,8 @@ export class OrdersService {
     currentUser?: User,
     templateIds?: number[],
     stampType?: StampType,
-    orderIds?: string[]
+    orderIds?: string[],
+    sku?: boolean
   ): Promise<{
     filePath: string;
     fileName: string;
@@ -568,20 +569,20 @@ export class OrdersService {
         // 获取客户名称
         const customerName = order.etsyOrder.shipName || 'N/A';
         
-        // 获取原始定制信息
-        const originalCustomization = order.etsyOrder.originalVariations || 'N/A';
-        
         // 添加到Excel数据
         excelData.push({
           '序号': `${orderIndex}-${stampIndex + 1}`,
           '订单号': order.etsyOrder.orderId,
           '客户名称': customerName,
-          '客户原始定制信息': originalCustomization,
+          '收件人名称': order.etsyOrder.shipName || 'N/A',
           'SKU': order.etsyOrder.sku || 'N/A',
           '解析前的variants': order.etsyOrder.originalVariations || 'N/A',
           '解析后的variants': JSON.stringify(order.etsyOrder.variations) || 'N/A',
           '下单日期': order.platformOrderDate || order.createdAt,
-          '文件名': `${templateName}_${order.etsyOrder.orderId}_${orderIndex}-${stampIndex + 1}${path.extname(stampPath)}` // 模板名称_订单号_编号
+          '文件名': sku ? 
+                  `${templateName}_${order.etsyOrder.orderId}_${orderIndex}-${stampIndex + 1}${path.extname(stampPath)}` 
+                  :
+                  `${order.etsyOrder.orderId}_${orderIndex}-${stampIndex + 1}${path.extname(stampPath)}`
         });
         
         // 存储文件路径和编号信息，包含模板名称
@@ -618,7 +619,11 @@ export class OrdersService {
 
     // 将图章文件添加到zip，命名为模板名称_平台订单ID_订单索引-图章索引
     for (const stampInfo of stampFilesInfo) {
-      const numberedFileName = `${stampInfo.templateName}_${stampInfo.orderId}_${stampInfo.orderIndex}-${stampInfo.stampIndex}${stampInfo.fileExtension}`;
+      const fileNameBody = `${stampInfo.orderId}_${stampInfo.orderIndex}-${stampInfo.stampIndex}`;
+      const numberedFileName = sku ? 
+                              `${stampInfo.templateName}_${fileNameBody}${stampInfo.fileExtension}`
+                              : 
+                              `${fileNameBody}${stampInfo.fileExtension}`;
       console.log(`添加文件到压缩包: ${numberedFileName}`);
       zip.addLocalFile(stampInfo.filePath, '', numberedFileName);
     }
@@ -773,6 +778,7 @@ export class OrdersService {
           '序号': `${orderIndex}-${stampIndex + 1}`,
           '订单号': order.platformOrderId,
           '设计图': record.stampImageUrl,
+          '收件人名称': order.etsyOrder.shipName || 'N/A',
           '数量': displayQuantity,
           '尺寸': `${template?.width || 0}x${template?.height || 0}`,
           'SKU': order.etsyOrder.sku || 'N/A',

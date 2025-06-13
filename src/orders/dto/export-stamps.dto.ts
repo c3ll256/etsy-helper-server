@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsDateString, IsOptional, IsString, IsEnum, IsArray, IsNumber } from 'class-validator';
+import { IsDateString, IsOptional, IsString, IsEnum, IsArray, IsNumber, IsIn, IsBoolean } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { OrderStatus } from '../enums/order.enum';
 import { StampType } from '../../stamps/entities/stamp-template.entity';
@@ -79,12 +79,19 @@ export class ExportStampsDto {
   stampType?: StampType;
 
   @ApiProperty({
-    description: '指定要导出的订单ID列表（如果提供，其他筛选条件将被忽略，除了用户权限）',
+    description: '按订单ID列表筛选，如果提供，将忽略其他筛选条件',
     type: [String],
     required: false
   })
-  @IsArray()
-  @IsString({ each: true })
   @IsOptional()
+  @IsArray()
   orderIds?: string[];
+
+  @ApiProperty({
+    required: false,
+    description: '如果为 true，则在导出印章的"文件名"的开头加上 templateName'
+  })
+  @IsOptional()
+  @IsBoolean()
+  sku?: boolean;
 } 
