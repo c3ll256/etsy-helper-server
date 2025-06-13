@@ -429,6 +429,7 @@ class PNGStampGenerator:
             first_variant = None  # 首字符变体
             last_variant = None   # 尾字符变体
             custom_padding = None # 自定义padding
+            is_autobold_enabled = False
             
             # 使用原始文本或转换后的文本来查找元素
             lookup_text = original_text if original_text is not None else text
@@ -449,6 +450,12 @@ class PNGStampGenerator:
                     # 保存字体权重信息，无论是否为可变字体都可能会用到
                     font_weight = element.get('fontWeight')
                     
+                    # If autoBold is true, override font weight to bold
+                    if element.get('autoBold', False):
+                        is_autobold_enabled = True
+                        font_weight = 'bold'
+                        logger.debug(f"autoBold is True for element {element_id}, setting fontWeight to 'bold'")
+                    
                     # 检查是否有可变字体设置
                     if 'variableFontSettings' in element:
                         variable_settings = element.get('variableFontSettings')
@@ -465,6 +472,11 @@ class PNGStampGenerator:
             if not font_path or not os.path.exists(font_path):
                 logger.error(f"Font path does not exist: {font_path}")
                 return
+            
+            # 如果启用了自动加粗，则计算描边宽度
+            stroke_width = 0
+            if is_autobold_enabled:
+                stroke_width = max(1, int(scaled_font_size * 0.025))
             
             # 计算边距
             margin = int(10 * self.scale_factor)  # 默认边距(单侧)
@@ -671,7 +683,7 @@ class PNGStampGenerator:
             if circular_text:
                 # Handle circular text rendering with scaled parameters
                 self._draw_circular_text(img, text, font, scaled_font_size, scaled_x, scaled_y, rgb_color, radius, 
-                                       start_angle, baseline_position, position, original_text)
+                                       start_angle, baseline_position, position, original_text, stroke_width=stroke_width)
             else:
                 # Handle regular text rendering
                 # Get a Draw object to measure text
@@ -716,6 +728,10 @@ class PNGStampGenerator:
 
                 text_width = base_width + spacing_width
                 
+                # 为 faux bold 添加额外的宽度
+                if stroke_width > 0:
+                    text_width += 2 * stroke_width
+                
                 # Calculate the actual space needed including padding
                 # Since padding is split between left and right sides, we need to consider both sides
                 total_width_with_padding = text_width + (margin * 2)  # Add padding for both sides
@@ -737,6 +753,9 @@ class PNGStampGenerator:
                         base_width_no_spacing = base_width 
                         spacing_width = base_width_no_spacing * (letter_spacing - 1.0)
                     text_width = base_width + spacing_width
+                    # 为 faux bold 添加额外的宽度
+                    if stroke_width > 0:
+                        text_width += 2 * stroke_width
                     total_width_with_padding = text_width + (margin * 2)
                 
                 # Get text height using getbbox as textlength doesn't provide height
@@ -821,7 +840,7 @@ class PNGStampGenerator:
                     txt_draw = ImageDraw.Draw(txt_img)
                     
                     # 在文本图像中心绘制文本
-                    txt_draw.text((adaptive_padding, adaptive_padding), text, font=font, fill=rgb_color)
+                    txt_draw.text((adaptive_padding, adaptive_padding), text, font=font, fill=rgb_color, stroke_width=stroke_width)
                     
                     # 旋转文本图像
                     rotated_txt = txt_img.rotate(-rotation, expand=True, resample=Image.BICUBIC)
@@ -880,7 +899,7 @@ class PNGStampGenerator:
                         elif place_x + text_width > self.width - margin:
                             place_x = max(margin, self.width - text_width - margin)
                             
-                        draw.text((place_x, place_y), text, font=font, fill=rgb_color)
+                        draw.text((place_x, place_y), text, font=font, fill=rgb_color, stroke_width=stroke_width)
                     else:
                         # 获取整个文本的边界框，用于边界检查
                         left, top, right, bottom = font.getbbox(text)
@@ -901,7 +920,7 @@ class PNGStampGenerator:
                         elif place_x + text_actual_width > self.width - margin:
                             place_x = max(margin, self.width - text_actual_width - margin)
                             
-                        self._draw_text_with_letter_spacing(draw, text, font, place_x, place_y, rgb_color, letter_spacing)
+                        self._draw_text_with_letter_spacing(draw, text, font, place_x, place_y, rgb_color, letter_spacing, stroke_width=stroke_width)
                 
         except Exception as e:
             logger.error(f"Error drawing text with PIL: {e}")
@@ -913,7 +932,7 @@ class PNGStampGenerator:
             except Exception as fallback_error:
                 logger.error(f"Fallback text rendering failed: {fallback_error}")
 
-    def _draw_text_with_letter_spacing(self, draw, text, font, x, y, color, spacing):
+    def _draw_text_with_letter_spacing(self, draw, text, font, x, y, color, spacing, stroke_width=0):
         """Draw text with custom letter spacing"""
         # Use textlength for better width calculation
         char_advances = [draw.textlength(char, font=font) for char in text]
@@ -925,7 +944,7 @@ class PNGStampGenerator:
         num_gaps = len(text) - 1
         if num_gaps <= 0:
              # No gaps, draw normally
-             draw.text((x, y), text, font=font, fill=color)
+             draw.text((x, y), text, font=font, fill=color, stroke_width=stroke_width)
              return
 
         # Calculate the average advance width to determine extra space per gap
@@ -938,14 +957,14 @@ class PNGStampGenerator:
         current_x = x
         for i, char in enumerate(text):
             # Draw the character
-            draw.text((current_x, y), char, font=font, fill=color)
+            draw.text((current_x, y), char, font=font, fill=color, stroke_width=stroke_width)
             
             # Move to the next position using the character's advance and extra spacing
             if i < num_gaps:  # Add spacing only between characters
                 current_x += char_advances[i] + extra_space_per_gap
 
     def _draw_circular_text(self, img, text, font, font_size, center_x, center_y, color, radius, 
-                          start_angle, baseline_position, position, original_text=None):
+                          start_angle, baseline_position, position, original_text=None, stroke_width=0):
         """Draw text in a circular path"""
         try:
             draw = ImageDraw.Draw(img)
@@ -1316,7 +1335,7 @@ class PNGStampGenerator:
                 draw_y = adaptive_padding + bbox_top_offset
                 
                 # 绘制字符
-                char_draw.text((draw_x, draw_y), char, font=font, fill=color)
+                char_draw.text((draw_x, draw_y), char, font=font, fill=color, stroke_width=stroke_width)
                 
                 # 旋转字符
                 rotated_char = char_img.rotate(-rotation_deg, expand=True, resample=Image.BICUBIC)

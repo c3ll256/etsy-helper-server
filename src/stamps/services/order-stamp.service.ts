@@ -4,7 +4,7 @@ import { Repository, Like } from 'typeorm';
 import * as fs from 'fs';
 
 import { PythonStampService } from './python-stamp.service';
-import { StampTemplate } from '../entities/stamp-template.entity';
+import { StampTemplate, TextElement } from '../entities/stamp-template.entity';
 import { StampGenerationRecord } from '../entities/stamp-generation-record.entity';
 
 @Injectable()
@@ -74,7 +74,7 @@ export class OrderStampService {
    */
   async generateStampFromOrder({order, customTextElements, templateId, convertTextToPaths = false}: {
     order: any,
-    customTextElements?: any[], 
+    customTextElements?: TextElement[], 
     templateId?: number,
     convertTextToPaths?: boolean
   }): Promise<{ 
@@ -82,12 +82,12 @@ export class OrderStampService {
     path?: string; 
     error?: string; 
     templateId?: number;
-    textElements?: any[];
+    textElements?: TextElement[];
     recordId?: number;
   }> {
     try {
       let template: any;
-      let textElements: any[] = [];
+      let textElements: TextElement[] = [];
       
       // 如果提供了自定义模板ID，则使用它
       if (templateId) {
@@ -144,7 +144,7 @@ export class OrderStampService {
 
         // 根据模板中的文本元素和个性化信息对象创建文本元素
         if (template.textElements && Array.isArray(template.textElements)) {
-          textElements = template.textElements.map(element => {
+          textElements = template.textElements.map((element: TextElement) => {
             if (!element.id) return null;
             
             // 直接使用textElement的id作为key查找personalizationObj中的值
@@ -177,7 +177,9 @@ export class OrderStampService {
               isUppercase: element.isUppercase,
               textPadding: element.textPadding,
               firstVariant: element.firstVariant,
-              lastVariant: element.lastVariant
+              lastVariant: element.lastVariant,
+              autoBold: element.autoBold,
+              description: element.description,
             };
           }).filter(Boolean);
         }
@@ -197,7 +199,7 @@ export class OrderStampService {
         this.logger.log(`Received font size adjustments for ${Object.keys(stampResult.fontSizeAdjustments).length} elements`);
         
         // Apply font size adjustments to text elements
-        textElements = textElements.map(element => {
+        textElements = textElements.map((element: TextElement) => {
           const elementId = element.id;
           if (elementId && stampResult.fontSizeAdjustments[elementId]) {
             const adjustment = stampResult.fontSizeAdjustments[elementId];

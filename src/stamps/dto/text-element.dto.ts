@@ -2,10 +2,10 @@ import { IsBoolean, IsEnum, IsOptional, ValidateNested } from "class-validator";
 
 import { ApiProperty } from "@nestjs/swagger";
 import { IsNumber, IsString } from "class-validator";
-import { TextElement } from "../entities/stamp-template.entity";
+import { TextElement, Position } from "../entities/stamp-template.entity";
 import { Type } from "class-transformer";
 
-class PositionDto {
+class PositionDto implements Position {
   @ApiProperty({ description: 'X coordinate of the text element' })
   @IsNumber()
   x: number;
@@ -68,6 +68,16 @@ class PositionDto {
   @IsNumber()
   @IsOptional()
   letterSpacing?: number;
+
+  @ApiProperty({ description: 'Maximum angle for circular text layout', required: false })
+  @IsNumber()
+  @IsOptional()
+  maxAngle?: number;
+
+  @ApiProperty({ description: 'Layout mode for circular text', required: false, enum: ['startAligned', 'centerAligned'] })
+  @IsEnum(['startAligned', 'centerAligned'])
+  @IsOptional()
+  layoutMode?: 'startAligned' | 'centerAligned';
 }
 
 export class TextElementDto implements TextElement {
@@ -118,11 +128,26 @@ export class TextElementDto implements TextElement {
   @IsBoolean()
   @IsOptional()
   isUppercase?: boolean;
+
+  @ApiProperty({ description: 'Automatically apply bold font weight', required: false })
+  @IsBoolean()
+  @IsOptional()
+  autoBold?: boolean;
   
   @ApiProperty({ description: 'Custom padding for text that exceeds canvas boundaries', required: false })
   @IsNumber()
   @IsOptional()
   textPadding?: number;
+
+  @ApiProperty({ description: 'Index of the variant for the first character', required: false })
+  @IsNumber()
+  @IsOptional()
+  firstVariant?: number;
+
+  @ApiProperty({ description: 'Index of the variant for the last character', required: false })
+  @IsNumber()
+  @IsOptional()
+  lastVariant?: number;
 
   @ApiProperty({ description: 'Position and dimensions of the text element' })
   @ValidateNested()

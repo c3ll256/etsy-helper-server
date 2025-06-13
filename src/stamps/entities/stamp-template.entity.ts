@@ -54,6 +54,24 @@ export class StampTemplate {
   updatedAt: Date;
 }
 
+export interface Position {
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+  textAlign?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'baseline';
+  isCircular?: boolean;
+  radius?: number;
+  baseAngle?: number;
+  direction?: 'clockwise' | 'counterclockwise';
+  baselinePosition?: 'inside' | 'outside';
+  letterSpacing?: number;
+  maxAngle?: number;
+  layoutMode?: 'startAligned' | 'centerAligned';
+}
+
 export interface TextElement {
   id?: string;
   defaultValue?: string; 
@@ -65,20 +83,9 @@ export interface TextElement {
   color?: string;
   description?: string;
   isUppercase?: boolean;
+  autoBold?: boolean;
   textPadding?: number;
-  position: {
-    x: number;
-    y: number;
-    width?: number;
-    height?: number;
-    rotation?: number;
-    textAlign?: 'left' | 'center' | 'right';
-    verticalAlign?: 'top' | 'middle' | 'baseline';
-    isCircular?: boolean;
-    radius?: number;
-    baseAngle?: number;
-    direction?: 'clockwise' | 'counterclockwise';
-    baselinePosition?: 'inside' | 'outside';
-    letterSpacing?: number;
-  };
+  firstVariant?: number;
+  lastVariant?: number;
+  position: Position;
 } 

@@ -4,7 +4,7 @@ import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { StampTemplate, StampType } from './entities/stamp-template.entity';
+import { StampTemplate, StampType, TextElement } from './entities/stamp-template.entity';
 import { StampGenerationRecord } from './entities/stamp-generation-record.entity';
 import { CreateStampTemplateDto } from './dto/create-stamp-template.dto';
 import { CloneStampTemplateDto } from './dto/clone-stamp-template.dto';
@@ -47,7 +47,7 @@ export class StampsService {
     const previewFileName = `preview-${template.id}-${Date.now()}.png`;
     const previewPath = path.join(previewDir, previewFileName);
 
-    const elementsForPreview = template.textElements.map(el => ({ 
+    const elementsForPreview: TextElement[] = template.textElements.map(el => ({ 
         ...el, 
         value: el.defaultValue 
     }));
@@ -214,7 +214,7 @@ export class StampsService {
   async createGenerationRecord(
     orderId: string, 
     templateId: number, 
-    textElements: any[], 
+    textElements: TextElement[], 
     stampImageUrl: string
   ): Promise<StampGenerationRecord> {
     const record = this.stampGenerationRecordRepository.create({
@@ -361,7 +361,7 @@ export class StampsService {
               
               if (record) {
                 // 使用更新后的模板参数，只保留原始记录中的文本值
-                const formattedTextElements = updatedTemplate.textElements.map(templateElement => {
+                const formattedTextElements: TextElement[] = updatedTemplate.textElements.map((templateElement: TextElement) => {
                   // 从原始记录中找到对应的文本元素
                   const originalElement = record.textElements.find(e => e.id === templateElement.id);
                   
@@ -369,28 +369,19 @@ export class StampsService {
                   return {
                     id: templateElement.id,
                     value: originalElement?.value || templateElement.defaultValue || '',
-                    fontFamily: templateElement.fontFamily,  // 必需属性
-                    fontSize: templateElement.fontSize,      // 必需属性
+                    fontFamily: templateElement.fontFamily,
+                    fontSize: templateElement.fontSize,
                     fontWeight: templateElement.fontWeight,
                     fontStyle: templateElement.fontStyle,
                     color: templateElement.color,
                     description: templateElement.description,
                     isUppercase: templateElement.isUppercase,
+                    autoBold: templateElement.autoBold,
                     textPadding: templateElement.textPadding,
+                    firstVariant: templateElement.firstVariant,
+                    lastVariant: templateElement.lastVariant,
                     position: {
-                      x: templateElement.position.x,
-                      y: templateElement.position.y,
-                      width: templateElement.position.width,
-                      height: templateElement.position.height,
-                      rotation: templateElement.position.rotation,
-                      textAlign: templateElement.position.textAlign,
-                      verticalAlign: templateElement.position.verticalAlign,
-                      isCircular: templateElement.position.isCircular,
-                      radius: templateElement.position.radius,
-                      baseAngle: templateElement.position.baseAngle,
-                      direction: templateElement.position.direction,
-                      baselinePosition: templateElement.position.baselinePosition,
-                      letterSpacing: templateElement.position.letterSpacing
+                      ...templateElement.position,
                     }
                   };
                 });
@@ -398,7 +389,7 @@ export class StampsService {
                 // 使用更新后的模板和文本元素重新生成印章
                 const result = await this.ordersService.updateOrderStamp(order.id, {
                   templateId: updatedTemplate.id,
-                  textElements: formattedTextElements,
+                  textElements: formattedTextElements as any[],
                   oldRecordId: recordId,
                   convertTextToPaths: true
                 });
