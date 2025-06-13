@@ -965,390 +965,173 @@ class PNGStampGenerator:
 
     def _draw_circular_text(self, img, text, font, font_size, center_x, center_y, color, radius, 
                           start_angle, baseline_position, position, original_text=None, stroke_width=0):
-        """Draw text in a circular path"""
+        """Draw text in a circular path using Freetype for precise metrics."""
         try:
-            draw = ImageDraw.Draw(img)
+            # --- Freetype-based Layout Engine ---
+            
             layout_mode = position.get('layoutMode', 'startAligned')
             base_angle = position.get('baseAngle', 0)
-            letter_spacing = position.get('letterSpacing', 1.0)
-            
-            # 获取最大角度限制(默认360度，即整圆)
-            max_angle_raw = position.get('maxAngle')
-            if max_angle_raw is not None:
-                try:
-                    # 尝试将maxAngle转换为数值类型
-                    max_angle_limit = float(max_angle_raw)
-                    logger.info(f"从JSON中获取maxAngle参数: {max_angle_raw}, 转换为: {max_angle_limit}")
-                except (ValueError, TypeError):
-                    # 如果转换失败，使用默认值
-                    max_angle_limit = 360
-                    logger.warning(f"无法将maxAngle参数转换为数值: {max_angle_raw}, 使用默认值: {max_angle_limit}")
-            else:
-                # 如果没有设置，使用默认值
+            letter_spacing_factor = position.get('letterSpacing', 1.0)
+            max_angle_limit = position.get('maxAngle', 360)
+            if not isinstance(max_angle_limit, (int, float)):
                 max_angle_limit = 360
-                logger.info(f"未设置maxAngle参数，使用默认值: {max_angle_limit}")
-                
-            # 确保最大角度在有效范围内
             max_angle_limit = min(max(0, max_angle_limit), 360)
+
+            # Reverse text if rendering on the outside of the circle
+            text_to_render = text[::-1] if baseline_position == 'outside' else text
+
+            # Helper to get a Freetype face object
+            def get_face(font_path, size):
+                face = freetype.Face(font_path)
+                face.set_char_size(int(size * 64))
+                return face
+
+            # --- Font Size Scaling Loop ---
+            # This loop adjusts font size to fit text within max_angle_limit
             
-            # 添加调试日志
-            logger.info(f"圆形文本参数 - text: '{text}', maxAngle: {max_angle_limit}, radius: {radius}")
+            current_font_size = font_size
+            final_font = font
+            total_angle_deg = 0
             
-            # Adjust text sequence based on baseline position
-            reverse_text = baseline_position == 'outside'
-            text_to_render = text[::-1] if reverse_text else text
-            
-            # 计算文本参数并检查是否需要缩放
-            def calculate_text_metrics(current_font, current_font_size):
-                # Calculate text metrics for spacing
-                total_width = 0
-                char_widths = []
-                char_heights = []
+            # Limit iterations to prevent infinite loops
+            for _ in range(10): 
+                face = get_face(final_font.path, current_font_size)
                 
+                # Step 1: Get glyphs, advances, and kerning
+                glyphs = []
+                previous_char_index = 0
                 for char in text_to_render:
-                    bbox = current_font.getbbox(char)
-                    if bbox:
-                        # 使用完整的边界框宽度，包括任何负偏移
-                        width = bbox[2] - bbox[0]
-                        height = bbox[3] - bbox[1]
-                        
-                        # 如果边界框有负偏移，增加额外的宽度补偿
-                        if bbox[0] < 0:
-                            width += abs(bbox[0])
-                        if bbox[2] > width:
-                            width = bbox[2]
-                    else:
-                        # 如果无法获取边界框，使用估算值
-                        width = int(current_font_size * 0.8)
-                        height = current_font_size
+                    char_index = face.get_char_index(char)
+                    face.load_glyph(char_index, freetype.FT_LOAD_NO_BITMAP)
                     
-                    char_widths.append(width)
-                    char_heights.append(height)
-                    total_width += width
+                    advance = face.glyph.metrics.horiAdvance / 64.0
+                    kerning = 0
+                    if previous_char_index != 0:
+                        kerning_vec = face.get_kerning(previous_char_index, char_index)
+                        kerning = kerning_vec.x / 64.0
+                    
+                    glyphs.append({'char': char, 'char_index': char_index, 'advance': advance, 'kerning': kerning})
+                    previous_char_index = char_index
                 
-                # 计算最大字符高度，用于设置足够的内外边距
-                max_char_height = max(char_heights) if char_heights else 0
-                
-                # 计算文本在圆周上占据的角度
-                circumference = 2 * math.pi * radius
-                text_arc_ratio = total_width / circumference
-                
-                # 应用间距调整
-                base_spacing = 1.0
-                spacing_factor = base_spacing * letter_spacing
-                
-                # 根据文本长度微调间距
-                original_spacing_factor = spacing_factor
-                if text_arc_ratio < 0.1:
-                    spacing_factor *= 1.1
-                elif text_arc_ratio > 0.5:
-                    spacing_factor *= 0.95
-                
-                # 字体特定调整
-                pre_font_spacing_factor = spacing_factor
-                font_family_lower = current_font.path.lower()
-                if 'montserrat' in font_family_lower or 'arial' in font_family_lower or 'helvetica' in font_family_lower:
-                    spacing_factor *= 1.05
-                
-                # 计算总角度
-                total_angle_rad = (total_width / radius) * spacing_factor
-                total_angle_deg = total_angle_rad * (180 / math.pi)
-                
-                logger.debug(f"角度计算详情: radius={radius}, total_width={total_width}, text_arc_ratio={text_arc_ratio:.4f}, " +
-                            f"original_spacing={original_spacing_factor:.4f}, after_len_adjust={pre_font_spacing_factor:.4f}, " + 
-                            f"final_spacing={spacing_factor:.4f}, total_angle_deg={total_angle_deg:.2f}")
-                
-                return char_widths, char_heights, total_width, max_char_height, total_angle_deg, spacing_factor
-            
-            # 首次计算文本度量
-            char_widths, char_heights, total_width, max_char_height, total_angle_deg, spacing_factor = calculate_text_metrics(font, font_size)
-            
-            # 添加调试日志
-            logger.info(f"圆形文本计算结果 - total_angle_deg: {total_angle_deg}, spacing_factor: {spacing_factor}, total_width: {total_width}")
-            
-            # 检查是否超过最大角度，如果超过则缩小字体
-            if max_angle_limit > 0 and total_angle_deg > max_angle_limit:
-                # 添加调试日志
-                logger.info(f"圆形文本需要缩放 - 当前角度: {total_angle_deg}, 最大限制: {max_angle_limit}")
-                
-                # 计算需要的缩放比例
-                scale_factor = max_angle_limit / total_angle_deg
-                
-                # 计算新的字体大小
-                adjusted_font_size = int(font_size * scale_factor)
-                # 确保字体大小不会太小
-                adjusted_font_size = max(8, adjusted_font_size)
-                
-                logger.info(f"圆形文本字体缩放 - 原始大小: {font_size}, 调整后: {adjusted_font_size}, 缩放比例: {scale_factor}")
-                
-                # 获取缩小后的字体
-                element_id = None
-                if original_text:
-                    # 找到对应的元素以记录字体调整信息
-                    for element in self.text_elements:
-                        if element.get('value') == original_text:
-                            element_id = element.get('id')
+                # Step 2: Calculate total width and angle with letter spacing
+                total_width = sum((g['advance'] + g['kerning']) * letter_spacing_factor for g in glyphs)
+                total_angle_deg = (total_width / radius) * (180 / math.pi)
+
+                # Step 3: Check if scaling is needed
+                if max_angle_limit > 0 and total_angle_deg > max_angle_limit:
+                    scale_ratio = max_angle_limit / total_angle_deg
+                    new_font_size = max(8, int(current_font_size * scale_ratio))
+                    
+                    if new_font_size == current_font_size:
+                        break # Avoid infinite loop if size doesn't change
+                    
+                    current_font_size = new_font_size
+                    # We need to get a new PIL font object for the new size
+                    # This requires finding the original font family name
+                    font_family = "Arial" # Fallback
+                    for name, info in self.font_map.items():
+                        if info.get('path') == font.path:
+                            font_family = name
                             break
-                
-                # 找到当前字体的字体名
-                current_font_family = None
-                for name, info in self.font_map.items():
-                    if info.get('path') == font.path:
-                        current_font_family = name
-                        logger.info(f"找到匹配的字体: {name} -> {font.path}")
-                        break
-                
-                if not current_font_family:
-                    # 如果无法找到字体名，使用路径中的文件名
-                    font_name = os.path.basename(font.path)
-                    current_font_family = os.path.splitext(font_name)[0]
-                    logger.info(f"无法在字体映射中找到字体，使用文件名: {current_font_family}")
                     
-                    # 确保这个字体被注册到字体映射中
-                    if not any(info.get('path') == font.path for info in self.font_map.values()):
-                        self._register_temp_font(font.path)
-                        logger.info(f"将未映射的字体添加到字体映射: {current_font_family}")
-                
-                # 应用新字体大小
-                logger.info(f"准备获取新字体: 字体名={current_font_family}, 调整后大小={adjusted_font_size}")
-                
-                # 检查是否为可变字体
-                is_variable_font = False
-                variable_settings = None
-                for element in self.text_elements:
-                    if element.get('value') == original_text:
-                        # 检查是否有可变字体设置
-                        if 'variableFontSettings' in element:
-                            is_variable_font = True
-                            variable_settings = element.get('variableFontSettings')
-                            logger.info(f"检测到可变字体设置: {variable_settings}")
-                        # 检查字体权重
-                        if 'fontWeight' in element:
-                            font_weight = element.get('fontWeight')
-                            logger.info(f"检测到字体权重: {font_weight}")
-                            if not variable_settings:
-                                # 从fontWeight创建变量设置
-                                wght_value = 400  # 默认值
-                                
-                                # 字符串形式的权重处理
-                                if isinstance(font_weight, str):
-                                    if font_weight.lower() == 'bold':
-                                        wght_value = 700
-                                    elif font_weight.lower() == 'medium':
-                                        wght_value = 500
-                                    elif font_weight.isdigit():
-                                        wght_value = int(font_weight)
-                                # 数字形式的权重处理
-                                elif isinstance(font_weight, (int, float)):
-                                    wght_value = int(font_weight)
-                                    
-                                variable_settings = {'wght': wght_value}
-                                logger.info(f"从字体权重创建变量设置: {variable_settings}")
-                        break
-                        
-                # 获取调整后的字体
-                adjusted_font = self._get_pil_font(current_font_family, adjusted_font_size, variable_settings)
-                # 检查是否成功获取字体
-                if adjusted_font == ImageFont.load_default():
-                    logger.warning(f"无法加载调整后的字体，使用默认字体")
-                    
-                    # 如果加载失败，尝试将该字体直接加载为普通字体
-                    try:
-                        adjusted_font = ImageFont.truetype(font.path, int(adjusted_font_size))
-                        logger.info(f"使用原始字体路径加载调整后的字体: {font.path}")
-                    except Exception as e:
-                        logger.error(f"尝试直接加载字体失败: {e}")
+                    variable_settings = None
+                    for el in self.text_elements:
+                        if el.get('value') == original_text:
+                            variable_settings = el.get('variableFontSettings')
+                            break
+                    final_font = self._get_pil_font(font_family, current_font_size, variable_settings)
                 else:
-                    logger.info(f"成功加载调整后的字体: {adjusted_font.path}, 大小: {adjusted_font_size}")
-                
-                # 应用调整后的字体
-                font = adjusted_font
-                
-                # 更新字体大小值用于后续计算
-                font_size = adjusted_font_size
-                
-                # 记录字体调整
-                if element_id:
-                    # 计算原始大小（不含缩放比例影响）
-                    original_font_size = font_size / self.scale_factor
-                    # 计算调整后的大小（不含缩放比例影响）
-                    adjusted_original_size = adjusted_font_size / self.scale_factor
-                    
-                    self.font_size_adjustments[element_id] = {
-                        'originalSize': original_font_size,
-                        'scaledSize': font_size,  # 包含全局缩放的调整前大小
-                        'finalSize': adjusted_font_size,  # 实际使用的最终大小（包含全局缩放）
-                        'adjustedSize': adjusted_original_size,  # 不含全局缩放的调整后大小
-                        'scaleFactor': scale_factor,
-                        'globalScaleFactor': self.scale_factor,
-                        'reason': 'circular_text_max_angle',
-                        'maxAngle': max_angle_limit,
-                        'calculatedAngle': total_angle_deg
-                    }
-                
-                # 重新计算所有度量
-                logger.info(f"重新计算调整后文本度量 - 原始角度: {total_angle_deg}, 期望最大角度: {max_angle_limit}")
-                prev_total_width = total_width  # 保存调整前的总宽度
-                prev_total_angle = total_angle_deg  # 保存调整前的总角度
-                
-                # 重新计算
-                char_widths, char_heights, total_width, max_char_height, total_angle_deg, spacing_factor = calculate_text_metrics(font, font_size)
-                
-                # 检查重新计算结果是否达到预期
-                width_change_ratio = total_width / prev_total_width if prev_total_width > 0 else 0
-                angle_change_ratio = total_angle_deg / prev_total_angle if prev_total_angle > 0 else 0
-                
-                logger.info(f"重新计算结果 - 新宽度: {total_width}, 宽度变化比例: {width_change_ratio:.4f}")
-                logger.info(f"重新计算结果 - 新角度: {total_angle_deg}, 角度变化比例: {angle_change_ratio:.4f}")
-                logger.info(f"是否满足要求: {'是' if total_angle_deg <= max_angle_limit else '否'}")
-                
-                # 如果仍然超出限制，记录警告
-                if total_angle_deg > max_angle_limit:
-                    logger.warning(f"字体调整后仍然超出限制 - 当前角度: {total_angle_deg}, 限制: {max_angle_limit}")
+                    break # Text fits, exit loop
             
-            # 确保我们使用最终的total_angle_deg
-            final_total_angle_deg = total_angle_deg
-            
+            # --- Character Placement ---
+
             # Determine starting angle based on layout mode
             if layout_mode == 'centerAligned':
-                start_angle = (base_angle - final_total_angle_deg/2) % 360
-                logger.info(f"圆形文本居中对齐 - base_angle: {base_angle}, final_total_angle_deg: {final_total_angle_deg}, start_angle: {start_angle}")
-            else:
-                start_angle = base_angle
-                logger.info(f"圆形文本起点对齐 - base_angle: {base_angle}, start_angle: {start_angle}")
-            
-            # Current position tracking
-            current_angle = start_angle
-            current_width = 0
-            
-            # Calculate position for each character
-            char_positions = []
-            for i, (char, width) in enumerate(zip(text_to_render, char_widths)):
-                char_angle_deg = (width / radius) * spacing_factor * (180 / math.pi)
-                center_angle_deg = current_angle + char_angle_deg / 2
-                char_positions.append({
-                    'char': char,
-                    'width': width,
-                    'center_angle_deg': center_angle_deg,
-                    'angle_deg': char_angle_deg
-                })
-                current_angle += char_angle_deg
-                current_width += width
-            
-            # Adjust positions for more even distribution if needed
-            total_actual_angle = current_angle - start_angle
-            if total_actual_angle > 10:
-                # 使用最终的计算角度进行调整
-                adjustment_ratio = final_total_angle_deg / total_actual_angle
-                logger.info(f"调整字符分布 - total_actual_angle: {total_actual_angle}, final_total_angle_deg: {final_total_angle_deg}, adjustment_ratio: {adjustment_ratio}")
-                
-                current_angle = start_angle
-                for pos in char_positions:
-                    pos['angle_deg'] *= adjustment_ratio
-                    pos['center_angle_deg'] = current_angle + pos['angle_deg']/2
-                    current_angle += pos['angle_deg']
-            
-            # Find current text element to get custom padding
-            custom_padding = None
-            # 使用原始文本或转换后的文本来查找元素
-            lookup_text = original_text if original_text is not None else text
-            for element in self.text_elements:
-                if element.get('value') == lookup_text:
-                    custom_padding = element.get('textPadding')
-                    break
-            
-            # Draw each character
-            for pos in char_positions:
-                char = pos['char']
-                center_angle_deg = pos['center_angle_deg']
-                center_angle_rad = center_angle_deg * (math.pi / 180.0)
-                
-                # Calculate position on the circle
-                char_x = center_x + radius * math.cos(center_angle_rad)
-                char_y = center_y + radius * math.sin(center_angle_rad)
-                
-                # Calculate rotation angle
-                rotation_angle = center_angle_rad + (math.pi / 2)
-                if baseline_position == 'outside':
-                    rotation_angle += math.pi
-                
-                rotation_deg = rotation_angle * (180 / math.pi)
-                
-                # Create a small image for this character with adaptive padding
-                # Get font metrics for robust height
-                ascent, descent = font.getmetrics()
-                full_glyph_height = ascent + descent
+                placement_start_angle = (base_angle - total_angle_deg / 2) % 360
+            else: # 'startAligned'
+                placement_start_angle = base_angle
 
-                # 获取字符的边界框
-                bbox = font.getbbox(char)
-                if bbox:
-                    # 使用完整的边界框尺寸，包括任何延伸部分
-                    char_ink_width = bbox[2] - bbox[0]
-                    char_ink_height = bbox[3] - bbox[1]
-                    
-                    # 考虑边界框的偏移量
-                    bbox_left_offset = abs(bbox[0]) if bbox[0] < 0 else 0
-                    bbox_top_offset = abs(bbox[1]) if bbox[1] < 0 else 0
-                else:
-                    # 如果无法获取边界框，使用估算值
-                    char_ink_width = int(font_size * 0.8)
-                    char_ink_height = full_glyph_height
-                    bbox_left_offset = 0
-                    bbox_top_offset = 0
+            current_angle_rad = math.radians(placement_start_angle)
+            face = get_face(final_font.path, current_font_size) # Ensure we use the final size
+            
+            for g in glyphs:
+                # Apply kerning first
+                kerning_angle = (g['kerning'] * letter_spacing_factor) / radius
+                current_angle_rad += kerning_angle
                 
-                # 使用更大的填充来处理圆形文本，确保字符不被裁剪
-                padding_ratio = 0.8  # 增加填充比例从0.6到0.8
-                base_padding = int(30 * self.scale_factor)  # 增加基础填充从20到30
+                # Calculate angle for this character's advance
+                advance_angle = (g['advance'] * letter_spacing_factor) / radius
                 
-                # 根据字体大小和字符大小计算更合适的填充
-                # 对于尤其大的字体，使用更大的填充
-                font_size_factor = min(font_size / 30, 4.0)  # 增加最大倍数从3.0到4.0
+                # The center of the character's arc is where we place it
+                center_char_angle_rad = current_angle_rad + (advance_angle / 2)
                 
-                # 计算自适应填充，考虑字符的实际尺寸
-                char_size_factor = max(char_ink_width, char_ink_height) / font_size
-                adaptive_padding = max(
-                    base_padding, 
-                    int(font_size * padding_ratio * font_size_factor * max(1.0, char_size_factor))
-                )
+                # --- Drawing the character ---
                 
-                # 对于特殊字符（如带重音符号的字符），增加额外的填充
-                if char_ink_height > full_glyph_height * 1.2:
-                    adaptive_padding = int(adaptive_padding * 1.5)
+                # Get glyph metrics for precise placement
+                face.load_glyph(g['char_index'], freetype.FT_LOAD_DEFAULT)
+                bitmap_left = face.glyph.bitmap_left
+                bitmap_top = face.glyph.bitmap_top
                 
-                # Apply custom padding if specified
-                if custom_padding is not None:
-                    # 确保自定义填充也足够大
-                    adaptive_padding = max(int(custom_padding * self.scale_factor), adaptive_padding)
+                # Load glyph bitmap for drawing
+                face.load_glyph(g['char_index'], freetype.FT_LOAD_RENDER)
+                bitmap = face.glyph.bitmap
                 
-                # 计算字符图像的实际尺寸，确保有足够的空间
-                # 考虑边界框的偏移量
-                char_img_actual_width = char_ink_width + bbox_left_offset + 2 * adaptive_padding
-                char_img_actual_height = max(char_ink_height, full_glyph_height) + bbox_top_offset + 2 * adaptive_padding
+                if bitmap.width == 0 or bitmap.rows == 0:
+                    # For spaces or empty glyphs, just advance the angle
+                    current_angle_rad += advance_angle
+                    continue
                 
-                # 创建字符图像
-                char_img = Image.new('RGBA', (char_img_actual_width, char_img_actual_height), (0, 0, 0, 0))
-                char_draw = ImageDraw.Draw(char_img)
+                # The point on the circle is the "pen position" (baseline origin) for this glyph
+                origin_angle_rad = current_angle_rad
+                origin_x = center_x + radius * math.cos(origin_angle_rad)
+                origin_y = center_y + radius * math.sin(origin_angle_rad)
+
+                # The rotation should be based on the character's center for best appearance
+                rotation_rad = center_char_angle_rad + (math.pi / 2)
+                if baseline_position == 'outside':
+                    rotation_rad += math.pi
+                rotation_deg = -math.degrees(rotation_rad)
                 
-                # 在字符图像中绘制字符，考虑边界框偏移
-                # 调整绘制位置以确保字符完全在图像内
-                draw_x = adaptive_padding + bbox_left_offset
-                draw_y = adaptive_padding + bbox_top_offset
+                # Create a large temporary canvas to draw the glyph on, allowing for offsets
+                ascent, descent = face.size.ascender / 64, face.size.descender / 64
+                canvas_size = int((ascent - descent) * 2 + 20)
+                canvas_center = canvas_size // 2
                 
-                # 绘制字符
-                char_draw.text((draw_x, draw_y), char, font=font, fill=color, stroke_width=stroke_width)
+                temp_canvas = Image.new('RGBA', (canvas_size, canvas_size), (0,0,0,0))
+
+                # Create the glyph image from the buffer
+                glyph_array = np.array(bitmap.buffer, dtype=np.uint8).reshape((bitmap.rows, bitmap.width))
+                char_img = Image.fromarray(glyph_array, mode='L')
+
+                # Create a solid color image to use as the character color
+                if len(color) == 3: glyph_color = color + (255,)
+                else: glyph_color = color
+                color_img = Image.new('RGBA', char_img.size, glyph_color)
+
+                # Paste the colored glyph onto the temp canvas at the correct offset from the origin
+                # The origin (pen position) is the center of our canvas.
+                local_paste_x = canvas_center + bitmap_left
+                local_paste_y = canvas_center - bitmap_top # Y is inverted in Pillow
+                temp_canvas.paste(color_img, (local_paste_x, local_paste_y), char_img)
+
+                # Rotate the entire canvas, which rotates the glyph around its baseline origin
+                rotated_canvas = temp_canvas.rotate(rotation_deg, expand=False, resample=Image.BICUBIC)
                 
-                # 旋转字符
-                rotated_char = char_img.rotate(-rotation_deg, expand=True, resample=Image.BICUBIC)
+                # Calculate the final paste position on the main image.
+                # This aligns the center of our temp canvas (the glyph's origin) with the pen position on the circle.
+                final_paste_x = int(origin_x - canvas_center)
+                final_paste_y = int(origin_y - canvas_center)
                 
-                # 计算粘贴位置
-                paste_x = int(char_x - rotated_char.width / 2)
-                paste_y = int(char_y - rotated_char.height / 2)
+                # Paste onto main image
+                img.paste(rotated_canvas, (final_paste_x, final_paste_y), rotated_canvas)
                 
-                # 粘贴到主图像
-                img.paste(rotated_char, (paste_x, paste_y), rotated_char)
+                # Advance angle for the next character
+                current_angle_rad += advance_angle
                 
         except Exception as e:
-            logger.error(f"Error drawing circular text: {e}")
+            logger.error(f"Error drawing circular text with Freetype: {e}", exc_info=True)
+            # Fallback to old method or simple drawing can be added here if needed
+            logger.error("Freetype rendering failed. No fallback implemented.")
 
     def _analyze_font_variants(self, font_path):
         """分析字体的变体（字型）信息"""
