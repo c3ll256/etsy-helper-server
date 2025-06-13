@@ -8,6 +8,7 @@ import { ExcelService } from './services/excel.service';
 import { StampsModule } from '../stamps/stamps.module';
 import { CommonModule } from '../common/common.module';
 import { UsersModule } from '../users/users.module';
+import { RemoteAreaService } from '../common/services/remote-area.service';
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { UsersModule } from '../users/users.module';
     UsersModule
   ],
   controllers: [OrdersController],
-  providers: [OrdersService, ExcelService],
+  providers: [OrdersService, ExcelService, RemoteAreaService],
   exports: [OrdersService]
 })
 export class OrdersModule {} 

@@ -18,6 +18,7 @@ import { JobQueueService } from '../common/services/job-queue.service';
 import { SkuConfig } from './entities/sku-config.entity';
 import { CreateSkuConfigDto } from './dto/sku-config.dto';
 import { AliyunService } from 'src/common/services/aliyun.service';
+import { RemoteAreaService } from 'src/common/services/remote-area.service';
 
 interface ParsedVariation {
   color: string;
@@ -38,6 +39,7 @@ interface ProcessedOrder {
   fontSize?: number;
   font?: string;
   datePaid?: string;
+  isRemoteArea?: boolean;
 }
 
 @Injectable()
@@ -53,6 +55,7 @@ export class BasketService {
     private readonly pythonBasketService: PythonBasketService,
     private readonly jobQueueService: JobQueueService,
     private readonly aliyunService: AliyunService,
+    private readonly remoteAreaService: RemoteAreaService,
   ) {
     // Ensure uploads directory exists
     if (!fs.existsSync(this.uploadsDir)) {
@@ -298,6 +301,7 @@ export class BasketService {
           const variations = row['Variations'] || row['变量'] || '';
           const sku = row['SKU'] || '';
           const datePaid = row['Date Paid'] || row['付款日期'] || '';
+          const shipState = row['Ship State'] || row['省/州'] || '';
           
           // 使用dayjs格式化日期
           const formattedDatePaid = this.formatExcelDate(datePaid);
@@ -343,7 +347,8 @@ export class BasketService {
             orderType,
             fontSize: skuConfig?.fontSize,
             font: skuConfig?.font,
-            datePaid: formattedDatePaid
+            datePaid: formattedDatePaid,
+            isRemoteArea: this.remoteAreaService.isRemoteArea(shipState),
           };
           
           processedOrders.push(orderData);
@@ -735,7 +740,8 @@ export class BasketService {
           fontSize: order.fontSize,
           font: order.font, // 添加字体信息
           originalVariations: variation.originalText || '', // 添加原始变量文本
-          datePaid: order.datePaid || ''
+          datePaid: order.datePaid || '',
+          isRemoteArea: order.isRemoteArea || false,
         };
         
         // 根据订单类型添加特定属性

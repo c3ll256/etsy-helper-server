@@ -13,6 +13,7 @@ import { PythonBasketService } from './services/python-basket.service';
 import { CommonModule } from '../common/common.module';
 import { UsersModule } from '../users/users.module';
 import { AuthModule } from '../auth/auth.module';
+import { RemoteAreaService } from '../common/services/remote-area.service';
 
 // Ensure uploads directory exists
 const BASKETS_UPLOADS_DIR = 'uploads/baskets';
@@ -40,7 +41,7 @@ if (!fs.existsSync(BASKETS_UPLOADS_DIR)) {
     }),
   ],
   controllers: [BasketController],
-  providers: [BasketService, PythonBasketService],
+  providers: [BasketService, PythonBasketService, RemoteAreaService],
   exports: [BasketService, PythonBasketService],
 })
 export class BasketModule {} 

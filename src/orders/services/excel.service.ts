@@ -15,6 +15,7 @@ import { OrderStatus, OrderType } from '../enums/order.enum';
 import * as ExcelJS from 'exceljs';
 import * as dayjs from 'dayjs';
 import * as customParseFormat from 'dayjs/plugin/customParseFormat';
+import { RemoteAreaService } from 'src/common/services/remote-area.service';
 
 // Initialize dayjs plugins
 dayjs.extend(customParseFormat);
@@ -40,6 +41,7 @@ export class ExcelService {
     @InjectRepository(EtsyOrder)
     private readonly etsyOrderRepository: Repository<EtsyOrder>,
     private readonly aliyunService: AliyunService,
+    private readonly remoteAreaService: RemoteAreaService,
   ) {}
 
   /**
@@ -490,6 +492,7 @@ export class ExcelService {
       shipAddress2: item['Ship Address2']?.toString(),
       shipCity: item['Ship City']?.toString(),
       shipState: item['Ship State']?.toString(),
+      isRemoteArea: this.remoteAreaService.isRemoteArea(item['Ship State']?.toString()),
       shipZipcode: item['Ship Zipcode']?.toString(),
       shipCountry: item['Ship Country']?.toString(),
       // Order details

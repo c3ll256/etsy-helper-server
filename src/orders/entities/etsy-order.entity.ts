@@ -100,6 +100,10 @@ export class EtsyOrder {
   @Column({ nullable: true })
   shipCountry: string;
 
+  @ApiProperty({ description: '是否为偏远地区', example: false, required: false })
+  @Column({ type: 'boolean', default: false, comment: '是否为偏远地区' })
+  isRemoteArea: boolean;
+
   @ApiProperty({
     description: 'Order variations',
     example: { 'Color': 'Red', 'Size': 'Large' },
