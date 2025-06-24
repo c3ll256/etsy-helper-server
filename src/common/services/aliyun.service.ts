@@ -28,7 +28,7 @@ export class AliyunService {
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('aliyun.apiKey');
     this.baseUrl = this.configService.get<string>('aliyun.baseUrl', 'https://dashscope.aliyuncs.com/compatible-mode/v1');
-    this.defaultModel = this.configService.get<string>('aliyun.model', 'qwen-turbo');
+    this.defaultModel = this.configService.get<string>('aliyun.model', 'qwen-turbo-latest');
     this.defaultTemperature = this.configService.get<number>('aliyun.temperature', 0.7);
     this.defaultTopP = this.configService.get<number>('aliyun.topP', 0.9);
     this.defaultMaxTokens = this.configService.get<number>('aliyun.maxTokens', 2048);
