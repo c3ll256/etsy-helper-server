@@ -376,7 +376,7 @@ export class StampsService {
                     color: templateElement.color,
                     description: templateElement.description,
                     isUppercase: templateElement.isUppercase,
-                    autoBold: templateElement.autoBold,
+                    strokeWidth: templateElement.strokeWidth,
                     textPadding: templateElement.textPadding,
                     firstVariant: templateElement.firstVariant,
                     lastVariant: templateElement.lastVariant,

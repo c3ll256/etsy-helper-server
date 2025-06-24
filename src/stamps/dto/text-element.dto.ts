@@ -129,10 +129,10 @@ export class TextElementDto implements TextElement {
   @IsOptional()
   isUppercase?: boolean;
 
-  @ApiProperty({ description: 'Automatically apply bold font weight', required: false })
-  @IsBoolean()
+  @ApiProperty({ description: 'The width of the stroke to apply for a faux bold effect', required: false })
+  @IsNumber()
   @IsOptional()
-  autoBold?: boolean;
+  strokeWidth?: number;
   
   @ApiProperty({ description: 'Custom padding for text that exceeds canvas boundaries', required: false })
   @IsNumber()

@@ -83,7 +83,7 @@ export interface TextElement {
   color?: string;
   description?: string;
   isUppercase?: boolean;
-  autoBold?: boolean;
+  strokeWidth?: number;
   textPadding?: number;
   firstVariant?: number;
   lastVariant?: number;

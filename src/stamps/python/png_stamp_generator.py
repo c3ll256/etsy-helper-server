@@ -430,6 +430,7 @@ class PNGStampGenerator:
             last_variant = None   # 尾字符变体
             custom_padding = None # 自定义padding
             is_autobold_enabled = False
+            stroke_width = 0
             
             # 使用原始文本或转换后的文本来查找元素
             lookup_text = original_text if original_text is not None else text
@@ -451,10 +452,10 @@ class PNGStampGenerator:
                     font_weight = element.get('fontWeight')
                     
                     # If autoBold is true, override font weight to bold
-                    if element.get('autoBold', False):
+                    stroke_width_from_element = element.get('strokeWidth', 0)
+                    if stroke_width_from_element > 0:
                         is_autobold_enabled = True
-                        font_weight = 'bold'
-                        logger.debug(f"autoBold is True for element {element_id}, setting fontWeight to 'bold'")
+                        stroke_width = max(1, int(stroke_width_from_element * self.scale_factor))
                     
                     # 检查是否有可变字体设置
                     if 'variableFontSettings' in element:
@@ -474,9 +475,8 @@ class PNGStampGenerator:
                 return
             
             # 如果启用了自动加粗，则计算描边宽度
-            stroke_width = 0
             if is_autobold_enabled:
-                stroke_width = max(1, int(scaled_font_size * 0.025))
+                pass # stroke_width is already calculated
             
             # 计算边距
             margin = int(10 * self.scale_factor)  # 默认边距(单侧)
