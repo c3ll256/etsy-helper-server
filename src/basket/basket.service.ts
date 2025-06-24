@@ -308,7 +308,7 @@ export class BasketService {
           
           // Determine order type based on SKU
           const orderType = this.determineOrderType(sku, skuConfigs);
-          
+
           // If neither basket nor backpack SKU is matched, skip this order
           if (!orderType) {
             this.logger.debug(`Skipping row ${i + 1}: SKU ${sku} does not match any configured patterns`);
@@ -728,7 +728,7 @@ export class BasketService {
         const slideData = {
           date: new Date().toLocaleDateString('zh-CN'),
           orderNumber: String(order.orderId),
-          color: variation.color || '默认颜色',
+          color: variation.color || '',
           icon: variation.icon || '', 
           position: totalOrderCount > 1 ? orderPositionString : variationPosition,
           recipientName: order.shipName || '',
@@ -771,7 +771,7 @@ export class BasketService {
       
       if (orderType === 'basket') {
         prompt = `
-你是一个订单变量解析专家，需要从篮子产品的变量中提取客户定制的每一项内容，用JSON数组格式返回，每个元素包含：
+你是一个订单变量解析专家，需要从变量中提取客户定制的每一项内容，用JSON数组格式返回，每个元素包含：
 [
   {
     "color": 变量中提到的颜色信息（如毛线颜色、材料颜色等）,
@@ -788,27 +788,26 @@ export class BasketService {
 `;
       } else if (orderType === 'backpack') {
         prompt = `
-你是一个订单变量解析专家，需要从背包产品的变量中提取客户定制的内容，用JSON数组格式返回，每个元素包含：
+你是一个订单变量解析专家，需要从变量中提取客户定制的内容，用JSON数组格式返回，每个元素包含：
 [
   {
-    "color": 变量中提到的羊毛颜色（Yarn Color）,
-    "design": 变量中提到的背包设计信息（Backpack Design）,
-    "icon": 变量中提到的背包图案编号（编号为数字）,
+    "icon": 变量中提到的背包图案编号,
     "value": 变量中客户要定制的内容（如名字、文字等）
   },
   ... // 可能还有更多定制项
 ]
 
 请注意！！！
-1. 对于背包产品，通常会有背包颜色和定制内容两个部分。
-2. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
-3. 注意 Personalization 中会包含客户的定制内容以及定制的图案编号，格式为(Name, Icon)，请分别提取，有的客户可能会只填写 Name。
-4. 注意阿拉伯数字一定不是 value！！！
-5. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
+1. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
+2. 注意客户的定制内容会以 名字, 图案编号 的格式出现，例如：
+变量 (Variations): Branko, zd
+返回结果: { "icon": "zd", "value": "Branko" } 
+3. 客户的名字一定不是阿拉伯数字！！！
+4. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
 `;
       }
 
-      const userPrompt = `变量 (Variations): ${variations}`;
+      const userPrompt = `变量 (Variations): ${variations.split('Personalization:')[1] || variations}`;
 
       const result = await this.aliyunService.generateJson(userPrompt, { systemPrompt: prompt });
       
@@ -824,7 +823,7 @@ export class BasketService {
       
       // Return default value if LLM analysis fails
       return [{
-        color: '默认颜色',
+        color: '',
         value: variations || '',
         originalText: variations || ''
       }];
