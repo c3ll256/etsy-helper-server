@@ -178,7 +178,7 @@ export class OrderStampService {
               textPadding: element.textPadding,
               firstVariant: element.firstVariant,
               lastVariant: element.lastVariant,
-              autoBold: element.autoBold,
+              strokeWidth: element.strokeWidth,
               description: element.description,
             };
           }).filter(Boolean);
