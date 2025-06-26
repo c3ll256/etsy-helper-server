@@ -766,33 +766,12 @@ export class BasketService {
    */
   private async analyzeVariations(variations: string, orderType: 'basket' | 'backpack'): Promise<ParsedVariation[]> {
     try {
-      // Different prompt based on order type
-      let prompt = '';
-      
-      if (orderType === 'basket') {
-        prompt = `
-你是一个订单变量解析专家，需要从变量中提取客户定制的每一项内容，用JSON数组格式返回，每个元素包含：
-[
-  {
-    "color": 变量中提到的颜色信息（如毛线颜色、材料颜色等）,
-    "value": 变量中客户要定制的内容（如名字、文字等）
-  },
-  ... // 可能还有更多定制项
-]
-
-请注意！！！
-1. 如果有多个定制项，请分别提取并作为不同的数组元素返回。
-2. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
-3. 注意阿拉伯数字一定不是 value！！！
-4. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
-`;
-      } else if (orderType === 'backpack') {
-        prompt = `
+      const prompt = `
 你是一个订单变量解析专家，需要从变量中提取客户定制的内容，用JSON数组格式返回，每个元素包含：
 [
   {
     "color": 变量中提到的颜色（如毛线颜色、材料颜色等）,
-    "icon": 变量中提到的背包图案编号,
+    ${orderType === 'backpack' ? '"icon": 变量中提到的背包图案编号,' : ''}
     "value": 变量中客户要定制的内容（如名字、文字等）
   },
   ... // 可能还有更多定制项
@@ -800,13 +779,31 @@ export class BasketService {
 
 请注意！！！
 1. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
-2. 注意客户的定制内容会以 名字, 图案编号 的格式出现，客户的颜色定制内容一般会跟在 Yarn Color: 后面, 例如：
-Yarn Color: Cream, Personalization: Branko, zd
-返回结果: { "color": "Cream", "icon": "zd", "value": "Branko" } 
+2. 注意，客户的颜色定制内容一般会跟在 Yarn Color 后面，客户的信息定制内容一般以 名字, 图案编号 的格式出现在 Personalization 后面，但也有可能客户会不按格式填写
+
+例子1：
+变量 (Variations): ...Yarn Color: Cream, Personalization: Branko, zd...
+
+返回结果: [ { "color": "Cream", "icon": "zd", "value": "Branko" } ]
+
+例子2：
+变量 (Variations): Backpack Color:Rose + Icon,Yarn Color:Mix-2,Personalization:1. Rayla, 1 2. Jack, 3
+
+返回结果: [ { "color": "Mix-2", "icon": "1", "value": "Rayla" }, { "color": "Mix-2", "icon": "3", "value": "Jack" } ]
+
+例子3：
+变量 (Variations): Backpack Color:Rose + Icon,Yarn Color:Mix-2,Personalization:1. Rayla 2. 1 & 7 (bow and yellow flower)
+
+返回结果: [ { "color": "Mix-2", "icon": "1 & 7 (bow and yellow flower)", "value": "Rayla" } ]
+
+例子4：
+变量 (Variations): Size:L (14.96&#39;&#39;x14.96&#39;&#39;),Yarn Color:Mix-1,Personalization:1. Adler 2. No icons, just name
+
+返回结果: [ { "color": "Mix-1", "icon": "", "value": "Adler" } ]
+
 3. 客户的名字一定不是阿拉伯数字！！！
 4. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
 `;
-      }
 
       const userPrompt = `变量 (Variations): ${variations}`;
 
