@@ -7,6 +7,7 @@ import time
 import logging
 from io import BytesIO
 import math
+import html
 import freetype
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -455,7 +456,7 @@ class PNGStampGenerator:
                     stroke_width_from_element = element.get('strokeWidth', 0)
                     if stroke_width_from_element > 0:
                         is_autobold_enabled = True
-                        stroke_width = max(1, int(stroke_width_from_element * self.scale_factor))
+                        stroke_width = int(round(float(stroke_width_from_element) * self.scale_factor))
                     
                     # 检查是否有可变字体设置
                     if 'variableFontSettings' in element:
@@ -1612,6 +1613,9 @@ class PNGStampGenerator:
                     
                     # 保存原始文本，用于在_draw_text_with_pil中匹配元素
                     original_text = text
+                    
+                    # Decode HTML entities to fix garbled characters
+                    text = html.unescape(text)
                     
                     # Apply uppercase if specified
                     if element.get('isUppercase', False):
