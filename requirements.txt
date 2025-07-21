@@ -6,3 +6,4 @@ uharfbuzz>=0.37.0
 python-pptx>=0.6.21
 freetype-py>=2.3.0
 numpy>=2.0.0
+qrcode[pil]>=7.0.0

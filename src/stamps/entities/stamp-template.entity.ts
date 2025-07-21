@@ -4,8 +4,8 @@ import { User } from '../../users/entities/user.entity';
 export enum StampType {
   RUBBER = 'rubber',
   STEEL = 'steel',
-  PHOTOSENSITIVE = 'photosensitive',
-  ACRYLIC = 'acrylic',
+  PHOTOSENSITIVE = 'photo',
+  ACRYLIC = 'acryl',
 }
 
 @Entity('stamp_templates')

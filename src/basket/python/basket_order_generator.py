@@ -11,6 +11,9 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
+import qrcode
+from PIL import Image
+import io
 import logging
 logging.basicConfig(
     level=logging.INFO,
@@ -21,6 +24,35 @@ logger = logging.getLogger('basket_order_generator')
 # Set constants for A4 landscape dimensions (in inches)
 A4_WIDTH = 11.69  # 297mm
 A4_HEIGHT = 8.27  # 210mm
+
+def generate_qr_code(order_id):
+    """Generate QR code for order ID and return as bytes"""
+    try:
+        # Create QR code instance
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        
+        # Add order ID data to QR code
+        qr.add_data(str(order_id))
+        qr.make(fit=True)
+        
+        # Create QR code image
+        qr_img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Convert PIL image to bytes
+        img_buffer = io.BytesIO()
+        qr_img.save(img_buffer, format='PNG')
+        img_buffer.seek(0)
+        
+        return img_buffer
+        
+    except Exception as e:
+        logger.error(f"Error generating QR code for order {order_id}: {str(e)}")
+        return None
 
 def create_basket_order_slide(prs, order_data):
     logger.info(f"Creating slide for order: {order_data}")
@@ -136,8 +168,37 @@ def create_basket_order_slide(prs, order_data):
         value_p.font.size = Pt(font_size)
     
     # ----- BOTTOM SECTION -----
-    # Shop name at the bottom
-    bottom_box = slide.shapes.add_textbox(margin, prs.slide_height - margin - Inches(0.4), prs.slide_width - margin * 2, Inches(0.4))
+    # Generate and add QR code for order ID in bottom right corner
+    order_id = order_data.get('orderNumber', '')
+    if order_id:
+        qr_buffer = generate_qr_code(order_id)
+        if qr_buffer:
+            try:
+                # Create temporary file for QR code
+                qr_temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+                qr_temp_file.write(qr_buffer.getvalue())
+                qr_temp_file.close()
+                
+                # QR code dimensions and position (bottom right corner)
+                qr_size = Inches(1.0)  # 1 inch square QR code
+                qr_margin = Inches(0.2)  # Small margin from edges
+                qr_left = prs.slide_width - qr_size - qr_margin
+                qr_top = prs.slide_height - qr_size - qr_margin
+                
+                # Add QR code image to slide
+                slide.shapes.add_picture(qr_temp_file.name, qr_left, qr_top, qr_size, qr_size)
+                
+                # Clean up temporary QR code file
+                os.unlink(qr_temp_file.name)
+                
+            except Exception as e:
+                logger.error(f"Error adding QR code to slide: {str(e)}")
+    
+    # Shop name at the bottom (adjusted to not overlap with QR code)
+    # Reduce the width to leave space for QR code
+    qr_space = Inches(1.4)  # Space reserved for QR code (QR size + margins)
+    bottom_box = slide.shapes.add_textbox(margin, prs.slide_height - margin - Inches(0.4), 
+                                          prs.slide_width - margin * 2 - qr_space, Inches(0.4))
     bottom_text_frame = bottom_box.text_frame
     bottom_p = bottom_text_frame.paragraphs[0]
     
