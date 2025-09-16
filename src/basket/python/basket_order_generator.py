@@ -67,6 +67,10 @@ def create_basket_order_slide(prs, order_data):
     
     # Calculate margins and positions
     margin = Inches(0.5)
+    # Place date/position slightly higher than the combined text
+    date_top = max(Inches(0.2), margin - Inches(0.25))
+    # Place combined text a bit lower to stagger from date/position
+    combined_top = margin + Inches(0.2)
     
     # 添加白色背景
     slide.background.fill.solid()
@@ -85,7 +89,7 @@ def create_basket_order_slide(prs, order_data):
     variations_p.font.color.rgb = RGBColor(0, 0, 0)
     
     # Date (下单日期)
-    date_box = slide.shapes.add_textbox(margin, margin, Inches(2.5), Inches(0.4))
+    date_box = slide.shapes.add_textbox(margin, date_top, Inches(2.5), Inches(0.4))
     date_text = date_box.text_frame
     date_p = date_text.paragraphs[0]
     date_p.text = order_data.get('datePaid', '')
@@ -107,7 +111,7 @@ def create_basket_order_slide(prs, order_data):
         combined_text += f" - {icon_str}"
     
     # Center combined text
-    combined_box = slide.shapes.add_textbox(margin + Inches(2.7), margin, Inches(6), Inches(0.4))
+    combined_box = slide.shapes.add_textbox(margin + Inches(2.7), combined_top, Inches(6), Inches(0.4))
     combined_text_frame = combined_box.text_frame
     combined_p = combined_text_frame.paragraphs[0]
     combined_p.text = combined_text
@@ -116,7 +120,7 @@ def create_basket_order_slide(prs, order_data):
     combined_p.font.color.rgb = RGBColor(0, 0, 0)
     
     # Position (一单多买的序号)
-    position_box = slide.shapes.add_textbox(prs.slide_width - margin - Inches(1.2), margin, Inches(1.2), Inches(0.4))
+    position_box = slide.shapes.add_textbox(prs.slide_width - margin - Inches(1.2), date_top, Inches(1.2), Inches(0.4))
     position_text = position_box.text_frame
     position_p = position_text.paragraphs[0]
     position_p.text = order_data.get('position', '')
