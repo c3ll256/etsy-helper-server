@@ -343,6 +343,22 @@ export class BasketService {
                            skuRaw.slice(matchedIndex + skuConfig.sku.length);
             }
           }
+
+          // Apply yarn color mapping if configured for this SKU
+          let finalVariations = analyzedVariations;
+          const colorMap = skuConfig?.yarnColorMap as Record<string, string> | undefined;
+          if (colorMap && analyzedVariations?.length) {
+            // Build a case-insensitive lookup map
+            const normalizedEntries = Object.entries(colorMap).map(([k, v]) => [String(k).trim().toLowerCase(), v]);
+            const normalizedMap = new Map<string, string>(normalizedEntries as [string, string][]);
+            finalVariations = analyzedVariations.map(v => {
+              const originalColor = (v?.color || '').trim();
+              if (!originalColor) return v;
+              const mapped = normalizedMap.get(originalColor.toLowerCase());
+              if (mapped == null) return v;
+              return { ...v, color: mapped };
+            });
+          }
           
           // 保存数据行号（注意：第一行是标题行，不包含在rawData中）
           // 因此实际的Excel行号需要加2（1是因为Excel从1开始，再加1是因为标题行）
@@ -354,7 +370,7 @@ export class BasketService {
             quantity,
             orderId,
             shipName,
-            variations: analyzedVariations,
+            variations: finalVariations,
             sku: replacedSku,
             originalSku: skuRaw,
             orderType,

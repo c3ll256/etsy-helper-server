@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsEnum, IsOptional, IsNumber, Min, Max } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsNumber, IsObject } from 'class-validator';
 import { SkuType } from '../entities/sku-config.entity';
 
 export class CreateSkuConfigDto {
@@ -25,6 +25,11 @@ export class CreateSkuConfigDto {
   @IsString()
   @IsOptional()
   font?: string;
+
+  @ApiProperty({ description: 'Yarn 颜色替换映射(JSON 对象)。例如 {"Cream": "奶油色"}', required: false, type: Object })
+  @IsObject()
+  @IsOptional()
+  yarnColorMap?: Record<string, string>;
 }
 
 export class SkuConfigResponseDto extends CreateSkuConfigDto {

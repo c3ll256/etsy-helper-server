@@ -46,6 +46,10 @@ export class SkuConfig {
   @ApiProperty({ description: '字体名称' })
   font: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  @ApiProperty({ description: 'Yarn 颜色替换映射(JSON 对象)。例如 {"Cream": "奶油色"}', required: false, type: Object })
+  yarnColorMap: Record<string, string>;
+
   @CreateDateColumn({ type: 'timestamptz' })
   @ApiProperty({ description: '创建时间' })
   createdAt: Date;
