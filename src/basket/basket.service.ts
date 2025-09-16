@@ -2,7 +2,9 @@ import { Injectable, Logger, ForbiddenException, NotFoundException, BadRequestEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import * as fs from 'fs';
-import { read, utils, write, writeFile } from 'xlsx';
+import { read, utils } from 'xlsx';
+import * as ExcelJS from 'exceljs';
+import { toBuffer as generateQrBuffer } from 'qrcode';
 import * as dayjs from 'dayjs';
 import * as AdmZip from 'adm-zip';
 import * as path from 'path';
@@ -34,12 +36,15 @@ interface ProcessedOrder {
   orderId: string;
   shipName: string;
   variations: ParsedVariation[];
-  sku: string;
+  sku: string; // replaced SKU for PPT
+  originalSku: string; // original SKU from import Excel for export
   orderType?: 'basket' | 'backpack';
   fontSize?: number;
   font?: string;
   datePaid?: string;
+  orderDate?: string;
   isRemoteArea?: boolean;
+  shipAddress?: string;
 }
 
 @Injectable()
@@ -299,19 +304,26 @@ export class BasketService {
           const orderId = row['Order ID'] || row['OrderID'] || row['订单ID'] || '';
           const shipName = row['Ship Name'] || row['收件人姓名'] || row['收件人'] || '';
           const variations = row['Variations'] || row['变量'] || '';
-          const sku = row['SKU'] || '';
+          const skuRaw = row['SKU'] || '';
           const datePaid = row['Date Paid'] || row['付款日期'] || '';
+          const orderDate = row['Sale Date'] || row['Order Date'] || row['下单日期'] || row['下单时间'] || '';
           const shipState = row['Ship State'] || row['省/州'] || '';
+          const shipAddress1 = row['Ship Address 1'] || row['地址1'] || '';
+          const shipAddress2 = row['Ship Address 2'] || row['地址2'] || '';
+          const shipCity = row['Ship City'] || row['城市'] || '';
+          const shipZip = row['Ship Zip'] || row['邮编'] || '';
+          const shipCountry = row['Ship Country'] || row['国家'] || '';
           
           // 使用dayjs格式化日期
           const formattedDatePaid = this.formatExcelDate(datePaid);
+          const formattedOrderDate = this.formatExcelDate(orderDate);
           
           // Determine order type based on SKU
-          const orderType = this.determineOrderType(sku, skuConfigs);
+          const orderType = this.determineOrderType(skuRaw, skuConfigs);
 
           // If neither basket nor backpack SKU is matched, skip this order
           if (!orderType) {
-            this.logger.debug(`Skipping row ${i + 1}: SKU ${sku} does not match any configured patterns`);
+            this.logger.debug(`Skipping row ${i + 1}: SKU ${skuRaw} does not match any configured patterns`);
             continue;
           }
           
@@ -319,16 +331,16 @@ export class BasketService {
           const analyzedVariations = await this.analyzeVariations(variations, orderType);
           
           // Find matching SKU config for replacement value and font size
-          const skuConfig = skuConfigs.find(config => sku.includes(config.sku));
+          const skuConfig = skuConfigs.find(config => skuRaw.includes(config.sku));
           
           // Replace the matched part while preserving the rest
-          let replacedSku = sku;
+          let replacedSku = skuRaw;
           if (skuConfig) {
-            const matchedIndex = sku.indexOf(skuConfig.sku);
+            const matchedIndex = skuRaw.indexOf(skuConfig.sku);
             if (matchedIndex !== -1) {
-              replacedSku = sku.slice(0, matchedIndex) + 
+              replacedSku = skuRaw.slice(0, matchedIndex) + 
                            skuConfig.replaceValue + 
-                           sku.slice(matchedIndex + skuConfig.sku.length);
+                           skuRaw.slice(matchedIndex + skuConfig.sku.length);
             }
           }
           
@@ -344,11 +356,16 @@ export class BasketService {
             shipName,
             variations: analyzedVariations,
             sku: replacedSku,
+            originalSku: skuRaw,
             orderType,
             fontSize: skuConfig?.fontSize,
             font: skuConfig?.font,
             datePaid: formattedDatePaid,
+            orderDate: formattedOrderDate,
             isRemoteArea: this.remoteAreaService.isRemoteArea(shipState),
+            shipAddress: [shipAddress1, shipAddress2, shipCity, shipState, shipZip, shipCountry]
+              .filter(Boolean)
+              .join(', '),
           };
           
           processedOrders.push(orderData);
@@ -436,7 +453,7 @@ export class BasketService {
     orderType: 'basket' | 'backpack' | 'all'
   ): Promise<void> {
     // Declare file paths outside the try block so they're available in catch block
-    let modifiedExcelPath: string | null = null; // Declare modifiedExcelPath here
+    let modifiedExcelPath: string | null = null; // 导出的Excel文件路径
     let pptFilePath: string | null = null;
     let zipFilePath: string | null = null;
     
@@ -464,11 +481,8 @@ export class BasketService {
         message: '解析Excel数据',
       });
 
-      // Read the file from disk - workbook is already read using xlsx
+      // Read the file from disk
       const fileBuffer = fs.readFileSync(file.path);
-      const workbook = read(fileBuffer, { type: 'buffer' }); // Use the initially read workbook
-      // const worksheet = workbook.Sheets[workbook.SheetNames[0]]; // worksheet obtained below
-      // const rawData = utils.sheet_to_json(worksheet, { header: 'A' }); // rawData not needed here again
       
       // Process the data and keep track of processed row indices
       const processedOrders = await this.processExcelData(fileBuffer, skuConfigs);
@@ -489,50 +503,99 @@ export class BasketService {
         throw new Error(errorMessage);
       }
       
-      // --- Start: Modify Excel using xlsx ---
-      this.logger.debug('Adding "Processed" column to Excel file using xlsx');
-      
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const validRowIds = new Set(filteredOrders.map(order => order.id));
-      
-      // 1. Determine new column index and header cell
-      const range = utils.decode_range(worksheet['!ref']);
-      const newColIndex = (range.e.c || 0) + 1; // 0-indexed new column
-      const headerCellAddress = utils.encode_cell({ r: 0, c: newColIndex }); // Header at first row (index 0)
-      
-      // 2. Add Header
-      worksheet[headerCellAddress] = { v: 'Processed', t: 's' }; // 's' for string type
-      
-      // 3. Add Data Markers
-      let processedCount = 0;
-      for (let R = 1; R <= range.e.r; ++R) { // Iterate data rows (starting index 1)
-        const excelRowNumber = R + 1; // Excel row number is 1-based index + 1
-        if (validRowIds.has(excelRowNumber)) {
-          const dataCellAddress = utils.encode_cell({ r: R, c: newColIndex });
-          worksheet[dataCellAddress] = { v: true, t: 'b' }; // Use boolean 'true', type 'b'
-          processedCount++;
+      // --- Start: Generate new Excel with required columns and QR code ---
+      this.logger.debug('Generating export Excel with required columns and QR codes');
+
+      const exportWorkbook = new ExcelJS.Workbook();
+      const exportSheet = exportWorkbook.addWorksheet('订单导出');
+
+      // Define columns (requested order + SKU + 收货地址；自定义信息展示完整原始 variations)
+      const headers = [
+        '订单号',
+        '下单时间',
+        '顾客姓名',
+        '产品数量',
+        '自定义信息',
+        'SKU',
+        '收货地址',
+        '二维码',
+        '是否识别成功',
+        '店铺名'
+      ];
+
+      exportSheet.columns = [
+        { header: headers[0], key: 'orderId', width: 20 },
+        { header: headers[1], key: 'orderDate', width: 18 },
+        { header: headers[2], key: 'shipName', width: 18 },
+        { header: headers[3], key: 'quantity', width: 12 },
+        { header: headers[4], key: 'customInfo', width: 50 },
+        { header: headers[5], key: 'sku', width: 20 },
+        { header: headers[6], key: 'shipAddress', width: 40 },
+        { header: headers[7], key: 'qrcode', width: 18 },
+        { header: headers[8], key: 'recognized', width: 16 },
+        { header: headers[9], key: 'shopName', width: 20 },
+      ];
+
+      // 获取记录关联的用户信息（用于店铺名）
+      const recordForExcel = await this.basketRecordRepository.findOne({
+        where: { id: recordId },
+        relations: ['user']
+      });
+      const shopNameForExcel = recordForExcel?.user?.shopName || '';
+
+      // Add rows (one per variation)
+      for (const order of filteredOrders) {
+        for (const variation of order.variations) {
+          const recognized = !!(variation?.value && variation.value.trim() && variation.originalText && variation.value.trim() !== variation.originalText.trim());
+
+          // 自定义信息：展示完整原始 variations 文本（来自每行原始导入）
+          const fullVariations = variation?.originalText || '';
+
+          exportSheet.addRow({
+            orderId: order.orderId,
+            orderDate: order.orderDate || '',
+            shipName: order.shipName || '',
+            quantity: order.quantity || 1,
+            customInfo: fullVariations,
+            sku: order.originalSku || '',
+            shipAddress: order.shipAddress || '',
+            qrcode: '', // 图片稍后插入
+            recognized: recognized ? '是' : '否',
+            shopName: shopNameForExcel,
+          });
+          const addedRow = exportSheet.lastRow;
+          if (addedRow) {
+            addedRow.height = 80;
+            // Generate QR code for orderId
+            try {
+              const qrBuffer = await generateQrBuffer(String(order.orderId || ''));
+              const imageId = exportWorkbook.addImage({ buffer: qrBuffer, extension: 'png' });
+              const rowIndex = addedRow.number;
+              // Place image into the QR column
+              const qrColIndex = exportSheet.getColumn('qrcode').number; // 1-based index
+              // Anchor image to the cell (qr column, current row)
+              exportSheet.addImage(imageId, {
+                tl: { col: qrColIndex - 1 + 0.15, row: rowIndex - 1 + 0.15 },
+                ext: { width: 80, height: 80 },
+                editAs: 'oneCell'
+              });
+            } catch (e) {
+              this.logger.warn(`Failed to generate QR for order ${order.orderId}: ${e.message}`);
+            }
+          }
         }
       }
-      this.logger.debug(`Marked ${processedCount} rows in new 'Processed' column.`);
-      
-      // 4. Update Sheet Range to include the new column
-      range.e.c = newColIndex;
-      worksheet['!ref'] = utils.encode_range(range);
-      
-      // 5. Define path and save modified Excel file
-      const modifiedExcelFileName = `processed_${path.basename(file.originalname)}`;
-      const modifiedExcelPath = path.join(this.uploadsDir, modifiedExcelFileName);
-      // Use writeFile from xlsx library
-      writeFile(workbook, modifiedExcelPath); 
-      this.logger.debug(`Saved modified Excel with 'Processed' column to: ${modifiedExcelPath}`);
-      // --- End: Modify Excel using xlsx ---
+
+      // Save export workbook
+      const exportExcelFileName = `orders_export_${Date.now()}.xlsx`;
+      modifiedExcelPath = path.join(this.uploadsDir, exportExcelFileName);
+      await exportWorkbook.xlsx.writeFile(modifiedExcelPath);
+      this.logger.debug(`Saved export Excel to: ${modifiedExcelPath}`);
+      // --- End: Generate new Excel with required columns and QR code ---
 
       // Remove the exceljs highlighting block previously here
 
-      // Declare pptFilePath and zipFilePath (moved declaration earlier)
-      // let highlightedExcelPath: string | null = null; // No longer needed
-      let pptFilePath: string | null = null;
-      let zipFilePath: string | null = null; // Physical path for zip creation
+      // 已在方法开头声明了 pptFilePath 与 zipFilePath
 
       // Update progress after processing Excel data
       await this.basketRecordRepository.update(recordId, {
