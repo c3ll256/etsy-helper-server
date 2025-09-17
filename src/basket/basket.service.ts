@@ -38,13 +38,15 @@ interface ProcessedOrder {
   variations: ParsedVariation[];
   sku: string; // replaced SKU for PPT
   originalSku: string; // original SKU from import Excel for export
-  orderType?: 'basket' | 'backpack';
+  orderType?: 'basket' | 'backpack' | 'combo';
   fontSize?: number;
   font?: string;
   datePaid?: string;
   orderDate?: string;
   isRemoteArea?: boolean;
   shipAddress?: string;
+  // combo specific
+  comboItems?: Array<{ type: string; color: string }>;
 }
 
 @Injectable()
@@ -263,13 +265,13 @@ export class BasketService {
    * @param skuConfigs User's SKU configurations
    * @returns Order type ('basket', 'backpack', or undefined if no match)
    */
-  private determineOrderType(sku: string, skuConfigs: SkuConfig[]): 'basket' | 'backpack' | undefined {
+  private determineOrderType(sku: string, skuConfigs: SkuConfig[]): 'basket' | 'backpack' | 'combo' | undefined {
     if (!sku) return undefined;
     
     // 使用模糊匹配，只要配置的 SKU 是订单 SKU 的一部分就匹配
     const matchingConfig = skuConfigs.find(config => sku.includes(config.sku));
     if (matchingConfig) {
-      return matchingConfig.type;
+      return matchingConfig.type as any;
     }
     
     return undefined;
@@ -382,6 +384,7 @@ export class BasketService {
             shipAddress: [shipAddress1, shipAddress2, shipCity, shipState, shipZip, shipCountry]
               .filter(Boolean)
               .join(', '),
+            comboItems: skuConfig?.type === 'combo' ? ((skuConfig as any).comboItems || []) : undefined,
           };
           
           processedOrders.push(orderData);
@@ -808,32 +811,42 @@ export class BasketService {
         const variationPosition = `${variationIndex + 1}/${totalVariations}`;
         
         // Create a slide for each variation
-        const slideData = {
+        const base = {
           date: new Date().toLocaleDateString('zh-CN'),
           orderNumber: String(order.orderId),
-          color: variation.color || '',
-          icon: variation.icon || '', 
+          icon: variation.icon || '',
           position: totalOrderCount > 1 ? orderPositionString : variationPosition,
           recipientName: order.shipName || '',
           customName: variation.value || '',
           sku: order.sku || '',
           quantity: order.quantity || 1,
           shopName: shopName || '',
-          orderType: order.orderType || 'basket',
           fontSize: order.fontSize,
-          font: order.font, // 添加字体信息
-          originalVariations: variation.originalText || '', // 添加原始变量文本
+          font: order.font,
+          originalVariations: variation.originalText || '',
           datePaid: order.datePaid || '',
           isRemoteArea: order.isRemoteArea || false,
-        };
-        
-        // 根据订单类型添加特定属性
-        if (order.orderType === 'backpack') {
-          // 为背包订单添加特定属性
-          slideData['backpackStyle'] = true;
+        } as any;
+
+        if (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length) {
+          for (const item of order.comboItems) {
+            const slide = {
+              ...base,
+              color: item.color || '',
+              orderType: item.type || 'basket',
+            } as any;
+            if (item.type === 'backpack') slide['backpackStyle'] = true;
+            pptSlides.push(slide);
+          }
+        } else {
+          const slideData = {
+            ...base,
+            color: variation.color || '',
+            orderType: order.orderType || 'basket',
+          } as any;
+          if (order.orderType === 'backpack') slideData['backpackStyle'] = true;
+          pptSlides.push(slideData);
         }
-        
-        pptSlides.push(slideData);
       });
     });
     
@@ -847,14 +860,14 @@ export class BasketService {
    * @param orderType Type of order (basket or backpack)
    * @returns Array of parsed variations
    */
-  private async analyzeVariations(variations: string, orderType: 'basket' | 'backpack'): Promise<ParsedVariation[]> {
+  private async analyzeVariations(variations: string, orderType: 'basket' | 'backpack' | 'combo'): Promise<ParsedVariation[]> {
     try {
-      const prompt = `
+    const prompt = `
 你是一个订单变量解析专家，需要从变量中提取客户定制的内容，用JSON数组格式返回，每个元素包含：
 [
   {
     "color": 变量中提到的颜色（如毛线颜色、材料颜色等）,
-    ${orderType === 'backpack' ? '"icon": 变量中提到的背包图案编号,' : ''}
+    ${orderType !== 'basket' ? '"icon": 变量中提到的背包图案编号,' : ''}
     "value": 变量中客户要定制的内容（如名字、文字等）
   },
   ... // 可能还有更多定制项

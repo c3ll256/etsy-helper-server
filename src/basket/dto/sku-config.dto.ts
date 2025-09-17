@@ -1,13 +1,24 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsEnum, IsOptional, IsNumber, IsObject } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsNumber, IsObject, IsArray, ValidateNested } from 'class-validator';
 import { SkuType } from '../entities/sku-config.entity';
+import { Type } from 'class-transformer';
+
+export class ComboItemDto {
+  @ApiProperty({ description: '款式 SKU' })
+  @IsString()
+  sku: string;
+
+  @ApiProperty({ description: '颜色配置' })
+  @IsString()
+  color: string;
+}
 
 export class CreateSkuConfigDto {
   @ApiProperty({ description: 'SKU编码' })
   @IsString()
   sku: string;
 
-  @ApiProperty({ description: 'SKU类型：篮子或书包', enum: SkuType })
+  @ApiProperty({ description: 'SKU类型：篮子、书包或套组', enum: SkuType })
   @IsEnum(SkuType)
   type: SkuType;
 
@@ -30,6 +41,14 @@ export class CreateSkuConfigDto {
   @IsObject()
   @IsOptional()
   yarnColorMap?: Record<string, string>;
+
+  // 套组配置（当 type = combo 时生效）
+  @ApiProperty({ description: '套组款式数组', required: false, type: [ComboItemDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ComboItemDto)
+  @IsOptional()
+  comboItems?: ComboItemDto[];
 }
 
 export class SkuConfigResponseDto extends CreateSkuConfigDto {

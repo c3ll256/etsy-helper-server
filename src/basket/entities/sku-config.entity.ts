@@ -4,7 +4,8 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export enum SkuType {
   BASKET = 'basket',
-  BACKPACK = 'backpack'
+  BACKPACK = 'backpack',
+  COMBO = 'combo'
 }
 
 @Entity('sku_configs')
@@ -31,7 +32,7 @@ export class SkuConfig {
     enum: SkuType,
     default: SkuType.BASKET
   })
-  @ApiProperty({ description: 'SKU类型：篮子或书包', enum: SkuType })
+  @ApiProperty({ description: 'SKU类型：篮子、书包或套组', enum: SkuType })
   type: SkuType;
 
   @Column({ nullable: true })
@@ -49,6 +50,10 @@ export class SkuConfig {
   @Column({ type: 'jsonb', nullable: true })
   @ApiProperty({ description: 'Yarn 颜色替换映射(JSON 对象)。例如 {"Cream": "奶油色"}', required: false, type: Object })
   yarnColorMap: Record<string, string>;
+
+  @Column({ type: 'jsonb', nullable: true })
+  @ApiProperty({ description: '套组款式数组，每个元素包含 { type, color }', required: false, type: Array })
+  comboItems?: Array<{ type: SkuType; color: string }>;
 
   @CreateDateColumn({ type: 'timestamptz' })
   @ApiProperty({ description: '创建时间' })
