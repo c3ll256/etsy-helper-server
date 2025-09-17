@@ -154,7 +154,7 @@ export class BasketController {
   }
 
   @Get('records')
-  @ApiOperation({ summary: '获取篮子订单生成记录（分页）' })
+  @ApiOperation({ summary: '获取篮子订单生成记录（分页，可通过文件名/订单ID/SKU搜索）' })
   @ApiResponse({ 
     status: 200, 
     description: '返回分页的生成记录列表',
@@ -179,7 +179,7 @@ export class BasketController {
   })
   @ApiResponse({ status: 401, description: '未授权' })
   @ApiQuery({ type: BasketPaginationDto })
-  @ApiQuery({ name: 'search', required: false, description: '按文件名搜索' })
+  @ApiQuery({ name: 'search', required: false, description: '搜索：文件名/订单ID/SKU（模糊匹配）' })
   @ApiQuery({ 
     name: 'status', 
     required: false, 
@@ -251,6 +251,8 @@ export class BasketController {
   ) {
     return this.basketService.getGenerationRecord(id, user);
   }
+
+  
 
   @Get('generate/:jobId/status')
   @ApiOperation({ summary: '检查篮子订单PPT生成任务的状态' })

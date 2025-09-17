@@ -609,15 +609,17 @@ export class BasketService {
       this.logger.debug(`Saved export Excel to: ${modifiedExcelPath}`);
       // --- End: Generate new Excel with required columns and QR code ---
 
-      // Remove the exceljs highlighting block previously here
-
-      // 已在方法开头声明了 pptFilePath 与 zipFilePath
+      // Collect recognized orderIds and SKUs for search
+      const recognizedOrderIds = Array.from(new Set(filteredOrders.map(o => String(o.orderId || '')).filter(Boolean)));
+      const recognizedSkus = Array.from(new Set(filteredOrders.map(o => String(o.originalSku || o.sku || '')).filter(Boolean)));
 
       // Update progress after processing Excel data
       await this.basketRecordRepository.update(recordId, {
         progress: 50,
         ordersProcessed: filteredOrders.length,
         totalOrders: filteredOrders.length,
+        orderIds: recognizedOrderIds,
+        skus: recognizedSkus,
       });
       
       this.jobQueueService.updateJobProgress(jobId, {
@@ -728,6 +730,8 @@ export class BasketService {
         outputFilePath: webAccessiblePath, // Use web-accessible path
         ordersProcessed: filteredOrders.length,
         totalOrders: filteredOrders.length,
+        orderIds: recognizedOrderIds,
+        skus: recognizedSkus,
       });
       
       // Update job progress with success result and web-accessible path
@@ -985,11 +989,11 @@ export class BasketService {
     // Apply date filters
     this.applyDateFilters(queryBuilder, startDate, endDate);
 
-    // Apply search filter if provided
+    // Apply search filter if provided: fuzzy match filename/orderIds/skus
     if (search) {
       queryBuilder.andWhere(
-        '(record.originalFilename ILIKE :search)',
-        { search: `%${search}%` }
+        'record.originalFilename ILIKE :term OR record."orderIds"::text ILIKE :term OR record."skus"::text ILIKE :term',
+        { term: `%${search}%` }
       );
     }
 
@@ -1003,6 +1007,49 @@ export class BasketService {
     const [items, total] = await queryBuilder.getManyAndCount();
 
     // Return paginated response
+    return {
+      items,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  }
+
+  /**
+   * Search generation records by orderId and optional sku
+   * @param params search parameters
+   * @param user Current user
+   */
+  async searchGenerationRecords(
+    params: { orderId?: string; sku?: string; page?: number; limit?: number },
+    user: User
+  ): Promise<PaginatedResponse<BasketGenerationRecord>> {
+    const { orderId, sku, page = 1, limit = 10 } = params;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.basketRecordRepository.createQueryBuilder('record')
+      .leftJoinAndSelect('record.user', 'user')
+      .orderBy('record.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    if (orderId) {
+      queryBuilder.andWhere(':orderId = ANY(record.orderIds)', { orderId: String(orderId) });
+    }
+
+    if (sku) {
+      queryBuilder.andWhere(':sku = ANY(record.skus)', { sku: String(sku) });
+    }
+
+    if (!user.isAdmin) {
+      queryBuilder.andWhere('record.userId = :userId', { userId: user.id });
+    }
+
+    const [items, total] = await queryBuilder.getManyAndCount();
+
     return {
       items,
       meta: {

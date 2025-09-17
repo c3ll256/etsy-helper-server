@@ -36,6 +36,14 @@ export class BasketGenerationRecord {
   @Column({ type: 'text', nullable: true })
   errorMessage: string;
 
+  @ApiProperty({ description: '识别到的订单ID列表', type: [String] })
+  @Column('text', { array: true, default: [] })
+  orderIds: string[];
+
+  @ApiProperty({ description: '识别到的SKU列表', type: [String] })
+  @Column('text', { array: true, default: [] })
+  skus: string[];
+
   @ApiProperty({ description: '订单类型', enum: ['basket', 'backpack', 'all'], default: 'basket' })
   @Column({ default: 'basket' })
   orderType: 'basket' | 'backpack' | 'all';
