@@ -327,7 +327,7 @@ export class ExcelService {
       
       this.logger.log(`Selected template ${template.sku} for SKU ${sku} (match type: ${matchedTemplate ? (template.sku === sku ? 'exact' : 'includes') : 'fallback'})`);
       
-      // Build template description from text elements
+      // Build template description from text elements and include free-text guidance
       const descriptionParts = [];
       
       if (template.textElements && template.textElements.length > 0) {
@@ -339,8 +339,15 @@ export class ExcelService {
           });
         });
       }
-      
-      const templateDescription = JSON.stringify(descriptionParts);
+
+      const sections: string[] = [
+        '字段定义(JSON 数组):',
+        JSON.stringify(descriptionParts)
+      ];
+      if (template.description && template.description.trim().length > 0) {
+        sections.push('补充说明:', template.description);
+      }
+      const templateDescription = sections.join('\n');
       this.logger.log(`Found template description for SKU ${sku}: ${templateDescription}`);
       
       return { templateDescription, templateId: template.id };
