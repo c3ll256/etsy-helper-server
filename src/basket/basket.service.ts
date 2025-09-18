@@ -562,7 +562,22 @@ export class BasketService {
       });
       const shopNameForExcel = recordForExcel?.user?.shopName || '';
 
-      // Add rows (one per variation)
+      // 预计算每个订单号对应需要导出的总行数（用于序号标识 k/N）
+      const totalRowsByOrderId = new Map<string, number>();
+      for (const order of filteredOrders) {
+        const orderIdKey = String(order.orderId || '');
+        const factor = (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length)
+          ? order.comboItems.length
+          : 1;
+        const rowsForThisOrder = (order.variations?.length || 0) * factor;
+        const prev = totalRowsByOrderId.get(orderIdKey) || 0;
+        totalRowsByOrderId.set(orderIdKey, prev + rowsForThisOrder);
+      }
+
+      // 当前序号计数器
+      const currentIndexByOrderId = new Map<string, number>();
+
+      // Add rows (expand combo orders to N rows)
       for (const order of filteredOrders) {
         for (const variation of order.variations) {
           const recognized = !!(variation?.value && variation.value.trim() && variation.originalText && variation.value.trim() !== variation.originalText.trim());
@@ -570,37 +585,55 @@ export class BasketService {
           // 自定义信息：展示完整原始 variations 文本（来自每行原始导入）
           const fullVariations = variation?.originalText || '';
 
-          exportSheet.addRow({
-            orderId: order.orderId,
-            orderDate: order.orderDate || '',
-            shipName: order.shipName || '',
-            quantity: order.quantity || 1,
-            customInfo: fullVariations,
-            sku: order.originalSku || '',
-            shipAddress: order.shipAddress || '',
-            qrcode: '', // 图片稍后插入
-            recognized: recognized ? '是' : '否',
-            shopName: shopNameForExcel,
-          });
-          const addedRow = exportSheet.lastRow;
-          if (addedRow) {
-            addedRow.height = 80;
-            // Generate QR code for orderId
-            try {
-              const qrBuffer = await generateQrBuffer(String(order.orderId || ''));
-              const imageId = exportWorkbook.addImage({ buffer: qrBuffer, extension: 'png' });
-              const rowIndex = addedRow.number;
-              // Place image into the QR column
-              const qrColIndex = exportSheet.getColumn('qrcode').number; // 1-based index
-              // Anchor image to the cell (qr column, current row)
-              exportSheet.addImage(imageId, {
-                tl: { col: qrColIndex - 1 + 0.15, row: rowIndex - 1 + 0.15 },
-                ext: { width: 80, height: 80 },
-                editAs: 'oneCell'
-              });
-            } catch (e) {
-              this.logger.warn(`Failed to generate QR for order ${order.orderId}: ${e.message}`);
+          const orderIdKey = String(order.orderId || '');
+          const totalForThisOrderId = totalRowsByOrderId.get(orderIdKey) || 1;
+
+          const addOneRow = async (skuForRow: string) => {
+            const current = (currentIndexByOrderId.get(orderIdKey) || 0) + 1;
+            currentIndexByOrderId.set(orderIdKey, current);
+            const orderIdWithPos = `${orderIdKey} (${current}/${totalForThisOrderId})`;
+
+            exportSheet.addRow({
+              orderId: orderIdWithPos,
+              orderDate: order.orderDate || '',
+              shipName: order.shipName || '',
+              quantity: order.quantity || 1,
+              customInfo: fullVariations,
+              sku: skuForRow || '',
+              shipAddress: order.shipAddress || '',
+              qrcode: '', // 图片稍后插入
+              recognized: recognized ? '是' : '否',
+              shopName: shopNameForExcel,
+            });
+            const addedRow = exportSheet.lastRow;
+            if (addedRow) {
+              addedRow.height = 80;
+              // Generate QR code for orderId
+              try {
+                const qrBuffer = await generateQrBuffer(String(order.orderId || ''));
+                const imageId = exportWorkbook.addImage({ buffer: qrBuffer, extension: 'png' });
+                const rowIndex = addedRow.number;
+                // Place image into the QR column
+                const qrColIndex = exportSheet.getColumn('qrcode').number; // 1-based index
+                // Anchor image to the cell (qr column, current row)
+                exportSheet.addImage(imageId, {
+                  tl: { col: qrColIndex - 1 + 0.15, row: rowIndex - 1 + 0.15 },
+                  ext: { width: 80, height: 80 },
+                  editAs: 'oneCell'
+                });
+              } catch (e) {
+                this.logger.warn(`Failed to generate QR for order ${order.orderId}: ${e.message}`);
+              }
             }
+          };
+
+          if (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length) {
+            for (const item of order.comboItems) {
+              const combinedSku = `${order.originalSku || ''} + ${item?.sku || ''}`.trim();
+              await addOneRow(combinedSku);
+            }
+          } else {
+            await addOneRow(order.originalSku || '');
           }
         }
       }
@@ -795,30 +828,34 @@ export class BasketService {
    */
   private preparePPTData(processedOrders: ProcessedOrder[], shopName: string = ''): any[] {
     const pptSlides = [];
-    
-    // Process each order
-    processedOrders.forEach(order => {
-      // Calculate position for multi-buy orders (same orderID)
-      const sameOrderIdOrders = processedOrders.filter(o => o.orderId === order.orderId);
-      const totalOrderCount = sameOrderIdOrders.length;
-      const orderPosition = sameOrderIdOrders.findIndex(o => o.id === order.id) + 1;
-      const orderPositionString = `${orderPosition}/${totalOrderCount}`;
-      
-      // Process each variation in the order
-      order.variations.forEach((variation, variationIndex) => {
-        // For orders with multiple variations, calculate position
-        const totalVariations = order.variations.length;
-        const variationPosition = `${variationIndex + 1}/${totalVariations}`;
-        
-        // Create a slide for each variation
+
+    // 预计算每个订单号总页数（考虑套组展开）
+    const totalSlidesByOrderId = new Map<string, number>();
+    for (const order of processedOrders) {
+      const orderIdKey = String(order.orderId || '');
+      const factor = (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length)
+        ? order.comboItems.length
+        : 1;
+      const slidesForThisOrder = (order.variations?.length || 0) * factor;
+      const prev = totalSlidesByOrderId.get(orderIdKey) || 0;
+      totalSlidesByOrderId.set(orderIdKey, prev + slidesForThisOrder);
+    }
+
+    // 当前页计数
+    const currentIndexByOrderId = new Map<string, number>();
+
+    // 生成每页
+    for (const order of processedOrders) {
+      for (const variation of order.variations || []) {
+        const orderIdKey = String(order.orderId || '');
+        const totalForThisOrderId = totalSlidesByOrderId.get(orderIdKey) || 1;
+
         const base = {
           date: new Date().toLocaleDateString('zh-CN'),
           orderNumber: String(order.orderId),
           icon: variation.icon || '',
-          position: totalOrderCount > 1 ? orderPositionString : variationPosition,
           recipientName: order.shipName || '',
           customName: variation.value || '',
-          sku: order.sku || '',
           quantity: order.quantity || 1,
           shopName: shopName || '',
           fontSize: order.fontSize,
@@ -830,26 +867,37 @@ export class BasketService {
 
         if (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length) {
           for (const item of order.comboItems) {
+            const current = (currentIndexByOrderId.get(orderIdKey) || 0) + 1;
+            currentIndexByOrderId.set(orderIdKey, current);
+            const position = `${current}/${totalForThisOrderId}`;
+
             const slide = {
               ...base,
               color: item.color || '',
               orderType: 'combo',
-              sku: item.sku || '',
+              sku: `${order.sku || order.originalSku || ''} + ${item.sku || ''}`.trim(),
+              position,
             } as any;
             pptSlides.push(slide);
           }
         } else {
+          const current = (currentIndexByOrderId.get(orderIdKey) || 0) + 1;
+          currentIndexByOrderId.set(orderIdKey, current);
+          const position = `${current}/${totalForThisOrderId}`;
+
           const slideData = {
             ...base,
             color: variation.color || '',
             orderType: order.orderType || 'basket',
+            sku: order.sku || '',
+            position,
           } as any;
           if (order.orderType === 'backpack') slideData['backpackStyle'] = true;
           pptSlides.push(slideData);
         }
-      });
-    });
-    
+      }
+    }
+
     this.logger.debug(`Generated ${pptSlides.length} PPT slides with shop name: ${shopName}`);
     return pptSlides;
   }
