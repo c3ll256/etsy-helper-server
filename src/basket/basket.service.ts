@@ -46,7 +46,7 @@ interface ProcessedOrder {
   isRemoteArea?: boolean;
   shipAddress?: string;
   // combo specific
-  comboItems?: Array<{ type: string; color: string }>;
+  comboItems?: Array<{ sku: string; color: string }>;
 }
 
 @Injectable()
@@ -833,9 +833,9 @@ export class BasketService {
             const slide = {
               ...base,
               color: item.color || '',
-              orderType: item.type || 'basket',
+              orderType: 'combo',
+              sku: item.sku || '',
             } as any;
-            if (item.type === 'backpack') slide['backpackStyle'] = true;
             pptSlides.push(slide);
           }
         } else {
