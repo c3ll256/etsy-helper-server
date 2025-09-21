@@ -578,7 +578,7 @@ export class OrdersService {
           'SKU': order.etsyOrder.sku || 'N/A',
           '解析前的variants': order.etsyOrder.originalVariations || 'N/A',
           '解析后的variants': JSON.stringify(order.etsyOrder.variations) || 'N/A',
-          '下单日期': order.platformOrderDate || order.createdAt,
+          '下单时间': order.platformOrderDate || order.createdAt,
           '文件名': sku ? 
                   `${templateName}_${order.etsyOrder.orderId}_${orderIndex}-${stampIndex + 1}${path.extname(stampPath)}` 
                   :

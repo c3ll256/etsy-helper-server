@@ -16,6 +16,8 @@ import * as ExcelJS from 'exceljs';
 import * as dayjs from 'dayjs';
 import * as customParseFormat from 'dayjs/plugin/customParseFormat';
 import { RemoteAreaService } from 'src/common/services/remote-area.service';
+import * as QRCode from 'qrcode';
+import { createCanvas, loadImage } from 'canvas';
 
 // Initialize dayjs plugins
 dayjs.extend(customParseFormat);
@@ -68,7 +70,140 @@ export class ExcelService {
    */
   async createOrdersExcelForExport(excelData: any[]): Promise<string> {
     try {
-      return this.generateExcelFile(excelData);
+      // Build workbook and worksheet with ExcelJS to support images (QR codes)
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('订单信息');
+
+      // Define columns (place QR as the last column; merge date+time)
+      worksheet.columns = [
+        { header: '序号', key: 'index', width: 10 },
+        { header: '订单号', key: 'orderId', width: 20 },
+        { header: '客户名称', key: 'customerName', width: 20 },
+        { header: '收件人名称', key: 'recipientName', width: 20 },
+        { header: 'SKU', key: 'sku', width: 20 },
+        { header: '解析前的variants', key: 'variantsBefore', width: 40 },
+        { header: '解析后的variants', key: 'variantsAfter', width: 40 },
+        { header: '下单时间', key: 'orderDateTime', width: 20 },
+        { header: '文件名', key: 'fileName', width: 30 },
+        { header: '二维码', key: 'qr', width: 22 }
+      ];
+
+      // Style header
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      headerRow.height = 25;
+
+      // Pre-calc the qr column index (0-based for image anchor)
+      const qrColZeroBased = worksheet.columns.findIndex(c => c.key === 'qr');
+
+      for (let i = 0; i < excelData.length; i++) {
+        const rowData = excelData[i];
+        const rowNumber = i + 2; // data starts at row 2
+
+        // Extract values
+        const orderId: string = rowData['订单号'] || '';
+        const customerName: string = rowData['客户名称'] || '';
+        const recipientName: string = rowData['收件人名称'] || '';
+        const sku: string = rowData['SKU'] || '';
+        const variantsBefore: string = rowData['解析前的variants'] || '';
+        const variantsAfter: string = rowData['解析后的variants'] || '';
+        const orderDateTimeRaw: Date | string = rowData['下单时间'] || rowData['下单日期'] || rowData['导入时间'];
+        const fileName: string = rowData['文件名'] || '';
+
+        // Format combined datetime
+        const orderDateTime = orderDateTimeRaw ? new Date(orderDateTimeRaw) : null;
+        const orderDateTimeText = orderDateTime ? dayjs(orderDateTime).format('YYYY-MM-DD HH:mm:ss') : '';
+
+        // Fill row cells
+        const dataRow = worksheet.getRow(rowNumber);
+        dataRow.getCell('index').value = rowData['序号'] || '';
+        dataRow.getCell('orderId').value = orderId;
+        dataRow.getCell('customerName').value = customerName;
+        dataRow.getCell('recipientName').value = recipientName;
+        dataRow.getCell('sku').value = sku;
+        dataRow.getCell('variantsBefore').value = variantsBefore;
+        dataRow.getCell('variantsAfter').value = variantsAfter;
+        dataRow.getCell('orderDateTime').value = orderDateTimeText;
+        dataRow.getCell('fileName').value = fileName;
+
+        // Adjust row height to make room for QR + caption
+        dataRow.height = 120;
+
+        // QR Code generation and placement (compose QR + caption into one image)
+        if (orderId) {
+          try {
+            const dataUrl = await QRCode.toDataURL(orderId, { type: 'image/png', scale: 6, margin: 1 } as any);
+            const qrImage = await loadImage(dataUrl);
+            const padding = 8;
+            const text = orderId;
+
+            // Measure text using a temporary context
+            const measureCanvas = createCanvas(1, 1);
+            const measureCtx = measureCanvas.getContext('2d');
+            measureCtx.font = '16px sans-serif';
+            const textWidth = Math.ceil(measureCtx.measureText(text).width);
+            const textHeight = 22; // approximate line height for 16px font
+
+            const compositeWidth = Math.max(qrImage.width + padding * 2, textWidth + padding * 2);
+            const compositeHeight = padding + qrImage.height + padding + textHeight;
+
+            const canvas = createCanvas(compositeWidth, compositeHeight);
+            const ctx = canvas.getContext('2d');
+            // White background
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, compositeWidth, compositeHeight);
+            // Draw QR centered
+            const qrX = Math.floor((compositeWidth - qrImage.width) / 2);
+            ctx.drawImage(qrImage, qrX, padding);
+            // Draw caption centered
+            ctx.fillStyle = '#000000';
+            ctx.font = '16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const captionY = padding + qrImage.height + Math.floor(textHeight / 2);
+            ctx.fillText(text, compositeWidth / 2, captionY);
+
+            const composedBuffer = canvas.toBuffer('image/png');
+            const imageId = workbook.addImage({ base64: composedBuffer.toString('base64'), extension: 'png' });
+
+            // Preserve aspect ratio, fit within 120x120 box
+            const maxW = 120;
+            const maxH = 120;
+            const scale = Math.min(maxW / compositeWidth, maxH / compositeHeight, 1);
+            const extWidth = Math.round(compositeWidth * scale);
+            const extHeight = Math.round(compositeHeight * scale);
+
+            worksheet.addImage(imageId, {
+              tl: { col: qrColZeroBased, row: rowNumber - 1 },
+              ext: { width: extWidth, height: extHeight }
+            });
+          } catch (e) {
+            const qrCell = dataRow.getCell('qr');
+            qrCell.value = 'QR生成失败';
+            qrCell.alignment = { vertical: 'middle', horizontal: 'center' };
+            this.logger.warn(`Failed to generate QR for order ${orderId}: ${e.message}`);
+          }
+        }
+
+        // Style alignment for the row
+        dataRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      }
+
+      // Create output directory
+      const exportDir = path.join(process.cwd(), 'uploads', 'exports');
+      if (!fs.existsSync(exportDir)) {
+        fs.mkdirSync(exportDir, { recursive: true });
+      }
+
+      // Save workbook
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const excelFileName = `orders_info_${timestamp}.xlsx`;
+      const excelFilePath = path.join(exportDir, excelFileName);
+      await workbook.xlsx.writeFile(excelFilePath);
+
+      this.logger.log(`Excel file with QR created at: ${excelFilePath}`);
+      return excelFilePath;
     } catch (error) {
       this.logger.error(`Failed to create Excel file: ${error.message}`, error.stack);
       throw new Error(`Failed to create Excel file: ${error.message}`);
@@ -834,7 +969,7 @@ ${variationsString}`;
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('订单印章');
 
-      // Set column widths and properties
+      // Set column widths and properties (add last QR column, merge datetime)
       worksheet.columns = [
         { header: '序号', key: 'index', width: 10 },
         { header: '订单号', key: 'orderId', width: 20 },
@@ -843,7 +978,8 @@ ${variationsString}`;
         { header: '尺寸', key: 'size', width: 15 },
         { header: 'SKU', key: 'sku', width: 20 },
         { header: '店铺', key: 'shop', width: 20 },
-        { header: '导入时间', key: 'importTime', width: 20 }
+        { header: '下单时间', key: 'orderDateTime', width: 22 },
+        { header: '二维码', key: 'qr', width: 22 }
       ];
 
       // Style the header row
@@ -851,6 +987,9 @@ ${variationsString}`;
       headerRow.font = { bold: true };
       headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
       headerRow.height = 25;
+
+      // Pre-calc the qr column index (0-based for image anchor)
+      const qrColZeroBased = worksheet.columns.findIndex(c => c.key === 'qr');
 
       // Process each row
       for (let i = 0; i < excelData.length; i++) {
@@ -865,7 +1004,8 @@ ${variationsString}`;
         dataRow.getCell('size').value = row['尺寸'];
         dataRow.getCell('sku').value = row['SKU'];
         dataRow.getCell('shop').value = row['店铺'];
-        dataRow.getCell('importTime').value = new Date(row['导入时间']).toLocaleString('zh-CN');
+        const dtRaw = row['下单时间'] || row['导入时间'];
+        dataRow.getCell('orderDateTime').value = dtRaw ? dayjs(new Date(dtRaw)).format('YYYY-MM-DD HH:mm:ss') : '';
 
         // Set row height for image
         dataRow.height = 120;
@@ -902,6 +1042,63 @@ ${variationsString}`;
           } catch (error) {
             this.logger.error(`Failed to process image for row ${rowNumber}: ${error.message}`);
             dataRow.getCell('image').value = '图片处理失败';
+          }
+        }
+
+        // QR image composed with caption (orderId)
+        const orderId = row['订单号'];
+        if (orderId) {
+          try {
+            const dataUrl = await QRCode.toDataURL(orderId, { type: 'image/png', scale: 6, margin: 1 } as any);
+            const qrImage = await loadImage(dataUrl);
+            const padding = 8;
+            const text = orderId;
+
+            // Measure text using a temporary context
+            const measureCanvas = createCanvas(1, 1);
+            const measureCtx = measureCanvas.getContext('2d');
+            measureCtx.font = '16px sans-serif';
+            const textWidth = Math.ceil(measureCtx.measureText(text).width);
+            const textHeight = 22; // approximate line height for 16px font
+
+            const compositeWidth = Math.max(qrImage.width + padding * 2, textWidth + padding * 2);
+            const compositeHeight = padding + qrImage.height + padding + textHeight;
+
+            const canvas = createCanvas(compositeWidth, compositeHeight);
+            const ctx = canvas.getContext('2d');
+            // White background
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, compositeWidth, compositeHeight);
+            // Draw QR centered
+            const qrX = Math.floor((compositeWidth - qrImage.width) / 2);
+            ctx.drawImage(qrImage, qrX, padding);
+            // Draw caption centered
+            ctx.fillStyle = '#000000';
+            ctx.font = '16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const captionY = padding + qrImage.height + Math.floor(textHeight / 2);
+            ctx.fillText(text, compositeWidth / 2, captionY);
+
+            const composedBuffer = canvas.toBuffer('image/png');
+            const imageId = workbook.addImage({ base64: composedBuffer.toString('base64'), extension: 'png' });
+
+            // Preserve aspect ratio, fit within 120x120 box
+            const maxW = 120;
+            const maxH = 120;
+            const scale = Math.min(maxW / compositeWidth, maxH / compositeHeight, 1);
+            const extWidth = Math.round(compositeWidth * scale);
+            const extHeight = Math.round(compositeHeight * scale);
+
+            worksheet.addImage(imageId, {
+              tl: { col: qrColZeroBased, row: rowNumber - 1 },
+              ext: { width: extWidth, height: extHeight }
+            });
+          } catch (e) {
+            const qrCell = dataRow.getCell('qr');
+            qrCell.value = 'QR生成失败';
+            qrCell.alignment = { vertical: 'middle', horizontal: 'center' };
+            this.logger.warn(`Failed to generate QR for order ${orderId}: ${e.message}`);
           }
         }
 
