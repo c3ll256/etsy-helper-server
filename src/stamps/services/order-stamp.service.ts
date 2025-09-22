@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { Repository, Like, In } from 'typeorm';
 import * as fs from 'fs';
 
 import { PythonStampService } from './python-stamp.service';
@@ -42,26 +42,20 @@ export class OrderStampService {
    * @returns 匹配的模板数组
    */
   async findTemplatesBySku(sku: string, skuBase?: string): Promise<StampTemplate[]> {
-    const whereConditions = [];
-    
-    // 精确匹配完整SKU
-    whereConditions.push({ sku: sku });
-    
-    // 如果提供了基础SKU，也尝试匹配它
-    if (skuBase) {
-      whereConditions.push({ sku: skuBase });
-      whereConditions.push({ sku: Like(`${skuBase}%`) });
-    }
-    
-    // 查找匹配的模板
-    const templates = await this.stampTemplateRepository.find({
-      where: whereConditions,
-      order: {
-        // 优先使用精确匹配的模板
-        sku: 'DESC'
-      }
+    // 仅使用 skus 数组匹配
+    const all = await this.stampTemplateRepository.find();
+    const templates = all.filter(t => Array.isArray(t.skus) && t.skus.some(a => a && (a === sku || (skuBase && (a === skuBase || a.startsWith(skuBase))) || sku.includes(a))));
+
+    // 维持原有排序原则：优先与订单 sku 更“具体”的匹配（数组内更具体/更长的优先）
+    templates.sort((a, b) => {
+      const aHasExact = a.skus?.includes(sku) ? 1 : 0;
+      const bHasExact = b.skus?.includes(sku) ? 1 : 0;
+      if (aHasExact !== bHasExact) return bHasExact - aHasExact;
+      const aLongest = Math.max(...(a.skus || []).map(s => s?.length || 0), 0);
+      const bLongest = Math.max(...(b.skus || []).map(s => s?.length || 0), 0);
+      return bLongest - aLongest;
     });
-    
+
     return templates;
   }
 

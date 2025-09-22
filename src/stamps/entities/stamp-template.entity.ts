@@ -13,8 +13,8 @@ export class StampTemplate {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column()
-  sku: string;
+  @Column('text', { array: true, nullable: true })
+  skus?: string[];
 
   @Column()
   name: string;

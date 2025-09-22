@@ -131,7 +131,7 @@ export class PythonStampService {
       // Handle stderr data
       pythonProcess.stderr.on('data', (data) => {
         errorData += data.toString();
-        this.logger.error(`Python stderr: ${data}`);
+        this.logger.debug(`Python stderr: ${data}`);
       });
       
       // Handle process exit
@@ -220,7 +220,7 @@ export class PythonStampService {
       // Handle stderr data
       pythonProcess.stderr.on('data', (data) => {
         errorData += data.toString();
-        this.logger.error(`Python stderr: ${data}`);
+        this.logger.debug(`Python stderr: ${data}`);
       });
       
       // Handle process exit

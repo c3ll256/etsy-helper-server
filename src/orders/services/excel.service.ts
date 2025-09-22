@@ -5,7 +5,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order } from '../entities/order.entity';
 import { EtsyOrder } from '../entities/etsy-order.entity';
-import { v4 as uuidv4 } from 'uuid';
 import { JobQueueService } from '../../common/services/job-queue.service';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -433,34 +432,34 @@ export class ExcelService {
         return { error: `No matching template found for SKU: ${sku}` };
       }
       
-      // 按SKU长度从长到短排序，优先匹配更具体的模板
+      // 按SKU长度从长到短排序，优先匹配更具体的模板（基于 skus 数组）
       templates.sort((a, b) => {
-        // 首先按包含关系排序：如果订单SKU包含模板SKU，那么这个模板排在前面
-        const aIncluded = sku.includes(a.sku);
-        const bIncluded = sku.includes(b.sku);
-        
+        const aIncluded = Array.isArray(a.skus) && a.skus.some(alias => sku.includes(alias));
+        const bIncluded = Array.isArray(b.skus) && b.skus.some(alias => sku.includes(alias));
+
         if (aIncluded && !bIncluded) return -1;
         if (!aIncluded && bIncluded) return 1;
-        
-        // 如果两个模板都被包含，或者都不被包含，则按长度排序
-        return b.sku.length - a.sku.length;
+
+        const aLongest = Math.max(...(a.skus || []).map(s => s?.length || 0), 0);
+        const bLongest = Math.max(...(b.skus || []).map(s => s?.length || 0), 0);
+        return bLongest - aLongest;
       });
       
       // 记录排序后的模板顺序（用于调试）
-      this.logger.debug(`Sorted templates for SKU ${sku}: ${templates.map(t => t.sku).join(', ')}`);
+      this.logger.debug(`Sorted templates for SKU ${sku}: ${templates.map(t => (t.skus || []).join('|')).join(', ')}`);
       
       // 1. 优先完全匹配
-      let matchedTemplate = templates.find(template => template.sku === sku);
+      let matchedTemplate = templates.find(template => Array.isArray(template.skus) && template.skus.includes(sku));
       
       // 2. 如果没有完全匹配，则查找订单SKU包含模板SKU的情况
       if (!matchedTemplate) {
-        matchedTemplate = templates.find(template => sku.includes(template.sku));
+        matchedTemplate = templates.find(template => Array.isArray(template.skus) && template.skus.some(alias => sku.includes(alias)));
       }
       
       // 3. 如果以上都没匹配到，则使用第一个模板作为兜底（现在第一个模板是按长度排序后的）
       const template = matchedTemplate || templates[0];
       
-      this.logger.log(`Selected template ${template.sku} for SKU ${sku} (match type: ${matchedTemplate ? (template.sku === sku ? 'exact' : 'includes') : 'fallback'})`);
+      this.logger.log(`Selected template ${(template.skus || []).join('|')} for SKU ${sku} (match type: ${matchedTemplate ? ((template.skus || []).includes(sku) ? 'exact' : 'includes') : 'fallback'})`);
       
       // Build template description from text elements and include free-text guidance
       const descriptionParts = [];
@@ -1127,23 +1126,45 @@ ${variationsString}`;
   /**
    * Parse date string that might be in various formats including dd/mm/yyyy
    */
-  private parseDate(dateStr: string): Date | null {
-    if (!dateStr) return null;
-    
+  private parseDate(input: any): Date | null {
+    if (input === null || input === undefined) return null;
+
     try {
-      // Try to parse with dayjs using common formats
-      const formats = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'YYYY/MM/DD', 'DD-MM-YYYY', 'MM-DD-YYYY'];
-      const date = dayjs(dateStr, formats, true);
-      
-      if (date.isValid()) {
-        return date.toDate();
+      // If it's already a Date
+      if (input instanceof Date && !isNaN(input.getTime())) {
+        return input;
       }
-      
-      // Fallback to JavaScript Date parsing for other formats
+
+      // If it's an Excel serial number
+      if (typeof input === 'number' && isFinite(input)) {
+        // Excel (1900-based) serial number to JS Date
+        const millis = Math.round((input - 25569) * 86400 * 1000);
+        const d = new Date(millis);
+        return isNaN(d.getTime()) ? null : d;
+      }
+
+      const dateStr = String(input).trim();
+      if (!dateStr) return null;
+
+      // Try dayjs strict with a broad set of patterns (US first per example 8/28/2025)
+      const formats = [
+        'M/D/YYYY', 'MM/DD/YYYY', 'M/D/YY', 'MM/DD/YY',
+        'M/D/YYYY H:mm', 'MM/DD/YYYY H:mm', 'M/D/YYYY HH:mm', 'MM/DD/YYYY HH:mm',
+        'M/D/YYYY h:mm A', 'MM/DD/YYYY h:mm A',
+        'YYYY-MM-DD', 'YYYY/MM/DD', 'YYYY-MM-DD HH:mm', 'YYYY/MM/DD HH:mm', 'YYYY-MM-DD HH:mm:ss', 'YYYY/MM/DD HH:mm:ss',
+        'DD/MM/YYYY', 'DD-MM-YYYY'
+      ];
+
+      const parsed = dayjs(dateStr, formats, true);
+      if (parsed.isValid()) {
+        return parsed.toDate();
+      }
+
+      // Fallback to native Date
       const jsDate = new Date(dateStr);
       return isNaN(jsDate.getTime()) ? null : jsDate;
     } catch (error) {
-      this.logger.warn(`Failed to parse date: ${dateStr}`);
+      this.logger.warn(`Failed to parse date: ${input}`);
       return null;
     }
   }

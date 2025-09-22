@@ -66,9 +66,12 @@ export class StampsService {
     createStampTemplateDto: CreateStampTemplateDto,
     user: User
   ): Promise<StampTemplate> {
-    const existingSku = await this.stampTemplateRepository.findOne({ where: { sku: createStampTemplateDto.sku } });
-    if (existingSku) {
-        throw new BadRequestException(`SKU "${createStampTemplateDto.sku}" already exists.`);
+    // Check uniqueness across skus only
+    const candidateSkus = Array.from(new Set([...(createStampTemplateDto.skus || [])].filter(Boolean)));
+    const templatesWithAliases = await this.stampTemplateRepository.find();
+    const conflictByAliases = templatesWithAliases.find(t => Array.isArray(t.skus) && t.skus.some(s => candidateSkus.includes(s)));
+    if (conflictByAliases) {
+      throw new BadRequestException(`SKU conflict: one or more SKUs already exist in another template.`);
     }
 
     const templateData: Partial<StampTemplate> = {
@@ -109,15 +112,23 @@ export class StampsService {
     }
 
     if (search) {
-        queryBuilder.andWhere('(LOWER(template.name) LIKE LOWER(:search) OR LOWER(template.sku) LIKE LOWER(:search))', {
-            search: `%${search}%`,
-        });
+      // For Postgres we can use unnest to search skus, fallback to simple ORs otherwise.
+      // Keep this as a raw SQL where so it works in PG.
+      const whereRaw = `(
+        LOWER(template.name) LIKE LOWER(:search)
+        OR (
+          template.skus IS NOT NULL AND EXISTS (
+            SELECT 1 FROM unnest(template.skus) AS s WHERE LOWER(s) LIKE LOWER(:search)
+          )
+        )
+      )`;
+      queryBuilder.andWhere(whereRaw, { search: `%${search}%` });
     }
 
     queryBuilder
       .leftJoinAndSelect('template.user', 'user')
       .select([
-          'template.id', 'template.sku', 'template.name', 'template.backgroundImagePath', 
+          'template.id', 'template.name', 'template.skus', 'template.backgroundImagePath', 
           'template.width', 'template.height', 'template.textElements', 'template.description',
           'template.type', 'template.previewImagePath', 'template.isActive', 'template.createdAt',
           'template.updatedAt', 'template.userId',
@@ -176,17 +187,19 @@ export class StampsService {
     
     let finalSku = newSku;
     if (!finalSku) {
+        const base = (sourceTemplate.skus && sourceTemplate.skus.length > 0) ? sourceTemplate.skus[0] : 'SKU';
         const timestamp = new Date().getTime();
-        finalSku = `${sourceTemplate.sku}-copy-${timestamp}`;
+        finalSku = `${base}-copy-${timestamp}`;
     }
 
-    const existingTemplate = await this.stampTemplateRepository.findOne({ where: { sku: finalSku } });
-    if (existingTemplate) {
+    const templates = await this.stampTemplateRepository.find();
+    const exists = templates.some(t => Array.isArray(t.skus) && t.skus.includes(finalSku));
+    if (exists) {
       throw new BadRequestException(`SKU "${finalSku}" already exists. Please choose a different SKU.`);
     }
 
     const clonedTemplateData: Partial<StampTemplate> = {
-        sku: finalSku,
+        skus: [finalSku],
         name: newName || `复制 - ${sourceTemplate.name}`,
         backgroundImagePath: sourceTemplate.backgroundImagePath,
         width: sourceTemplate.width,
@@ -278,13 +291,12 @@ export class StampsService {
   ): Promise<StampTemplate> {
     let template = await this.findById(id, user);
     
-    if (updateStampTemplateDto.sku && updateStampTemplateDto.sku !== template.sku) {
-      const existingTemplate = await this.stampTemplateRepository.findOne({ 
-        where: { sku: updateStampTemplateDto.sku }
-      });
-      
-      if (existingTemplate && existingTemplate.id !== id) {
-        throw new BadRequestException(`Another template with SKU "${updateStampTemplateDto.sku}" already exists.`);
+    if (updateStampTemplateDto.skus) {
+      const candidate = new Set(updateStampTemplateDto.skus.filter(Boolean));
+      const others = await this.stampTemplateRepository.find();
+      const conflict = others.find(t => t.id !== id && Array.isArray(t.skus) && t.skus.some(s => candidate.has(s)));
+      if (conflict) {
+        throw new BadRequestException('SKU conflict: one or more SKUs already exist in another template.');
       }
     }
     

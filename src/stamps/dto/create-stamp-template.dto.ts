@@ -1,13 +1,16 @@
-import { IsString, IsArray, IsBoolean, IsOptional, ValidateNested, IsNumber, IsEnum } from 'class-validator';
+import { IsString, IsArray, IsBoolean, IsOptional, ValidateNested, IsNumber, IsEnum, ArrayNotEmpty, ArrayUnique } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { TextElementDto } from './text-element.dto';
 import { StampType } from '../entities/stamp-template.entity';
 
 export class CreateStampTemplateDto {
-  @ApiProperty({ description: 'SKU of the stamp template' })
-  @IsString()
-  sku: string;
+  @ApiProperty({ description: 'SKUs that this template should match', type: [String] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsString({ each: true })
+  skus: string[];
 
   @ApiProperty({ description: 'Name of the stamp template' })
   @IsString()

@@ -28,6 +28,8 @@ dotenv.config({ override: true });
           database: configService.get('DB_NAME'),
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
           synchronize: false, // 注意：生产环境不建议使用
+          migrations: [__dirname + '/migrations/*{.ts,.js}'],
+          migrationsRun: true,
           timezone: 'Asia/Shanghai',
         };
       },
