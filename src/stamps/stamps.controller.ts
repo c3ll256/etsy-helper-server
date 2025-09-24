@@ -75,7 +75,7 @@ export class StampsController {
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
   @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by name or SKU' })
-  @ApiQuery({ name: 'type', required: false, enum: StampType, description: 'Filter by stamp type (rubber/steel/photo/acryl)' })
+  @ApiQuery({ name: 'type', required: false, enum: StampType, description: 'Filter by stamp type' })
   async findAll(
     @Query() paginationDto: PaginationDto, 
     @CurrentUser() user: User,

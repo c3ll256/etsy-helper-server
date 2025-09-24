@@ -6,6 +6,11 @@ export enum StampType {
   STEEL = 'steel',
   PHOTOSENSITIVE = 'photo',
   ACRYLIC = 'acryl',
+  PHOTO_EGG = 'photo_egg',
+  PHOTO_GOLF = 'photo_golf',
+  PHOTO_CLOTHES = 'photo_clothes',
+  GOLF_SET = 'golf_set',
+  WAX_SEAL = 'wax_seal',
 }
 
 @Entity('stamp_templates')
@@ -34,7 +39,7 @@ export class StampTemplate {
   @Column({ nullable: true })
   description?: string;
 
-  @Column({ type: 'enum', enum: StampType, default: StampType.RUBBER })
+  @Column({ type: 'varchar', length: 32, default: StampType.RUBBER })
   type: StampType;
 
   @Column({ type: 'uuid' })

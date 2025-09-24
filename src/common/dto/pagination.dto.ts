@@ -98,7 +98,7 @@ export class PaginationDto {
     example: StampType.RUBBER,
   })
   @IsEnum(StampType, { 
-    message: '印章类型必须是 rubber, steel, photo 或 acryl' 
+    message: '印章类型必须是有效的类型' 
   })
   @IsOptional()
   stampType?: StampType;
