@@ -599,11 +599,10 @@ export class OrdersService {
         if (recordId) {
           try {
             const stampRecord = await this.stampGenerationRecordRepository.findOne({
-              where: { id: recordId },
-              relations: ['template']
+              where: { id: recordId }
             });
-            if (stampRecord && stampRecord.template) {
-              templateName = stampRecord.template.name;
+            if (stampRecord) {
+              templateName = `Template ${stampRecord.templateId || 'Unknown'}`;
             }
           } catch (error) {
             console.error(`获取模板信息失败，记录ID: ${recordId}`, error);
@@ -856,15 +855,6 @@ export class OrdersService {
       }
     }
 
-    if (record.status === 'processing' || record.status === 'pending') {
-      throw new BadRequestException('记录正在处理，请先取消任务');
-    }
-
-    if (record.jobId) {
-      this.jobQueueService.requestCancel(record.jobId, '记录被删除');
-      this.jobQueueService.markJobCancelled(record.jobId, { progress: 0, message: '记录被删除' });
-    }
-
     if (record.stampImageUrl) {
       const physicalPath = record.stampImageUrl.startsWith('/')
         ? path.join(process.cwd(), record.stampImageUrl.substring(1))
@@ -884,45 +874,20 @@ export class OrdersService {
   }
 
   async cancelStampGenerationByJobId(jobId: string, user: User): Promise<{ success: boolean; message: string }> {
-    const record = await this.stampGenerationRecordRepository.findOne({ where: { jobId } });
-    if (!record) {
+    const jobProgress = this.jobQueueService.getJobProgress(jobId);
+    if (!jobProgress) {
       throw new NotFoundException(`Stamp generation job with ID ${jobId} not found`);
     }
 
-    if (!user.isAdmin) {
-      const order = await this.ordersRepository.findOne({ where: { id: record.orderId }, relations: ['user'] });
-      if (!order || order.userId !== user.id) {
-        throw new ForbiddenException('You do not have permission to cancel this job');
-      }
+    if (!user.isAdmin && jobProgress.userId && jobProgress.userId !== user.id) {
+      throw new ForbiddenException('You do not have permission to cancel this job');
     }
 
-    if (!record.jobId) {
-      throw new BadRequestException('记录没有执行中的任务');
-    }
-
-    if (record.status === 'completed') {
-      throw new BadRequestException('任务已完成，无法取消');
-    }
-
-    if (record.status === 'failed') {
-      throw new BadRequestException('任务已失败，无需取消');
-    }
-
-    if (record.status === 'cancelled') {
-      return { success: true, message: '任务已取消' };
-    }
-
-    const requested = this.jobQueueService.requestCancel(record.jobId, '任务取消中');
+    const requested = this.jobQueueService.requestCancel(jobId, '任务取消中');
     if (!requested) {
       return { success: false, message: '任务已无法取消或已完成' };
     }
 
-    await this.stampGenerationRecordRepository.update(record.id, {
-      status: 'cancelled',
-      progress: record.progress ?? 0,
-      errorMessage: '任务取消中'
-    });
-
-    return { success: true, message: '任务取消中' };
+    return { success: true, message: '任务取消请求已提交' };
   }
 } 

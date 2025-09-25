@@ -84,20 +84,4 @@ export class StampGenerationRecord {
   @ApiProperty({ description: '更新时间' })
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
-
-  @ApiProperty({ description: '处理状态', enum: ['pending', 'processing', 'completed', 'failed', 'cancelled'], required: false })
-  @Column({ default: 'pending' })
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
-
-  @ApiProperty({ description: '任务进度 (0-100)', required: false })
-  @Column({ type: 'float', default: 0 })
-  progress: number;
-
-  @ApiProperty({ description: '任务队列ID', required: false })
-  @Column({ nullable: true })
-  jobId?: string;
-
-  @ApiProperty({ description: '错误信息', required: false })
-  @Column({ type: 'text', nullable: true })
-  errorMessage?: string;
 } 

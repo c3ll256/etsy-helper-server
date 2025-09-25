@@ -234,10 +234,6 @@ export class OrderStampService {
         templateId: template.id,
         textElements: textElements,
         stampImageUrl: stampResult.path,
-        status: 'completed',
-        progress: 100,
-        jobId: jobId || null,
-        errorMessage: null
       });
       
       const savedRecord = await this.stampGenerationRecordRepository.save(record);
@@ -245,11 +241,6 @@ export class OrderStampService {
       if (jobId && this.jobQueueService.isCancelRequested(jobId)) {
         const progress = this.jobQueueService.getJobProgress(jobId);
         const message = progress?.cancelReason || progress?.message || '任务已取消';
-        await this.stampGenerationRecordRepository.update(savedRecord.id, {
-          status: 'cancelled',
-          progress: 0,
-          errorMessage: message
-        });
         return {
           success: false,
           error: message,
