@@ -35,14 +35,14 @@ export class BasketPaginationDto {
   
   @ApiPropertyOptional({
     description: '处理状态筛选',
-    enum: ['pending', 'processing', 'completed', 'failed'],
+    enum: ['pending', 'processing', 'completed', 'failed', 'cancelled'],
     example: 'completed',
   })
-  @IsEnum(['pending', 'processing', 'completed', 'failed'], { 
+  @IsEnum(['pending', 'processing', 'completed', 'failed', 'cancelled'], { 
     message: '状态必须是有效的处理状态' 
   })
   @IsOptional()
-  status?: 'pending' | 'processing' | 'completed' | 'failed';
+  status?: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
   @ApiPropertyOptional({
     description: '开始日期筛选 (YYYY-MM-DD)',

@@ -12,9 +12,9 @@ export class BasketGenerationRecord {
   @Column()
   originalFilename: string;
 
-  @ApiProperty({ description: '处理状态', enum: ['pending', 'processing', 'completed', 'failed'] })
+  @ApiProperty({ description: '处理状态', enum: ['pending', 'processing', 'completed', 'failed', 'cancelled'] })
   @Column({ default: 'pending' })
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
   @ApiProperty({ description: '处理进度 (0-100)' })
   @Column({ type: 'float', default: 0 })
@@ -23,6 +23,10 @@ export class BasketGenerationRecord {
   @ApiProperty({ description: '生成的PPT文件路径' })
   @Column({ nullable: true })
   outputFilePath: string;
+
+  @ApiProperty({ description: '任务队列ID', required: false })
+  @Column({ nullable: true })
+  jobId?: string;
 
   @ApiProperty({ description: '处理的订单数量' })
   @Column({ default: 0 })

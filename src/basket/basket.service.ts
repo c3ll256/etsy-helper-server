@@ -49,6 +49,13 @@ interface ProcessedOrder {
   comboItems?: Array<{ sku: string; color: string }>;
 }
 
+class JobCancelledError extends Error {
+  constructor(message?: string) {
+    super(message || '订单文件生成任务已取消');
+    this.name = 'JobCancelledError';
+  }
+}
+
 @Injectable()
 export class BasketService {
   private readonly logger = new Logger(BasketService.name);
@@ -119,6 +126,10 @@ export class BasketService {
     
     // Create a job ID in the job queue
     const jobId = this.jobQueueService.createJob(user.id);
+
+    await this.basketRecordRepository.update(savedRecord.id, { jobId });
+
+    savedRecord.jobId = jobId;
 
     // Start processing in background
     this.processBasketOrdersAsync(savedRecord.id, file, jobId, userConfigs, orderType);
@@ -456,6 +467,43 @@ export class BasketService {
     }
   }
 
+  private getPhysicalFilePath(filePath?: string | null): string | null {
+    if (!filePath) {
+      return null;
+    }
+
+    const trimmedPath = filePath.trim();
+    if (!trimmedPath) {
+      return null;
+    }
+
+    if (trimmedPath.startsWith(process.cwd())) {
+      return trimmedPath;
+    }
+
+    if (trimmedPath.startsWith('/uploads')) {
+      return path.join(process.cwd(), trimmedPath.substring(1));
+    }
+
+    if (path.isAbsolute(trimmedPath)) {
+      return trimmedPath;
+    }
+
+    return path.join(process.cwd(), trimmedPath);
+  }
+
+  private ensureJobNotCancelled(jobId?: string): void {
+    if (!jobId) {
+      return;
+    }
+
+    if (this.jobQueueService.isCancelRequested(jobId)) {
+      const jobProgress = this.jobQueueService.getJobProgress(jobId);
+      const message = jobProgress?.cancelReason || jobProgress?.message || '订单文件生成任务已取消';
+      throw new JobCancelledError(message);
+    }
+  }
+
   /**
    * Process basket orders asynchronously
    * @param recordId Generation record ID
@@ -477,6 +525,17 @@ export class BasketService {
     let zipFilePath: string | null = null;
     
     try {
+      const recordEntity = await this.basketRecordRepository.findOne({
+        where: { id: recordId },
+        relations: ['user']
+      });
+
+      if (!recordEntity) {
+        throw new NotFoundException(`Record with ID ${recordId} not found`);
+      }
+
+      this.ensureJobNotCancelled(jobId);
+
       // Update status to processing
       await this.basketRecordRepository.update(recordId, {
         status: 'processing',
@@ -500,6 +559,8 @@ export class BasketService {
         message: '解析Excel数据',
       });
 
+      this.ensureJobNotCancelled(jobId);
+
       // Read the file from disk
       const fileBuffer = fs.readFileSync(file.path);
       
@@ -511,6 +572,8 @@ export class BasketService {
           ? processedOrders // Include all processed orders if type is 'all'
           : processedOrders.filter(order => order.orderType === orderType); // Filter by specific type otherwise
       
+      this.ensureJobNotCancelled(jobId);
+
       // Check if any orders were found
       if (filteredOrders.length === 0) {
         let errorMessage = '';
@@ -565,15 +628,12 @@ export class BasketService {
       ];
 
       // 获取记录关联的用户信息（用于店铺名）
-      const recordForExcel = await this.basketRecordRepository.findOne({
-        where: { id: recordId },
-        relations: ['user']
-      });
-      const shopNameForExcel = recordForExcel?.user?.shopName || '';
+      const shopNameForExcel = recordEntity?.user?.shopName || '';
 
       // 预计算每个订单号对应需要导出的总行数（用于序号标识 k/N）
       const totalRowsByOrderId = new Map<string, number>();
       for (const order of filteredOrders) {
+        this.ensureJobNotCancelled(jobId);
         const orderIdKey = String(order.orderId || '');
         const factor = (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length)
           ? order.comboItems.length
@@ -588,7 +648,9 @@ export class BasketService {
 
       // Add rows (expand combo orders to N rows)
       for (const order of filteredOrders) {
+        this.ensureJobNotCancelled(jobId);
         for (const variation of order.variations) {
+          this.ensureJobNotCancelled(jobId);
           const recognized = !!(variation?.value && variation.value.trim() && variation.originalText && variation.value.trim() !== variation.originalText.trim());
 
           // 自定义信息：展示完整原始 variations 文本（来自每行原始导入）
@@ -639,6 +701,7 @@ export class BasketService {
 
           if (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length) {
             for (const item of order.comboItems) {
+              this.ensureJobNotCancelled(jobId);
               const combinedSku = `${order.originalSku || ''} + ${item?.sku || ''}`.trim();
               await addOneRow(combinedSku);
             }
@@ -654,6 +717,8 @@ export class BasketService {
       await exportWorkbook.xlsx.writeFile(modifiedExcelPath);
       this.logger.debug(`Saved export Excel to: ${modifiedExcelPath}`);
       // --- End: Generate new Excel with required columns and QR code ---
+
+      this.ensureJobNotCancelled(jobId);
 
       // Collect recognized orderIds and SKUs for search
       const recognizedOrderIds = Array.from(new Set(filteredOrders.map(o => String(o.orderId || '')).filter(Boolean)));
@@ -686,13 +751,10 @@ export class BasketService {
         message: '准备生成PPT',
       });
       
+      this.ensureJobNotCancelled(jobId);
+
       // 获取记录关联的用户信息
-      const record = await this.basketRecordRepository.findOne({
-        where: { id: recordId },
-        relations: ['user']
-      });
-      
-      const shopName = record?.user?.shopName || '';
+      const shopName = recordEntity?.user?.shopName || '';
       
       // Prepare data for PPT generation
       const pptData = this.preparePPTData(filteredOrders, shopName);
@@ -701,6 +763,8 @@ export class BasketService {
       const result = await this.pythonBasketService.generateBasketOrderPPT(
         Buffer.from(JSON.stringify(pptData)).toString('base64')
       );
+
+      this.ensureJobNotCancelled(jobId);
 
       // Create zip file containing both PPT and highlighted Excel
       const zip = new AdmZip();
@@ -804,11 +868,43 @@ export class BasketService {
       // Start job cleanup after 3 hours
       this.jobQueueService.startJobCleanup(jobId, 3 * 60 * 60 * 1000);
     } catch (error) {
+      if (error instanceof JobCancelledError) {
+        this.logger.warn(`Job ${jobId} cancelled while processing record #${recordId}: ${error.message}`);
+
+        const physicalModifiedExcelPath = this.getPhysicalFilePath(modifiedExcelPath);
+        const physicalPptPath = this.getPhysicalFilePath(pptFilePath);
+        const physicalZipPath = this.getPhysicalFilePath(zipFilePath);
+
+        this.safeDeleteFile(physicalModifiedExcelPath);
+        this.safeDeleteFile(physicalPptPath);
+        this.safeDeleteFile(physicalZipPath);
+
+        await this.basketRecordRepository.update(recordId, {
+          status: 'cancelled',
+          progress: 0,
+          errorMessage: error.message,
+          outputFilePath: null,
+        });
+
+        this.jobQueueService.markJobCancelled(jobId, {
+          message: error.message,
+          progress: 0,
+        });
+
+        this.jobQueueService.startJobCleanup(jobId, 60 * 60 * 1000);
+        return;
+      }
+
       this.logger.error(`Error generating order package for record #${recordId}: ${error.message}`);
 
       // Clean up any temporary files that might have been created
-      this.safeDeleteFile(modifiedExcelPath); // Use modifiedExcelPath
-      this.safeDeleteFile(pptFilePath);
+      const physicalModifiedExcelPath = this.getPhysicalFilePath(modifiedExcelPath);
+      const physicalPptPath = this.getPhysicalFilePath(pptFilePath);
+      const physicalZipPath = this.getPhysicalFilePath(zipFilePath);
+
+      this.safeDeleteFile(physicalModifiedExcelPath); // Use modifiedExcelPath
+      this.safeDeleteFile(physicalPptPath);
+      this.safeDeleteFile(physicalZipPath);
       
       // Update record with error
       await this.basketRecordRepository.update(recordId, {
@@ -1030,6 +1126,57 @@ export class BasketService {
     }
 
     return record;
+  }
+
+  async deleteGenerationRecord(id: number, user: User): Promise<void> {
+    const record = await this.getGenerationRecord(id, user);
+
+    if (record.status === 'processing' || record.status === 'pending') {
+      throw new BadRequestException('任务正在进行中，请先取消任务后再删除记录');
+    }
+
+    const physicalPath = this.getPhysicalFilePath(record.outputFilePath);
+    this.safeDeleteFile(physicalPath);
+
+    await this.basketRecordRepository.delete(id);
+  }
+
+  async cancelGenerationRecord(id: number, user: User): Promise<{ success: boolean; message: string }> {
+    const record = await this.getGenerationRecord(id, user);
+
+    if (record.status === 'completed') {
+      throw new BadRequestException('任务已完成，无法取消');
+    }
+
+    if (record.status === 'failed') {
+      throw new BadRequestException('任务已失败，无需取消');
+    }
+
+    if (record.status === 'cancelled') {
+      return { success: true, message: '任务已取消' };
+    }
+
+    if (!record.jobId) {
+      await this.basketRecordRepository.update(id, {
+        status: 'cancelled',
+        progress: 0,
+        errorMessage: '任务取消成功'
+      });
+      return { success: true, message: '任务取消成功' };
+    }
+
+    const requested = this.jobQueueService.requestCancel(record.jobId, '任务已发起取消');
+
+    if (requested) {
+      await this.basketRecordRepository.update(id, {
+        status: 'cancelled',
+        progress: record.progress ?? 0,
+        errorMessage: '任务取消中'
+      });
+      return { success: true, message: '任务取消中' };
+    }
+
+    return { success: false, message: '任务已无法取消或已完成' };
   }
 
   /**

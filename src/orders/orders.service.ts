@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as AdmZip from 'adm-zip';
@@ -17,14 +17,15 @@ import { User } from '../users/entities/user.entity';
 import { OrderStatus } from './enums/order.enum';
 import { StampType } from '../stamps/entities/stamp-template.entity';
 import { Inject, forwardRef } from '@nestjs/common';
-import { In } from 'typeorm';
 import { OrderType } from './enums/order.enum';
 import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
+import { JobQueueService } from '../common/services/job-queue.service';
 
 @Injectable()
 export class OrdersService {
   private readonly stampsOutputDir = 'uploads/stamps';
   private readonly exportsOutputDir = 'uploads/exports';
+  private readonly logger = new Logger(OrdersService.name);
 
   constructor(
     @InjectRepository(Order)
@@ -37,6 +38,7 @@ export class OrdersService {
     private readonly excelService: ExcelService,
     @InjectRepository(StampGenerationRecord)
     private readonly stampGenerationRecordRepository: Repository<StampGenerationRecord>,
+    private readonly jobQueueService: JobQueueService,
   ) {
     // 确保输出目录存在
     if (!fs.existsSync(this.stampsOutputDir)) {
@@ -216,7 +218,32 @@ export class OrdersService {
   async remove(id: string, currentUser?: User): Promise<void> {
     // First check if the user has access to this order
     await this.findOne(id, currentUser);
-    
+
+    const etsyOrder = await this.etsyOrderRepository.findOne({ where: { order: { id } } });
+
+    if (etsyOrder) {
+      if (etsyOrder.stampGenerationRecordIds?.length) {
+        await this.stampGenerationRecordRepository.delete({ id: In(etsyOrder.stampGenerationRecordIds) });
+      }
+
+      if (etsyOrder.stampImageUrls?.length) {
+        for (const imageUrl of etsyOrder.stampImageUrls) {
+          if (!imageUrl) continue;
+          const relativePath = imageUrl.startsWith('/') ? imageUrl.substring(1) : imageUrl;
+          const physicalPath = path.join(process.cwd(), relativePath);
+          if (fs.existsSync(physicalPath)) {
+            try {
+              fs.unlinkSync(physicalPath);
+            } catch (error) {
+              this.logger.warn(`Failed to delete stamp file ${physicalPath}: ${error.message}`);
+            }
+          }
+        }
+      }
+
+      await this.etsyOrderRepository.delete({ order: { id } });
+    }
+
     const result = await this.ordersRepository.delete(id);
     if (result.affected === 0) {
       throw new NotFoundException(`Order with ID "${id}" not found`);
@@ -797,5 +824,88 @@ export class OrdersService {
       filePath,
       fileName
     };
+  }
+
+  async deleteStampGenerationRecord(recordId: number, user: User): Promise<{ success: boolean }> {
+    const record = await this.stampGenerationRecordRepository.findOne({ where: { id: recordId } });
+    if (!record) {
+      throw new NotFoundException(`Stamp generation record with ID ${recordId} not found`);
+    }
+
+    if (!user.isAdmin) {
+      const order = await this.ordersRepository.findOne({ where: { id: record.orderId }, relations: ['user'] });
+      if (!order || order.userId !== user.id) {
+        throw new ForbiddenException('You do not have permission to delete this record');
+      }
+    }
+
+    if (record.status === 'processing' || record.status === 'pending') {
+      throw new BadRequestException('记录正在处理，请先取消任务');
+    }
+
+    if (record.jobId) {
+      this.jobQueueService.requestCancel(record.jobId, '记录被删除');
+      this.jobQueueService.markJobCancelled(record.jobId, { progress: 0, message: '记录被删除' });
+    }
+
+    if (record.stampImageUrl) {
+      const physicalPath = record.stampImageUrl.startsWith('/')
+        ? path.join(process.cwd(), record.stampImageUrl.substring(1))
+        : path.join(process.cwd(), record.stampImageUrl);
+      if (fs.existsSync(physicalPath)) {
+        try {
+          fs.unlinkSync(physicalPath);
+        } catch (error) {
+          // 文件删除失败不应中断主流程
+        }
+      }
+    }
+
+    await this.stampGenerationRecordRepository.delete(recordId);
+
+    return { success: true };
+  }
+
+  async cancelStampGenerationRecord(recordId: number, user: User): Promise<{ success: boolean; message: string }> {
+    const record = await this.stampGenerationRecordRepository.findOne({ where: { id: recordId } });
+    if (!record) {
+      throw new NotFoundException(`Stamp generation record with ID ${recordId} not found`);
+    }
+
+    if (!user.isAdmin) {
+      const order = await this.ordersRepository.findOne({ where: { id: record.orderId }, relations: ['user'] });
+      if (!order || order.userId !== user.id) {
+        throw new ForbiddenException('You do not have permission to cancel this record');
+      }
+    }
+
+    if (!record.jobId) {
+      throw new BadRequestException('记录没有执行中的任务');
+    }
+
+    if (record.status === 'completed') {
+      throw new BadRequestException('任务已完成，无法取消');
+    }
+
+    if (record.status === 'failed') {
+      throw new BadRequestException('任务已失败，无需取消');
+    }
+
+    if (record.status === 'cancelled') {
+      return { success: true, message: '任务已取消' };
+    }
+
+    const requested = this.jobQueueService.requestCancel(record.jobId, '任务取消中');
+    if (!requested) {
+      return { success: false, message: '任务已无法取消或已完成' };
+    }
+
+    await this.stampGenerationRecordRepository.update(recordId, {
+      status: 'cancelled',
+      progress: record.progress ?? 0,
+      errorMessage: '任务取消中'
+    });
+
+    return { success: true, message: '任务取消中' };
   }
 } 

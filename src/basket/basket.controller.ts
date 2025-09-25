@@ -14,7 +14,7 @@ import {
   Delete,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth, ApiQuery, ApiParam, ApiForbiddenResponse } from '@nestjs/swagger';
 import { Express } from 'express';
 
 import { BasketService } from './basket.service';
@@ -153,6 +153,31 @@ export class BasketController {
     return this.basketService.deleteSkuConfig(id, user.id);
   }
 
+  @Delete('records/:id')
+  @ApiOperation({ summary: '删除篮子订单生成记录' })
+  @ApiResponse({ status: 200, description: '记录删除成功' })
+  @ApiResponse({ status: 404, description: '记录未找到' })
+  @ApiForbiddenResponse({ description: '无权删除该记录' })
+  async deleteRecord(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: User
+  ): Promise<void> {
+    return this.basketService.deleteGenerationRecord(id, user);
+  }
+
+  @Post('records/:id/cancel')
+  @ApiOperation({ summary: '取消篮子订单生成任务' })
+  @ApiResponse({ status: 200, description: '任务取消成功' })
+  @ApiResponse({ status: 400, description: '无法取消已完成的任务' })
+  @ApiResponse({ status: 404, description: '记录未找到' })
+  @ApiForbiddenResponse({ description: '无权取消该任务' })
+  async cancelRecordImport(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: User
+  ): Promise<{ success: boolean; message: string }> {
+    return this.basketService.cancelGenerationRecord(id, user);
+  }
+
   @Get('records')
   @ApiOperation({ summary: '获取篮子订单生成记录（分页，可通过文件名/订单ID/SKU搜索）' })
   @ApiResponse({ 
@@ -183,7 +208,7 @@ export class BasketController {
   @ApiQuery({ 
     name: 'status', 
     required: false, 
-    enum: ['pending', 'processing', 'completed', 'failed'],
+    enum: ['pending', 'processing', 'completed', 'failed', 'cancelled'],
     description: '按处理状态筛选' 
   })
   @ApiQuery({ name: 'startDate', required: false, description: '开始日期 (YYYY-MM-DD)' })
@@ -227,7 +252,7 @@ export class BasketController {
   @ApiQuery({ 
     name: 'status', 
     required: false, 
-    enum: ['pending', 'processing', 'completed', 'failed'],
+    enum: ['pending', 'processing', 'completed', 'failed', 'cancelled'],
     description: '按处理状态筛选' 
   })
   @ApiQuery({ name: 'startDate', required: false, description: '开始日期 (YYYY-MM-DD)' })

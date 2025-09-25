@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { read, utils, write, WorkSheet, WorkBook } from 'xlsx';
 import { OrderStampService } from '../../stamps/services/order-stamp.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { Order } from '../entities/order.entity';
 import { EtsyOrder } from '../entities/etsy-order.entity';
 import { JobQueueService } from '../../common/services/job-queue.service';
+import { StampGenerationRecord } from '../../stamps/entities/stamp-generation-record.entity';
 import * as path from 'path';
 import * as fs from 'fs';
 import { User } from '../../users/entities/user.entity';
@@ -41,6 +42,8 @@ export class ExcelService {
     private readonly orderRepository: Repository<Order>,
     @InjectRepository(EtsyOrder)
     private readonly etsyOrderRepository: Repository<EtsyOrder>,
+    @InjectRepository(StampGenerationRecord)
+    private readonly stampGenerationRecordRepository: Repository<StampGenerationRecord>,
     private readonly aliyunService: AliyunService,
     private readonly remoteAreaService: RemoteAreaService,
   ) {}
@@ -276,8 +279,9 @@ export class ExcelService {
       
     } catch (error) {
       this.logger.error(`Failed to process Excel file: ${error.message}`, error.stack);
+      const status = this.jobQueueService.getJobProgress(jobId)?.status === 'cancelled' ? 'cancelled' : 'failed';
       this.jobQueueService.updateJobProgress(jobId, {
-        status: 'failed',
+        status,
         progress: 100,
         message: `Failed to process file: ${error.message}`,
         error: error.message
@@ -498,11 +502,13 @@ export class ExcelService {
   private async processOrderWithStamp(
     item: any, 
     user?: User,
-    personalizationText?: string
+    personalizationText?: string,
+    jobId?: string
   ): Promise<{
     success: boolean;
-    stamps?: Array<{ orderId: string; transactionId: string; stampPath: string }>;
+    stamps?: Array<{ orderId: string; transactionId: string; stampPath: string; recordId?: number }>;
     error?: string;
+    cancelled?: boolean;
   }> {
     const orderId = item['Order ID']?.toString() || '';
     const baseTransactionId = item['Transaction ID']?.toString() || '';
@@ -571,7 +577,7 @@ export class ExcelService {
       const parsedResult = await this.parseVariations(originalVariations, templateDescription);
       
       // Generate stamp
-      return await this.generateStamp(item, parsedResult, baseTransactionId, user, templateId);
+      return await this.generateStamp(item, parsedResult, baseTransactionId, user, templateId, jobId);
       
     } catch (error) {
       this.logger.error(`Error processing order with stamp: ${error.message}`, error);
@@ -590,17 +596,18 @@ export class ExcelService {
     parsedResult: any,
     baseTransactionId: string,
     user?: User,
-    templateId?: number
+    templateId?: number,
+    jobId?: string
   ): Promise<{
     success: boolean;
-    stamps?: Array<{ orderId: string; transactionId: string; stampPath: string }>;
+    stamps?: Array<{ orderId: string; transactionId: string; stampPath: string; recordId?: number }>;
     error?: string;
   }> {
     const orderId = item['Order ID']?.toString() || '';
     const platformOrderDate = item['Date Paid'] ? this.parseDate(item['Date Paid']) : null;
     
     // Create shared order record
-    const stamps: Array<{ orderId: string; transactionId: string; stampPath: string }> = [];
+    const stamps: Array<{ orderId: string; transactionId: string; stampPath: string; recordId?: number }> = [];
     
     // Create basic order
     const order = this.orderRepository.create({
@@ -687,9 +694,14 @@ export class ExcelService {
       const stampResult = await this.orderStampService.generateStampFromOrder({
         order: tempEtsyOrder,
         templateId: templateId,
-        convertTextToPaths: true
+        convertTextToPaths: true,
+        jobId
       });
-      
+
+      if (stampResult.cancelled) {
+        throw new Error(stampResult.error || '任务已取消');
+      }
+
       if (!stampResult.success) {
         this.logger.warn(`Failed to generate stamp for personalization group #${i + 1}: ${stampResult.error}`);
         continue; // Skip this group but continue with others
@@ -703,7 +715,8 @@ export class ExcelService {
         stamps.push({
           orderId: order.id,
           transactionId: baseTransactionId,
-          stampPath
+          stampPath,
+          recordId: stampResult.recordId
         });
         
         // Update the EtsyOrder with the stamp information

@@ -9,10 +9,11 @@ import { StampsModule } from '../stamps/stamps.module';
 import { CommonModule } from '../common/common.module';
 import { UsersModule } from '../users/users.module';
 import { RemoteAreaService } from '../common/services/remote-area.service';
+import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, EtsyOrder]),
+    TypeOrmModule.forFeature([Order, EtsyOrder, StampGenerationRecord]),
     forwardRef(() => StampsModule),
     CommonModule,
     UsersModule

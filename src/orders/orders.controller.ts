@@ -5,7 +5,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateStampDto } from './dto/update-stamp.dto';
 import { ExportStampsDto } from './dto/export-stamps.dto';
 import { ExcelService } from './services/excel.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery, ApiParam, ApiBearerAuth, ApiForbiddenResponse } from '@nestjs/swagger';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { Order } from './entities/order.entity';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
@@ -426,6 +426,31 @@ export class OrdersController {
   @ApiResponse({ status: 404, description: 'Order not found.' })
   remove(@Param('id') id: string, @CurrentUser() user: User) {
     return this.ordersService.remove(id, user);
+  }
+
+  @Delete('stamp-records/:recordId')
+  @ApiOperation({ summary: '删除印章生成记录' })
+  @ApiResponse({ status: 200, description: '印章生成记录删除成功' })
+  @ApiResponse({ status: 404, description: '印章生成记录不存在' })
+  @ApiForbiddenResponse({ description: '无权删除该印章生成记录' })
+  async deleteStampRecord(
+    @Param('recordId') recordId: string,
+    @CurrentUser() user: User
+  ) {
+    return this.ordersService.deleteStampGenerationRecord(+recordId, user);
+  }
+
+  @Post('stamp-records/:recordId/cancel')
+  @ApiOperation({ summary: '取消印章生成任务' })
+  @ApiResponse({ status: 200, description: '任务取消成功' })
+  @ApiResponse({ status: 400, description: '任务无法取消' })
+  @ApiResponse({ status: 404, description: '印章生成记录不存在' })
+  @ApiForbiddenResponse({ description: '无权取消该任务' })
+  async cancelStampRecord(
+    @Param('recordId') recordId: string,
+    @CurrentUser() user: User
+  ) {
+    return this.ordersService.cancelStampGenerationRecord(+recordId, user);
   }
 
   @ApiOperation({ summary: '更新指定订单的印章' })

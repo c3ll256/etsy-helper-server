@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import { PythonStampService } from './python-stamp.service';
 import { StampTemplate, TextElement } from '../entities/stamp-template.entity';
 import { StampGenerationRecord } from '../entities/stamp-generation-record.entity';
+import { JobQueueService } from '../../common/services/job-queue.service';
 
 @Injectable()
 export class OrderStampService {
@@ -18,6 +19,7 @@ export class OrderStampService {
     private readonly stampTemplateRepository: Repository<StampTemplate>,
     @InjectRepository(StampGenerationRecord)
     private readonly stampGenerationRecordRepository: Repository<StampGenerationRecord>,
+    private readonly jobQueueService: JobQueueService,
   ) {
     // 确保输出目录存在
     if (!fs.existsSync(this.outputDir)) {
@@ -33,6 +35,14 @@ export class OrderStampService {
     if (recordIds?.length > 0) {
       await this.stampGenerationRecordRepository.delete(recordIds);
     }
+  }
+
+  async updateRecordStatus(recordId: number, update: Partial<StampGenerationRecord>): Promise<void> {
+    await this.stampGenerationRecordRepository.update(recordId, update);
+  }
+
+  async findRecordById(recordId: number): Promise<StampGenerationRecord | null> {
+    return this.stampGenerationRecordRepository.findOne({ where: { id: recordId } });
   }
 
   /**
@@ -66,11 +76,12 @@ export class OrderStampService {
    * @param customTemplateId 可选的自定义模板ID，如果提供则使用这个模板而不是从SKU查找
    * @param convertTextToPaths 是否将文本转换为路径，默认是 false
    */
-  async generateStampFromOrder({order, customTextElements, templateId, convertTextToPaths = false}: {
+  async generateStampFromOrder({order, customTextElements, templateId, convertTextToPaths = false, jobId}: {
     order: any,
     customTextElements?: TextElement[], 
     templateId?: number,
-    convertTextToPaths?: boolean
+    convertTextToPaths?: boolean;
+    jobId?: string;
   }): Promise<{ 
     success: boolean; 
     path?: string; 
@@ -78,7 +89,17 @@ export class OrderStampService {
     templateId?: number;
     textElements?: TextElement[];
     recordId?: number;
+    cancelled?: boolean;
   }> {
+    if (jobId && this.jobQueueService.isCancelRequested(jobId)) {
+      const progress = this.jobQueueService.getJobProgress(jobId);
+      const message = progress?.cancelReason || progress?.message || '任务已取消';
+      return {
+        success: false,
+        error: message,
+        cancelled: true
+      };
+    }
     try {
       let template: any;
       let textElements: TextElement[] = [];
@@ -212,11 +233,29 @@ export class OrderStampService {
         orderId: order.order_id || orderId,
         templateId: template.id,
         textElements: textElements,
-        stampImageUrl: stampResult.path
+        stampImageUrl: stampResult.path,
+        status: 'completed',
+        progress: 100,
+        jobId: jobId || null,
+        errorMessage: null
       });
       
-      // 保存记录
       const savedRecord = await this.stampGenerationRecordRepository.save(record);
+
+      if (jobId && this.jobQueueService.isCancelRequested(jobId)) {
+        const progress = this.jobQueueService.getJobProgress(jobId);
+        const message = progress?.cancelReason || progress?.message || '任务已取消';
+        await this.stampGenerationRecordRepository.update(savedRecord.id, {
+          status: 'cancelled',
+          progress: 0,
+          errorMessage: message
+        });
+        return {
+          success: false,
+          error: message,
+          cancelled: true
+        };
+      }
 
       return {
         success: true,
