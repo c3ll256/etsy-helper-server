@@ -11,6 +11,7 @@ export enum StampType {
   PHOTO_CLOTHES = 'photo_clothes',
   GOLF_SET = 'golf_set',
   WAX_SEAL = 'wax_seal',
+  RATTLE = 'rattle',
 }
 
 @Entity('stamp_templates')
@@ -79,6 +80,14 @@ export interface Position {
   layoutMode?: 'startAligned' | 'centerAligned';
 }
 
+export interface StampIconConfig {
+  imagePath: string;
+  placement?: 'before' | 'after';
+  height?: number;
+  spacing?: number;
+  rotation?: number;
+}
+
 export interface TextElement {
   id?: string;
   defaultValue?: string; 
@@ -94,5 +103,6 @@ export interface TextElement {
   textPadding?: number;
   firstVariant?: number;
   lastVariant?: number;
+  icon?: StampIconConfig;
   position: Position;
 } 

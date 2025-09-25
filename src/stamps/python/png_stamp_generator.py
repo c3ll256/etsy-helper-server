@@ -375,6 +375,55 @@ class PNGStampGenerator:
         except Exception as e:
             logger.error(f"Error creating variable font instance: {e}")
             return None
+
+    def _prepare_icon_for_element(self, icon_config, default_height_units):
+        """Load and scale an icon image for a text element"""
+        if not icon_config:
+            return None, 0, 0, 0, 'before', None
+
+        image_path = icon_config.get('imagePath')
+        if not image_path:
+            return None, 0, 0, 0, 'before', None
+
+        icon_path = image_path
+        if not os.path.isabs(icon_path):
+            icon_path = os.path.join(os.getcwd(), icon_path)
+
+        if not os.path.exists(icon_path):
+            logger.warning(f"Icon image not found at path: {icon_path}")
+            return None, 0, 0, 0, 'before', None
+
+        try:
+            icon_image = Image.open(icon_path).convert('RGBA')
+
+            height_units = icon_config.get('height', default_height_units)
+            if not isinstance(height_units, (int, float)) or height_units <= 0:
+                height_units = default_height_units if default_height_units else 0
+
+            scaled_height = max(1, int(height_units * self.scale_factor)) if height_units else icon_image.height
+
+            if scaled_height != icon_image.height:
+                aspect_ratio = icon_image.width / icon_image.height if icon_image.height else 1
+                scaled_width = max(1, int(scaled_height * aspect_ratio))
+                icon_image = icon_image.resize((scaled_width, scaled_height), Image.LANCZOS)
+            else:
+                scaled_width = icon_image.width
+
+            spacing_units = icon_config.get('spacing')
+            if spacing_units is None:
+                spacing_units = default_height_units * 0.15 if default_height_units else 4
+
+            spacing = max(0, int(spacing_units * self.scale_factor))
+
+            placement = icon_config.get('placement', 'before')
+            if placement not in ('before', 'after'):
+                placement = 'before'
+
+            rotation_override = icon_config.get('rotation')
+            return icon_image, scaled_width, scaled_height, spacing, placement, rotation_override
+        except Exception as error:
+            logger.error(f"Failed to load icon image {icon_path}: {error}")
+            return None, 0, 0, 0, 'before', None
             
     def _register_temp_font(self, font_path):
         """
@@ -416,6 +465,11 @@ class PNGStampGenerator:
 
     def _draw_text_with_pil(self, img, text, font_family, font_size, x, y, color, rotation, text_align, vert_align, original_text=None):
         """Draw text on the image using PIL"""
+        icon_image = None
+        icon_width = 0
+        icon_height = 0
+        icon_spacing = 0
+        icon_placement = 'before'
         try:
             draw = ImageDraw.Draw(img)
             
@@ -464,6 +518,12 @@ class PNGStampGenerator:
                         logger.debug(f"Using explicit variableFontSettings: {variable_settings}")
                     break
             
+            icon_config = current_element.get('icon') if current_element else None
+            icon_image, icon_width, icon_height, icon_spacing, icon_placement, icon_rotation = self._prepare_icon_for_element(
+                icon_config,
+                font_size
+            )
+
             # 获取字体信息
             font_info = self._get_font_info(font_family)
             if not font_info:
@@ -494,8 +554,8 @@ class PNGStampGenerator:
                         text_width, text_height = rendered_text.size
                         
                         # 如果文本太宽，进行缩放
-                        if text_width > self.width - (margin * 2):
-                            scale_factor = (self.width - (margin * 2)) / text_width
+                        if text_width > self.width - (margin * 2) - (icon_width + icon_spacing):
+                            scale_factor = (self.width - (margin * 2) - (icon_width + icon_spacing)) / text_width
                             new_width = int(text_width * scale_factor)
                             new_height = int(text_height * scale_factor)
                             rendered_text = rendered_text.resize((new_width, new_height), Image.LANCZOS)
@@ -509,10 +569,10 @@ class PNGStampGenerator:
                         # 根据对齐方式调整位置，保持与标准文本渲染一致的逻辑
                         if text_align == 'center':
                             # 在当前x位置居中对齐
-                            place_x = place_x - (text_width / 2)
+                            place_x = place_x - ((text_width + (icon_width + icon_spacing if icon_image else 0)) / 2)
                         elif text_align == 'right':
                             # 在当前x位置右对齐
-                            place_x = place_x - text_width
+                            place_x = place_x - (text_width + (icon_width + icon_spacing if icon_image else 0))
                         # 对于'left'，不需要调整，默认就是左对齐
                             
                         if vert_align == 'middle':
@@ -543,11 +603,34 @@ class PNGStampGenerator:
                             final_y = int(place_y - (rotated_height / 2) + (text_height / 2))
                             
                             # 粘贴到主图像，不强制限制在边界内
+                            # 粘贴图标（在旋转版中，暂时不支持，直接回退到非图标渲染）
                             img.paste(rotated, (final_x, final_y), rotated)
                         else:
-                            # 直接粘贴，使用计算的位置，不强制限制在边界内
-                            img.paste(rendered_text, (int(place_x), int(place_y)), rendered_text)
-                        return
+                            total_content_width = text_width + (icon_width + icon_spacing if icon_image else 0)
+
+                            content_start_x = place_x
+                            if content_start_x < margin:
+                                content_start_x = margin
+                            if content_start_x + total_content_width > self.width - margin:
+                                content_start_x = max(margin, self.width - margin - total_content_width)
+
+                            if icon_image and icon_placement == 'before':
+                                icon_x = int(content_start_x)
+                                text_x = icon_x + icon_width + icon_spacing
+                            else:
+                                text_x = int(content_start_x)
+                                icon_x = text_x + text_width + icon_spacing if icon_image and icon_placement == 'after' else None
+
+                            img.paste(rendered_text, (int(text_x), int(place_y)), rendered_text)
+
+                            if icon_image:
+                                icon_baseline = y * self.scale_factor
+                                icon_y = int(icon_baseline - icon_height)
+                                if icon_placement == 'before':
+                                    img.paste(icon_image, (icon_x, icon_y), icon_image)
+                                elif icon_placement == 'after' and icon_x is not None:
+                                    img.paste(icon_image, (int(icon_x), icon_y), icon_image)
+                            return
                 except Exception as e:
                     logger.error(f"Error rendering text with variants: {e}")
                     # 如果变体渲染失败，回退到普通渲染
@@ -683,8 +766,27 @@ class PNGStampGenerator:
             
             if circular_text:
                 # Handle circular text rendering with scaled parameters
-                self._draw_circular_text(img, text, font, scaled_font_size, scaled_x, scaled_y, rgb_color, radius, 
-                                       start_angle, baseline_position, position, original_text, stroke_width=stroke_width)
+                self._draw_circular_text(
+                    img,
+                    text,
+                    font,
+                    scaled_font_size,
+                    scaled_x,
+                    scaled_y,
+                    rgb_color,
+                    radius,
+                    start_angle,
+                    baseline_position,
+                    position,
+                    original_text,
+                    stroke_width=stroke_width,
+                    icon_image=icon_image,
+                    icon_width=icon_width,
+                    icon_height=icon_height,
+                    icon_spacing=icon_spacing,
+                    icon_placement=icon_placement,
+                    icon_rotation_override=icon_rotation
+                )
             else:
                 # Handle regular text rendering
                 # Get a Draw object to measure text
@@ -725,7 +827,7 @@ class PNGStampGenerator:
                     base_width_no_spacing = base_width # Use the previously calculated base_width
                     # Calculate the adjustment needed based on the difference and the factor
                     # This is an approximation, as ideal spacing depends on character pairs
-                    spacing_width = base_width_no_spacing * (letter_spacing - 1.0)
+                spacing_width = base_width_no_spacing * (letter_spacing - 1.0)
 
                 text_width = base_width + spacing_width
                 
@@ -735,12 +837,22 @@ class PNGStampGenerator:
                 
                 # Calculate the actual space needed including padding
                 # Since padding is split between left and right sides, we need to consider both sides
-                total_width_with_padding = text_width + (margin * 2)  # Add padding for both sides
+                icon_image, icon_width, icon_height, icon_spacing, icon_placement = self._prepare_icon_for_element(
+                    current_element.get('icon') if current_element else None,
+                    font_size
+                )
+
+                total_content_width = text_width
+                if icon_image:
+                    total_content_width += icon_width + icon_spacing
+
+                total_width_with_padding = total_content_width + (margin * 2)  # Add padding for both sides
                 
                 # Scale down text if needed
                 if total_width_with_padding > self.width:  # Compare with full width
                     # Calculate scale factor based on width minus total padding
-                    text_scale_factor = (self.width - (margin * 2)) / text_width
+                    additional_width = icon_width + icon_spacing if icon_image else 0
+                    text_scale_factor = (self.width - (margin * 2) - additional_width) / text_width
                     adjusted_font_size = int(scaled_font_size * text_scale_factor)
                     # Prevent font size from becoming too small
                     final_font_size = max(8, adjusted_font_size) # Ensure minimum font size
@@ -757,7 +869,8 @@ class PNGStampGenerator:
                     # 为 faux bold 添加额外的宽度
                     if stroke_width > 0:
                         text_width += 2 * stroke_width
-                    total_width_with_padding = text_width + (margin * 2)
+                    total_content_width = text_width + (icon_width + icon_spacing if icon_image else 0)
+                    total_width_with_padding = total_content_width + (margin * 2)
                 
                 # Get text height using getbbox as textlength doesn't provide height
                 # We still need bbox for height calculation and vertical alignment
@@ -788,12 +901,17 @@ class PNGStampGenerator:
                 
                 # Calculate position based on alignment
                 place_x = scaled_x
+                # Determine total content width including icon if present
+                total_content_width = text_width
+                if icon_image:
+                    total_content_width += icon_width + icon_spacing
+
                 if text_align == 'center':
-                    # Center align the text at the user-specified x position
-                    place_x = scaled_x - (text_width / 2)
+                    # Center align the text/icon combo at the user-specified x position
+                    place_x = scaled_x - (total_content_width / 2)
                 elif text_align == 'right':
-                    # Right align the text at the user-specified x position
-                    place_x = scaled_x - text_width
+                    # Right align the combination at the user-specified x position
+                    place_x = scaled_x - total_content_width
                 else:  # 'left' alignment
                     # Use the user-specified x position directly for left alignment
                     place_x = scaled_x 
@@ -801,8 +919,8 @@ class PNGStampGenerator:
                 # Ensure we don't exceed margins AFTER alignment is calculated
                 if place_x < margin:
                     place_x = margin
-                elif place_x + text_width > self.width - margin:
-                    place_x = self.width - text_width - margin
+                elif place_x + total_content_width > self.width - margin:
+                    place_x = self.width - total_content_width - margin
                 
                 place_y = scaled_y
                 ascent, descent = font.getmetrics()
@@ -893,14 +1011,26 @@ class PNGStampGenerator:
                         if custom_padding is not None:
                             margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
                         
-                        # 检查是否会超出左边界
-                        if place_x < margin:
-                            place_x = margin
+                        current_x = place_x
+                        if icon_image and icon_placement == 'before':
+                            icon_y = int(place_y + ascent - icon_height)
+                            img.paste(icon_image, (int(current_x), icon_y), icon_image)
+                            current_x += icon_width + icon_spacing
+
                         # 检查是否会超出右边界
-                        elif place_x + text_width > self.width - margin:
-                            place_x = max(margin, self.width - text_width - margin)
-                            
-                        draw.text((place_x, place_y), text, font=font, fill=rgb_color, stroke_width=stroke_width)
+                        if current_x + text_width > self.width - margin:
+                            current_x = max(margin, self.width - text_width - margin)
+                            if icon_image and icon_placement == 'before':
+                                current_x = max(current_x, margin + icon_width + icon_spacing)
+                        
+                        draw.text((current_x, place_y), text, font=font, fill=rgb_color, stroke_width=stroke_width)
+
+                        if icon_image and icon_placement == 'after':
+                            icon_x = int(current_x + text_width + icon_spacing)
+                            icon_y = int(place_y + ascent - icon_height)
+                            if icon_x + icon_width > self.width - margin:
+                                icon_x = self.width - margin - icon_width
+                            img.paste(icon_image, (icon_x, icon_y), icon_image)
                     else:
                         # 获取整个文本的边界框，用于边界检查
                         left, top, right, bottom = font.getbbox(text)
@@ -914,14 +1044,26 @@ class PNGStampGenerator:
                         if custom_padding is not None:
                             margin = int((custom_padding / 2) * self.scale_factor)  # 除以2，因为 padding 是两侧总和
                         
-                        # 检查是否会超出左边界
-                        if place_x < margin:
-                            place_x = margin
-                        # 检查是否会超出右边界
-                        elif place_x + text_actual_width > self.width - margin:
-                            place_x = max(margin, self.width - text_actual_width - margin)
-                            
-                        self._draw_text_with_letter_spacing(draw, text, font, place_x, place_y, rgb_color, letter_spacing, stroke_width=stroke_width)
+                        current_x = place_x
+
+                        if icon_image and icon_placement == 'before':
+                            icon_y = int(place_y + ascent - icon_height)
+                            img.paste(icon_image, (int(current_x), icon_y), icon_image)
+                            current_x += icon_width + icon_spacing
+
+                        if current_x + text_actual_width > self.width - margin:
+                            current_x = max(margin, self.width - text_actual_width - margin)
+                            if icon_image and icon_placement == 'before':
+                                current_x = max(current_x, margin + icon_width + icon_spacing)
+                        
+                        self._draw_text_with_letter_spacing(draw, text, font, current_x, place_y, rgb_color, letter_spacing, stroke_width=stroke_width)
+
+                        if icon_image and icon_placement == 'after':
+                            icon_x = int(current_x + text_actual_width + icon_spacing)
+                            icon_y = int(place_y + ascent - icon_height)
+                            if icon_x + icon_width > self.width - margin:
+                                icon_x = self.width - margin - icon_width
+                            img.paste(icon_image, (icon_x, icon_y), icon_image)
                 
         except Exception as e:
             logger.error(f"Error drawing text with PIL: {e}")
@@ -965,7 +1107,9 @@ class PNGStampGenerator:
                 current_x += char_advances[i] + extra_space_per_gap
 
     def _draw_circular_text(self, img, text, font, font_size, center_x, center_y, color, radius, 
-                          start_angle, baseline_position, position, original_text=None, stroke_width=0):
+                          start_angle, baseline_position, position, original_text=None, stroke_width=0,
+                          icon_image=None, icon_width=0, icon_height=0, icon_spacing=0, icon_placement='before',
+                          icon_rotation_override=None):
         """Draw text in a circular path"""
         try:
             draw = ImageDraw.Draw(img)
@@ -1346,6 +1490,38 @@ class PNGStampGenerator:
                 
                 # 粘贴到主图像
                 img.paste(rotated_char, (paste_x, paste_y), rotated_char)
+
+            # Draw icon if requested
+            if icon_image and radius > 0 and icon_width > 0 and icon_height > 0:
+                arc_per_pixel_deg = (180.0 / math.pi) / radius
+                icon_arc_angle = icon_width * arc_per_pixel_deg
+                spacing_angle = icon_spacing * arc_per_pixel_deg
+
+                direction_factor = 1 if baseline_position == 'outside' else -1
+
+                if icon_placement == 'after':
+                    icon_center_angle = (start_angle + direction_factor * (final_total_angle_deg + spacing_angle + icon_arc_angle / 2)) % 360
+                else:
+                    icon_center_angle = (start_angle - direction_factor * (spacing_angle + icon_arc_angle / 2)) % 360
+
+                icon_center_angle_rad = math.radians(icon_center_angle)
+                offset_radius = radius + direction_factor * max(0, icon_spacing)
+                icon_center_x = center_x + offset_radius * math.cos(icon_center_angle_rad)
+                icon_center_y = center_y + offset_radius * math.sin(icon_center_angle_rad)
+
+                icon_img = icon_image
+                if icon_rotation_override is not None:
+                    icon_img = icon_image.rotate(-icon_rotation_override, expand=True, resample=Image.BICUBIC)
+                else:
+                    # Rotate to follow the tangent direction, then adjust an extra 90° counter-clockwise
+                    tangent_angle_deg = math.degrees(icon_center_angle_rad) + (0 if baseline_position == 'outside' else 180)
+                    auto_rotation_deg = -tangent_angle_deg + 90
+                    icon_img = icon_image.rotate(auto_rotation_deg, expand=True, resample=Image.BICUBIC)
+
+                icon_paste_x = int(icon_center_x - icon_img.width / 2)
+                icon_paste_y = int(icon_center_y - icon_img.height / 2)
+
+                img.paste(icon_img, (icon_paste_x, icon_paste_y), icon_img)
                 
         except Exception as e:
             logger.error(f"Error drawing circular text: {e}")

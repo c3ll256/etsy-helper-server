@@ -38,11 +38,14 @@ import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { StampTemplate } from './entities/stamp-template.entity';
 import { JobQueueService } from '../common/services/job-queue.service';
 
-const UPLOAD_DIR = 'uploads/backgrounds';
+const BACKGROUND_UPLOAD_DIR = 'uploads/backgrounds';
+const ICON_UPLOAD_DIR = 'uploads/icons';
 
-// Ensure upload directory exists
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// Ensure upload directories exist
+for (const dir of [BACKGROUND_UPLOAD_DIR, ICON_UPLOAD_DIR]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
 @ApiTags('stamps')
@@ -104,7 +107,7 @@ export class StampsController {
   @ApiResponse({ status: 400, description: '无效的文件类型或大小' })
   async uploadBackground(@Req() req: Request, @Res() res: Response) {
     // 确保上传目录存在
-    const uploadDir = path.join(process.cwd(), 'uploads', 'backgrounds');
+    const uploadDir = path.join(process.cwd(), BACKGROUND_UPLOAD_DIR);
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -163,7 +166,7 @@ export class StampsController {
       // 返回文件信息
       return res.status(201).json({
         success: true,
-        filePath: `uploads/backgrounds/${req.file.filename}`,
+        filePath: `${BACKGROUND_UPLOAD_DIR}/${req.file.filename}`,
         fileName: req.file.originalname,
       });
     } catch (error) {
@@ -175,6 +178,91 @@ export class StampsController {
       return res.status(400).json({ 
         success: false, 
         message: message 
+      });
+    }
+  }
+
+  @Post('upload-icon')
+  @ApiOperation({ summary: '上传印章图标图片' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: '印章图标图片文件',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: '图标图片上传成功' })
+  @ApiResponse({ status: 400, description: '无效的文件类型或大小' })
+  async uploadIcon(@Req() req: Request, @Res() res: Response) {
+    const uploadDir = path.join(process.cwd(), ICON_UPLOAD_DIR);
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const storage = multer.diskStorage({
+      destination: uploadDir,
+      filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const extension = path.extname(file.originalname);
+        cb(null, `${uniqueSuffix}${extension}`);
+      }
+    });
+
+    const upload = multer({
+      storage,
+      limits: {
+        fileSize: 2 * 1024 * 1024, // 2MB for icons
+      },
+      fileFilter: (req, file, cb) => {
+        const allowedMimes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'];
+        const allowedExts = ['.png', '.jpg', '.jpeg', '.svg'];
+
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
+          cb(null, true);
+        } else {
+          cb(null, false);
+          req['fileValidationError'] = '仅支持 PNG、JPG 或 SVG 格式的图片';
+        }
+      }
+    }).single('file');
+
+    const uploadPromisified = promisify(upload);
+
+    try {
+      await uploadPromisified(req, res);
+
+      if (req['fileValidationError']) {
+        return res.status(400).json({
+          success: false,
+          message: req['fileValidationError']
+        });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ message: '未提供文件或文件上传失败' });
+      }
+
+      return res.status(201).json({
+        success: true,
+        filePath: `${ICON_UPLOAD_DIR}/${req.file.filename}`,
+        fileName: req.file.originalname,
+      });
+    } catch (error) {
+      let message = '文件上传失败';
+      if (error instanceof Error) {
+        message = error.message;
+      }
+      console.error('Upload icon error:', error);
+      return res.status(400).json({
+        success: false,
+        message
       });
     }
   }

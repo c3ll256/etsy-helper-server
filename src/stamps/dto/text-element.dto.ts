@@ -1,8 +1,8 @@
-import { IsBoolean, IsEnum, IsOptional, ValidateNested } from "class-validator";
+import { IsBoolean, IsEnum, IsOptional, ValidateNested, IsIn } from "class-validator";
 
 import { ApiProperty } from "@nestjs/swagger";
 import { IsNumber, IsString } from "class-validator";
-import { TextElement, Position } from "../entities/stamp-template.entity";
+import { TextElement, Position, StampIconConfig } from "../entities/stamp-template.entity";
 import { Type } from "class-transformer";
 
 class PositionDto implements Position {
@@ -80,6 +80,33 @@ class PositionDto implements Position {
   layoutMode?: 'startAligned' | 'centerAligned';
 }
 
+export class StampIconConfigDto implements StampIconConfig {
+  @ApiProperty({ description: 'Relative path to the icon image' })
+  @IsString()
+  imagePath: string;
+
+  @ApiProperty({ description: 'Placement of the icon relative to the text', enum: ['before', 'after'], required: false, default: 'before' })
+  @IsString()
+  @IsOptional()
+  @IsIn(['before', 'after'])
+  placement?: 'before' | 'after';
+
+  @ApiProperty({ description: 'Height of the icon in pixels', required: false })
+  @IsNumber()
+  @IsOptional()
+  height?: number;
+
+  @ApiProperty({ description: 'Spacing between icon and text in pixels', required: false })
+  @IsNumber()
+  @IsOptional()
+  spacing?: number;
+
+  @ApiProperty({ description: 'Rotation angle override for the icon in degrees', required: false })
+  @IsNumber()
+  @IsOptional()
+  rotation?: number;
+}
+
 export class TextElementDto implements TextElement {
   @ApiProperty({ description: 'Unique identifier for the text element' })
   @IsString()
@@ -148,6 +175,16 @@ export class TextElementDto implements TextElement {
   @IsNumber()
   @IsOptional()
   lastVariant?: number;
+
+  @ApiProperty({
+    description: 'Icon configuration to render alongside text',
+    required: false,
+    type: () => StampIconConfigDto,
+  })
+  @ValidateNested()
+  @Type(() => StampIconConfigDto)
+  @IsOptional()
+  icon?: StampIconConfigDto;
 
   @ApiProperty({ description: 'Position and dimensions of the text element' })
   @ValidateNested()

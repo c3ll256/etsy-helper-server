@@ -5,3 +5,4 @@ dist
 .venv
 venv/
 uploads/
+__pycache__/
