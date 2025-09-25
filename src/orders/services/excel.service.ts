@@ -22,6 +22,13 @@ import { createCanvas, loadImage } from 'canvas';
 // Initialize dayjs plugins
 dayjs.extend(customParseFormat);
 
+class JobCancelledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'JobCancelledError';
+  }
+}
+
 type ProcessingResult = {
   total: number;
   created: number;
@@ -278,6 +285,15 @@ export class ExcelService {
       this.jobQueueService.startJobCleanup(jobId);
       
     } catch (error) {
+      if (error instanceof JobCancelledError) {
+        this.logger.warn(`Excel processing cancelled: ${error.message}`);
+        const currentProgress = this.jobQueueService.getJobProgress(jobId)?.progress ?? 0;
+        this.jobQueueService.markJobCancelled(jobId, {
+          progress: currentProgress,
+          message: error.message || '任务已取消'
+        });
+        return;
+      }
       this.logger.error(`Failed to process Excel file: ${error.message}`, error.stack);
       const status = this.jobQueueService.getJobProgress(jobId)?.status === 'cancelled' ? 'cancelled' : 'failed';
       this.jobQueueService.updateJobProgress(jobId, {
@@ -321,6 +337,15 @@ export class ExcelService {
 
     // Process each order
     for (let i = 0; i < data.length; i++) {
+      if (jobId && this.jobQueueService.isCancelRequested(jobId)) {
+        const progressPercentage = 10 + Math.floor((i / data.length) * 85);
+        const message = `任务在处理第 ${i + 1} 个订单时被取消`;
+        this.jobQueueService.markJobCancelled(jobId, {
+          progress: progressPercentage,
+          message
+        });
+        throw new JobCancelledError(message);
+      }
       const item = data[i];
       
       if (jobId) {
@@ -345,7 +370,7 @@ export class ExcelService {
         }
 
         // Process order and generate stamp
-        const orderResult = await this.processOrderWithStamp(item, user);
+        const orderResult = await this.processOrderWithStamp(item, user, undefined, jobId);
         
         if (orderResult.success && orderResult.stamps && orderResult.stamps.length > 0) {
           created += orderResult.stamps.length;
@@ -360,6 +385,9 @@ export class ExcelService {
           });
         }
       } catch (error) {
+        if (error instanceof JobCancelledError) {
+          throw error;
+        }
         this.logger.error(`Failed to process order:`, error);
         failed++;
         const orderId = item['Order ID']?.toString() || 'Unknown';
@@ -518,6 +546,10 @@ export class ExcelService {
         success: false,
         error: 'Missing order ID or transaction ID'
       };
+    }
+
+    if (jobId && this.jobQueueService.isCancelRequested(jobId)) {
+      throw new JobCancelledError('任务已取消，订单处理未开始');
     }
 
     // Check if order already exists
@@ -699,7 +731,7 @@ export class ExcelService {
       });
 
       if (stampResult.cancelled) {
-        throw new Error(stampResult.error || '任务已取消');
+        throw new JobCancelledError(stampResult.error || '任务已取消');
       }
 
       if (!stampResult.success) {
