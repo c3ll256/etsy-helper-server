@@ -469,7 +469,7 @@ export class BasketService {
     file: Express.Multer.File, 
     jobId: string,
     skuConfigs: SkuConfig[],
-    orderType: 'basket' | 'backpack' | 'all'
+    orderType: 'basket' | 'backpack' | 'all' | 'combo'
   ): Promise<void> {
     // Declare file paths outside the try block so they're available in catch block
     let modifiedExcelPath: string | null = null; // 导出的Excel文件路径
@@ -514,11 +514,18 @@ export class BasketService {
       // Check if any orders were found
       if (filteredOrders.length === 0) {
         let errorMessage = '';
-        if (orderType === 'all') {
-          errorMessage = '没有找到任何与您已配置的SKU匹配的订单，请检查您的SKU配置是否正确';
-        } else {
-          errorMessage = `没有找到匹配的${orderType === 'basket' ? '篮子' : '书包'}订单，请检查您的SKU配置是否正确`;
+        let errorType = '';
+        
+        switch (orderType) {
+          case 'basket': errorType = '篮子'; break;
+          case 'backpack': errorType = '书包'; break;
+          case 'all': errorType = '所有'; break;
+          case 'combo': errorType = '组合'; break;
+          default: errorType = '所有'; break;
         }
+
+        errorMessage = `没有找到任何与您已配置的SKU匹配的${errorType}订单，请检查您的SKU配置是否正确`;
+
         throw new Error(errorMessage);
       }
       
@@ -531,6 +538,7 @@ export class BasketService {
       // Define columns (requested order + SKU + 收货地址；自定义信息展示完整原始 variations)
       const headers = [
         '订单号',
+        '序号',
         '下单时间',
         '顾客姓名',
         '产品数量',
@@ -544,15 +552,16 @@ export class BasketService {
 
       exportSheet.columns = [
         { header: headers[0], key: 'orderId', width: 20 },
-        { header: headers[1], key: 'orderDate', width: 18 },
-        { header: headers[2], key: 'shipName', width: 18 },
-        { header: headers[3], key: 'quantity', width: 12 },
-        { header: headers[4], key: 'customInfo', width: 50 },
-        { header: headers[5], key: 'sku', width: 20 },
-        { header: headers[6], key: 'shipAddress', width: 40 },
-        { header: headers[7], key: 'qrcode', width: 18 },
-        { header: headers[8], key: 'recognized', width: 16 },
-        { header: headers[9], key: 'shopName', width: 20 },
+        { header: headers[1], key: 'orderGroupIndex', width: 16 },
+        { header: headers[2], key: 'orderDate', width: 18 },
+        { header: headers[3], key: 'shipName', width: 18 },
+        { header: headers[4], key: 'quantity', width: 12 },
+        { header: headers[5], key: 'customInfo', width: 50 },
+        { header: headers[6], key: 'sku', width: 20 },
+        { header: headers[7], key: 'shipAddress', width: 40 },
+        { header: headers[8], key: 'qrcode', width: 18 },
+        { header: headers[9], key: 'recognized', width: 16 },
+        { header: headers[10], key: 'shopName', width: 20 },
       ];
 
       // 获取记录关联的用户信息（用于店铺名）
@@ -591,10 +600,11 @@ export class BasketService {
           const addOneRow = async (skuForRow: string) => {
             const current = (currentIndexByOrderId.get(orderIdKey) || 0) + 1;
             currentIndexByOrderId.set(orderIdKey, current);
-            const orderIdWithPos = `${orderIdKey} (${current}/${totalForThisOrderId})`;
+            const orderGroupIndex = `${current}/${totalForThisOrderId}`;
 
             exportSheet.addRow({
-              orderId: orderIdWithPos,
+              orderId: orderIdKey,
+              orderGroupIndex,
               orderDate: order.orderDate || '',
               shipName: order.shipName || '',
               quantity: order.quantity || 1,
