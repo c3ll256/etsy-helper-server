@@ -165,6 +165,69 @@ export class BasketController {
     return this.basketService.deleteGenerationRecord(id, user);
   }
 
+  @Delete('records')
+  @ApiOperation({ summary: '批量删除篮子订单生成记录' })
+  @ApiResponse({
+    status: 200,
+    description: '批量删除结果',
+    schema: {
+      type: 'object',
+      properties: {
+        deleted: {
+          type: 'array',
+          items: { type: 'number' },
+          description: '成功删除的记录ID列表'
+        },
+        failed: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'number' },
+              reason: { type: 'string' }
+            }
+          },
+          description: '删除失败的记录及原因'
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: '必须提供至少一个记录ID' })
+  @ApiForbiddenResponse({ description: '无权删除某些记录' })
+  @ApiBody({
+    required: false,
+    schema: {
+      type: 'object',
+      properties: {
+        ids: {
+          type: 'array',
+          description: '要删除的记录ID数组',
+          items: { type: 'number' }
+        }
+      }
+    }
+  })
+  @ApiQuery({
+    name: 'ids',
+    required: false,
+    description: '要删除的记录ID，可以使用逗号分隔或重复参数',
+    type: String,
+    isArray: true
+  })
+  async deleteRecords(
+    @Body('ids') bodyIds: number[] | number | string[] | string,
+    @Query('ids') queryIds: string | string[],
+    @CurrentUser() user: User
+  ): Promise<{ deleted: number[]; failed: { id: number; reason: string }[] }> {
+    const ids = this.normalizeNumericIds(bodyIds, queryIds);
+
+    if (!ids.length) {
+      throw new BadRequestException('必须提供至少一个记录ID');
+    }
+
+    return this.basketService.deleteGenerationRecords(ids, user);
+  }
+
   @Post('records/:id/cancel')
   @ApiOperation({ summary: '取消篮子订单生成任务' })
   @ApiResponse({ status: 200, description: '任务取消成功' })
@@ -320,5 +383,45 @@ export class BasketController {
     @CurrentUser() user: User
   ) {
     return this.basketService.checkJobStatus(jobId, user);
+  }
+
+  private normalizeNumericIds(
+    bodyIds?: number[] | number | string[] | string,
+    queryIds?: string | string[]
+  ): number[] {
+    const idSet = new Set<number>();
+
+    const append = (input?: number | string) => {
+      if (input === undefined || input === null) {
+        return;
+      }
+
+      const value = typeof input === 'number' ? String(input) : input;
+
+      value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .forEach((v) => {
+          const parsed = Number(v);
+          if (!Number.isNaN(parsed)) {
+            idSet.add(parsed);
+          }
+        });
+    };
+
+    if (Array.isArray(bodyIds)) {
+      bodyIds.forEach((id) => append(id as any));
+    } else if (bodyIds !== undefined) {
+      append(bodyIds as any);
+    }
+
+    if (Array.isArray(queryIds)) {
+      queryIds.forEach((id) => append(id));
+    } else {
+      append(queryIds);
+    }
+
+    return Array.from(idSet);
   }
 } 

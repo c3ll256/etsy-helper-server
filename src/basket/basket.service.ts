@@ -1141,6 +1141,23 @@ export class BasketService {
     await this.basketRecordRepository.delete(id);
   }
 
+  async deleteGenerationRecords(ids: number[], user: User): Promise<{ deleted: number[]; failed: { id: number; reason: string }[] }> {
+    const deleted: number[] = [];
+    const failed: { id: number; reason: string }[] = [];
+
+    for (const id of ids) {
+      try {
+        await this.deleteGenerationRecord(id, user);
+        deleted.push(id);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : '未知错误';
+        failed.push({ id, reason });
+      }
+    }
+
+    return { deleted, failed };
+  }
+
   async cancelGenerationRecord(id: number, user: User): Promise<{ success: boolean; message: string }> {
     const record = await this.getGenerationRecord(id, user);
 

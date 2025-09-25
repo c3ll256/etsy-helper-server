@@ -250,6 +250,23 @@ export class OrdersService {
     }
   }
 
+  async removeMany(ids: string[], currentUser?: User): Promise<{ deleted: string[]; failed: { id: string; reason: string }[] }> {
+    const deleted: string[] = [];
+    const failed: { id: string; reason: string }[] = [];
+
+    for (const id of ids) {
+      try {
+        await this.remove(id, currentUser);
+        deleted.push(id);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Unknown error';
+        failed.push({ id, reason });
+      }
+    }
+
+    return { deleted, failed };
+  }
+
   /**
    * 使用指定的ID更新订单印章
    * @param id 订单ID
@@ -866,16 +883,16 @@ export class OrdersService {
     return { success: true };
   }
 
-  async cancelStampGenerationRecord(recordId: number, user: User): Promise<{ success: boolean; message: string }> {
-    const record = await this.stampGenerationRecordRepository.findOne({ where: { id: recordId } });
+  async cancelStampGenerationByJobId(jobId: string, user: User): Promise<{ success: boolean; message: string }> {
+    const record = await this.stampGenerationRecordRepository.findOne({ where: { jobId } });
     if (!record) {
-      throw new NotFoundException(`Stamp generation record with ID ${recordId} not found`);
+      throw new NotFoundException(`Stamp generation job with ID ${jobId} not found`);
     }
 
     if (!user.isAdmin) {
       const order = await this.ordersRepository.findOne({ where: { id: record.orderId }, relations: ['user'] });
       if (!order || order.userId !== user.id) {
-        throw new ForbiddenException('You do not have permission to cancel this record');
+        throw new ForbiddenException('You do not have permission to cancel this job');
       }
     }
 
@@ -900,7 +917,7 @@ export class OrdersService {
       return { success: false, message: '任务已无法取消或已完成' };
     }
 
-    await this.stampGenerationRecordRepository.update(recordId, {
+    await this.stampGenerationRecordRepository.update(record.id, {
       status: 'cancelled',
       progress: record.progress ?? 0,
       errorMessage: '任务取消中'

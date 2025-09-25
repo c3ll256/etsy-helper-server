@@ -428,6 +428,100 @@ export class OrdersController {
     return this.ordersService.remove(id, user);
   }
 
+  @Delete()
+  @ApiOperation({ summary: 'Delete multiple orders' })
+  @ApiResponse({
+    status: 200,
+    description: 'Orders deleted successfully.',
+    schema: {
+      type: 'object',
+      properties: {
+        deleted: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of successfully deleted order IDs'
+        },
+        failed: {
+          type: 'array',
+          description: 'List of order IDs that failed to delete with reasons',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              reason: { type: 'string' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'No valid order IDs provided.' })
+  @ApiBody({
+    required: false,
+    schema: {
+      type: 'object',
+      properties: {
+        ids: {
+          type: 'array',
+          description: 'Order ID array to delete',
+          items: { type: 'string' }
+        }
+      }
+    }
+  })
+  @ApiQuery({
+    name: 'ids',
+    required: false,
+    description: 'Comma-separated order IDs or multiple query parameters',
+    type: String,
+    isArray: true
+  })
+  async removeMany(
+    @Body('ids') bodyIds: string[] | string,
+    @Query('ids') queryIds: string | string[],
+    @CurrentUser() user: User
+  ) {
+    const ids = this.normalizeIds(bodyIds, queryIds);
+
+    if (!ids.length) {
+      throw new BadRequestException('At least one order ID must be provided');
+    }
+
+    return this.ordersService.removeMany(ids, user);
+  }
+
+  private normalizeIds(
+    bodyIds?: string[] | string,
+    queryIds?: string | string[]
+  ): string[] {
+    const idSet = new Set<string>();
+
+    const append = (value?: string) => {
+      if (!value) {
+        return;
+      }
+      value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .forEach((v) => idSet.add(v));
+    };
+
+    if (Array.isArray(bodyIds)) {
+      bodyIds.forEach((id) => append(id));
+    } else if (typeof bodyIds === 'string') {
+      append(bodyIds);
+    }
+
+    if (Array.isArray(queryIds)) {
+      queryIds.forEach((id) => append(id));
+    } else if (typeof queryIds === 'string') {
+      append(queryIds);
+    }
+
+    return Array.from(idSet);
+  }
+
   @Delete('stamp-records/:recordId')
   @ApiOperation({ summary: '删除印章生成记录' })
   @ApiResponse({ status: 200, description: '印章生成记录删除成功' })
@@ -440,17 +534,22 @@ export class OrdersController {
     return this.ordersService.deleteStampGenerationRecord(+recordId, user);
   }
 
-  @Post('stamp-records/:recordId/cancel')
-  @ApiOperation({ summary: '取消印章生成任务' })
+  @Post('stamp-records/:jobId/cancel')
+  @ApiOperation({ summary: '根据任务ID取消印章生成任务' })
+  @ApiParam({ name: 'jobId', description: '上传任务返回的 jobId' })
   @ApiResponse({ status: 200, description: '任务取消成功' })
-  @ApiResponse({ status: 400, description: '任务无法取消' })
-  @ApiResponse({ status: 404, description: '印章生成记录不存在' })
+  @ApiResponse({ status: 400, description: '任务无法取消或参数无效' })
+  @ApiResponse({ status: 404, description: '对应的任务或记录不存在' })
   @ApiForbiddenResponse({ description: '无权取消该任务' })
   async cancelStampRecord(
-    @Param('recordId') recordId: string,
+    @Param('jobId') jobId: string,
     @CurrentUser() user: User
   ) {
-    return this.ordersService.cancelStampGenerationRecord(+recordId, user);
+    if (!jobId) {
+      throw new BadRequestException('Job ID is required');
+    }
+
+    return this.ordersService.cancelStampGenerationByJobId(jobId, user);
   }
 
   @ApiOperation({ summary: '更新指定订单的印章' })
