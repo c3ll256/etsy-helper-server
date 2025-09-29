@@ -596,31 +596,31 @@ export class OrdersService {
         const { stampPath, stampUrl, recordId, order } = allStampsInGroup[stampIndex];
         
         // 获取模板信息
-        let templateName =  '';
-        if (recordId) {
-          try {
-            let stampRecord = stampRecordCache.get(recordId);
-            if (!stampRecord) {
-              stampRecord = await this.stampGenerationRecordRepository.findOne({
-                where: { id: recordId },
-                relations: ['template']
-              });
-              if (stampRecord) {
-                stampRecordCache.set(recordId, stampRecord);
-              }
-            }
+        // let templateName =  '';
+        // if (recordId) {
+        //   try {
+        //     let stampRecord = stampRecordCache.get(recordId);
+        //     if (!stampRecord) {
+        //       stampRecord = await this.stampGenerationRecordRepository.findOne({
+        //         where: { id: recordId },
+        //         relations: ['template']
+        //       });
+        //       if (stampRecord) {
+        //         stampRecordCache.set(recordId, stampRecord);
+        //       }
+        //     }
 
-            if (stampRecord) {
-              const resolvedTemplateName =
-                stampRecord.template?.name?.trim() || order.etsyOrder.sku;
-              templateName = resolvedTemplateName;
-            }
-          } catch (error) {
-            console.error(`获取模板信息失败，记录ID: ${recordId}`, error);
-          }
-        }
+        //     if (stampRecord) {
+        //       const resolvedTemplateName =
+        //         stampRecord.template?.name?.trim() || order.etsyOrder.sku;
+        //       templateName = resolvedTemplateName;
+        //     }
+        //   } catch (error) {
+        //     console.error(`获取模板信息失败，记录ID: ${recordId}`, error);
+        //   }
+        // }
 
-        templateName = templateName.toString().replace(/[\\/]/g, '-');
+        const templateName = order.etsyOrder.sku.toString().replace(/[\\/]/g, '-');
         
         // 获取客户名称
         const customerName = order.etsyOrder.shipName || 'N/A';
