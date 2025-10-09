@@ -464,34 +464,125 @@ export class ExcelService {
         return { error: `No matching template found for SKU: ${sku}` };
       }
       
-      // 按SKU长度从长到短排序，优先匹配更具体的模板（基于 skus 数组）
-      templates.sort((a, b) => {
-        const aIncluded = Array.isArray(a.skus) && a.skus.some(alias => sku.includes(alias));
-        const bIncluded = Array.isArray(b.skus) && b.skus.some(alias => sku.includes(alias));
+      const normalizeSkuValue = (value: string): string => (value || '').toLowerCase().trim();
+      const tokenizeSkuValue = (value: string): string[] =>
+        normalizeSkuValue(value)
+          .split(/[^a-z0-9]+/)
+          .filter(token => token.length > 0);
+      const longestCommonSubstringLength = (a: string, b: string): number => {
+        if (!a || !b) return 0;
+        const lenA = a.length;
+        const lenB = b.length;
+        let maxLen = 0;
+        const dp: number[] = new Array(lenB + 1).fill(0);
 
-        if (aIncluded && !bIncluded) return -1;
-        if (!aIncluded && bIncluded) return 1;
+        for (let i = 1; i <= lenA; i++) {
+          let prev = 0;
+          for (let j = 1; j <= lenB; j++) {
+            const temp = dp[j];
+            if (a[i - 1] === b[j - 1]) {
+              dp[j] = prev + 1;
+              if (dp[j] > maxLen) {
+                maxLen = dp[j];
+              }
+            } else {
+              dp[j] = 0;
+            }
+            prev = temp;
+          }
+        }
 
-        const aLongest = Math.max(...(a.skus || []).map(s => s?.length || 0), 0);
-        const bLongest = Math.max(...(b.skus || []).map(s => s?.length || 0), 0);
-        return bLongest - aLongest;
-      });
-      
-      // 记录排序后的模板顺序（用于调试）
-      this.logger.debug(`Sorted templates for SKU ${sku}: ${templates.map(t => (t.skus || []).join('|')).join(', ')}`);
-      
-      // 1. 优先完全匹配
-      let matchedTemplate = templates.find(template => Array.isArray(template.skus) && template.skus.includes(sku));
-      
-      // 2. 如果没有完全匹配，则查找订单SKU包含模板SKU的情况
-      if (!matchedTemplate) {
-        matchedTemplate = templates.find(template => Array.isArray(template.skus) && template.skus.some(alias => sku.includes(alias)));
+        return maxLen;
+      };
+
+      const normalizedSku = normalizeSkuValue(sku);
+      const orderTokens = tokenizeSkuValue(sku);
+      const orderTokenSet = new Set(orderTokens);
+
+      type MatchCandidate = {
+        template: any;
+        alias?: string;
+        coverage: number;
+        sharedTokenCount: number;
+        substringLength: number;
+      };
+
+      const isCandidateBetter = (candidate: MatchCandidate, current?: MatchCandidate): boolean => {
+        if (!current) return true;
+        if (candidate.coverage !== current.coverage) {
+          return candidate.coverage > current.coverage;
+        }
+        if (candidate.sharedTokenCount !== current.sharedTokenCount) {
+          return candidate.sharedTokenCount > current.sharedTokenCount;
+        }
+        if (candidate.substringLength !== current.substringLength) {
+          return candidate.substringLength > current.substringLength;
+        }
+        return (candidate.alias?.length || 0) > (current.alias?.length || 0);
+      };
+
+      let bestMatch: MatchCandidate | undefined;
+
+      for (const template of templates) {
+        if (!Array.isArray(template.skus) || template.skus.length === 0) {
+          continue;
+        }
+
+        for (const aliasRaw of template.skus) {
+          if (!aliasRaw || typeof aliasRaw !== 'string') {
+            continue;
+          }
+
+          const normalizedAlias = normalizeSkuValue(aliasRaw);
+          if (!normalizedAlias) continue;
+
+          if (normalizedAlias === normalizedSku) {
+            bestMatch = {
+              template,
+              alias: aliasRaw,
+              coverage: 1,
+              sharedTokenCount: tokenizeSkuValue(aliasRaw).length,
+              substringLength: normalizedAlias.length
+            };
+            break;
+          }
+
+          const aliasTokens = tokenizeSkuValue(aliasRaw);
+          if (aliasTokens.length === 0) {
+            continue;
+          }
+
+          const sharedTokens = aliasTokens.filter(token => orderTokenSet.has(token));
+          const coverage = sharedTokens.length / aliasTokens.length;
+          const substringLength = longestCommonSubstringLength(normalizedAlias, normalizedSku);
+
+          const candidate: MatchCandidate = {
+            template,
+            alias: aliasRaw,
+            coverage,
+            sharedTokenCount: sharedTokens.length,
+            substringLength
+          };
+
+          if (isCandidateBetter(candidate, bestMatch)) {
+            bestMatch = candidate;
+          }
+        }
+
+        if (bestMatch && bestMatch.template === template && bestMatch.coverage === 1) {
+          break;
+        }
       }
-      
-      // 3. 如果以上都没匹配到，则使用第一个模板作为兜底（现在第一个模板是按长度排序后的）
-      const template = matchedTemplate || templates[0];
-      
-      this.logger.log(`Selected template ${(template.skus || []).join('|')} for SKU ${sku} (match type: ${matchedTemplate ? ((template.skus || []).includes(sku) ? 'exact' : 'includes') : 'fallback'})`);
+
+      const template = bestMatch ? bestMatch.template : templates[0];
+      const matchedAlias = bestMatch?.alias;
+      const matchInfo = bestMatch
+        ? `coverage=${bestMatch.coverage.toFixed(2)}, sharedTokens=${bestMatch.sharedTokenCount}, substringLength=${bestMatch.substringLength}`
+        : 'fallback';
+
+      this.logger.log(
+        `Selected template ${(template.skus || []).join('|')} for SKU ${sku} (match: ${matchInfo}${matchedAlias ? `, alias: ${matchedAlias}` : ''})`
+      );
       
       // Build template description from text elements and include free-text guidance
       const descriptionParts = [];
