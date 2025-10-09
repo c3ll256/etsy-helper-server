@@ -172,10 +172,16 @@ export class StampsService {
   async remove(id: number, user: User): Promise<void> {
     const template = await this.findById(id, user);
     
-    const result = await this.stampTemplateRepository.delete(id);
-    if (result.affected === 0) {
-      throw new NotFoundException(`Stamp template with ID ${id} not found or could not be deleted`);
-    }
+    await this.stampTemplateRepository.manager.transaction(async (entityManager) => {
+      await entityManager.getRepository(StampGenerationRecord).delete({ templateId: template.id });
+
+      await entityManager.getRepository(Order).update({ templateId: template.id }, { templateId: null });
+
+      const deleteResult = await entityManager.getRepository(StampTemplate).delete(template.id);
+      if (deleteResult.affected === 0) {
+        throw new NotFoundException(`Stamp template with ID ${id} not found or could not be deleted`);
+      }
+    });
   }
 
   async cloneTemplate(
