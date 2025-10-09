@@ -457,7 +457,7 @@ export class ExcelService {
     const skuBase = sku.split('-').slice(0, 2).join('-');
     
     try {
-      const templates = await this.orderStampService.findTemplatesBySku(sku, skuBase);
+      const templates = await this.orderStampService.findTemplatesBySku(sku);
       
       if (!templates || templates.length === 0) {
         this.logger.warn(`No template found for SKU ${sku}`);
@@ -469,32 +469,6 @@ export class ExcelService {
         normalizeSkuValue(value)
           .split(/[^a-z0-9]+/)
           .filter(token => token.length > 0);
-      const longestCommonSubstringLength = (a: string, b: string): number => {
-        if (!a || !b) return 0;
-        const lenA = a.length;
-        const lenB = b.length;
-        let maxLen = 0;
-        const dp: number[] = new Array(lenB + 1).fill(0);
-
-        for (let i = 1; i <= lenA; i++) {
-          let prev = 0;
-          for (let j = 1; j <= lenB; j++) {
-            const temp = dp[j];
-            if (a[i - 1] === b[j - 1]) {
-              dp[j] = prev + 1;
-              if (dp[j] > maxLen) {
-                maxLen = dp[j];
-              }
-            } else {
-              dp[j] = 0;
-            }
-            prev = temp;
-          }
-        }
-
-        return maxLen;
-      };
-
       const normalizedSku = normalizeSkuValue(sku);
       const orderTokens = tokenizeSkuValue(sku);
       const orderTokenSet = new Set(orderTokens);
@@ -504,21 +478,6 @@ export class ExcelService {
         alias?: string;
         coverage: number;
         sharedTokenCount: number;
-        substringLength: number;
-      };
-
-      const isCandidateBetter = (candidate: MatchCandidate, current?: MatchCandidate): boolean => {
-        if (!current) return true;
-        if (candidate.coverage !== current.coverage) {
-          return candidate.coverage > current.coverage;
-        }
-        if (candidate.sharedTokenCount !== current.sharedTokenCount) {
-          return candidate.sharedTokenCount > current.sharedTokenCount;
-        }
-        if (candidate.substringLength !== current.substringLength) {
-          return candidate.substringLength > current.substringLength;
-        }
-        return (candidate.alias?.length || 0) > (current.alias?.length || 0);
       };
 
       let bestMatch: MatchCandidate | undefined;
@@ -541,8 +500,7 @@ export class ExcelService {
               template,
               alias: aliasRaw,
               coverage: 1,
-              sharedTokenCount: tokenizeSkuValue(aliasRaw).length,
-              substringLength: normalizedAlias.length
+              sharedTokenCount: tokenizeSkuValue(aliasRaw).length
             };
             break;
           }
@@ -554,18 +512,14 @@ export class ExcelService {
 
           const sharedTokens = aliasTokens.filter(token => orderTokenSet.has(token));
           const coverage = sharedTokens.length / aliasTokens.length;
-          const substringLength = longestCommonSubstringLength(normalizedAlias, normalizedSku);
 
-          const candidate: MatchCandidate = {
-            template,
-            alias: aliasRaw,
-            coverage,
-            sharedTokenCount: sharedTokens.length,
-            substringLength
-          };
-
-          if (isCandidateBetter(candidate, bestMatch)) {
-            bestMatch = candidate;
+          if (!bestMatch || coverage > bestMatch.coverage || (coverage === bestMatch.coverage && sharedTokens.length > bestMatch.sharedTokenCount)) {
+            bestMatch = {
+              template,
+              alias: aliasRaw,
+              coverage,
+              sharedTokenCount: sharedTokens.length
+            };
           }
         }
 
@@ -577,7 +531,7 @@ export class ExcelService {
       const template = bestMatch ? bestMatch.template : templates[0];
       const matchedAlias = bestMatch?.alias;
       const matchInfo = bestMatch
-        ? `coverage=${bestMatch.coverage.toFixed(2)}, sharedTokens=${bestMatch.sharedTokenCount}, substringLength=${bestMatch.substringLength}`
+        ? `coverage=${bestMatch.coverage.toFixed(2)}, sharedTokens=${bestMatch.sharedTokenCount}`
         : 'fallback';
 
       this.logger.log(

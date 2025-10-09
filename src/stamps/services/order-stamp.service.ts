@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, In } from 'typeorm';
+import { Repository } from 'typeorm';
 import * as fs from 'fs';
 
 import { PythonStampService } from './python-stamp.service';
@@ -51,22 +51,83 @@ export class OrderStampService {
    * @param skuBase 基础SKU（可选）
    * @returns 匹配的模板数组
    */
-  async findTemplatesBySku(sku: string, skuBase?: string): Promise<StampTemplate[]> {
-    // 仅使用 skus 数组匹配
+  async findTemplatesBySku(sku: string): Promise<StampTemplate[]> {
     const all = await this.stampTemplateRepository.find();
-    const templates = all.filter(t => Array.isArray(t.skus) && t.skus.some(a => a && (a === sku || (skuBase && (a === skuBase || a.startsWith(skuBase))) || sku.includes(a))));
+    const normalizeSkuValue = (value: string): string => (value || '').toLowerCase().trim();
+    const tokenizeSkuValue = (value: string): string[] =>
+      normalizeSkuValue(value)
+        .split(/[^a-z0-9]+/)
+        .filter(token => token.length > 0);
+    const normalizedSku = normalizeSkuValue(sku);
+    const orderTokens = tokenizeSkuValue(sku);
+    const orderTokenSet = new Set(orderTokens);
 
-    // 维持原有排序原则：优先与订单 sku 更“具体”的匹配（数组内更具体/更长的优先）
-    templates.sort((a, b) => {
-      const aHasExact = a.skus?.includes(sku) ? 1 : 0;
-      const bHasExact = b.skus?.includes(sku) ? 1 : 0;
-      if (aHasExact !== bHasExact) return bHasExact - aHasExact;
-      const aLongest = Math.max(...(a.skus || []).map(s => s?.length || 0), 0);
-      const bLongest = Math.max(...(b.skus || []).map(s => s?.length || 0), 0);
-      return bLongest - aLongest;
+    type MatchCandidate = {
+      template: StampTemplate;
+      alias?: string;
+      coverage: number;
+      sharedTokenCount: number;
+    };
+
+    const candidates: MatchCandidate[] = [];
+
+    for (const template of all) {
+      if (!Array.isArray(template.skus) || template.skus.length === 0) {
+        continue;
+      }
+
+      let templateBest: MatchCandidate | undefined;
+
+      for (const aliasRaw of template.skus) {
+        if (!aliasRaw || typeof aliasRaw !== 'string') {
+          continue;
+        }
+
+        const normalizedAlias = normalizeSkuValue(aliasRaw);
+        if (!normalizedAlias) continue;
+
+        if (normalizedAlias === normalizedSku) {
+          templateBest = {
+            template,
+            alias: aliasRaw,
+            coverage: 1,
+            sharedTokenCount: tokenizeSkuValue(aliasRaw).length
+          };
+          break;
+        }
+
+        const aliasTokens = tokenizeSkuValue(aliasRaw);
+        if (aliasTokens.length === 0) {
+          continue;
+        }
+
+        const sharedTokens = aliasTokens.filter(token => orderTokenSet.has(token));
+        const coverage = sharedTokens.length / aliasTokens.length;
+
+        if (!templateBest || coverage > templateBest.coverage || (coverage === templateBest.coverage && sharedTokens.length > templateBest.sharedTokenCount)) {
+          templateBest = {
+            template,
+            alias: aliasRaw,
+            coverage,
+            sharedTokenCount: sharedTokens.length
+          };
+        }
+      }
+
+      if (templateBest && templateBest.coverage > 0) {
+        candidates.push(templateBest);
+      }
+    }
+
+    candidates.sort((a, b) => {
+      if (b.coverage !== a.coverage) return b.coverage - a.coverage;
+      if (b.sharedTokenCount !== a.sharedTokenCount) return b.sharedTokenCount - a.sharedTokenCount;
+      const lenA = a.alias?.length || 0;
+      const lenB = b.alias?.length || 0;
+      return lenB - lenA;
     });
 
-    return templates;
+    return candidates.map(candidate => candidate.template);
   }
 
   /**
