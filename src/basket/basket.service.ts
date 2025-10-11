@@ -420,14 +420,25 @@ export class BasketService {
     if (!excelDate) return '';
     
     try {
+      // 如果是日期对象
+      if (excelDate instanceof Date) {
+        return dayjs(excelDate).format('YYYY年MM月DD日');
+      }
+
       // 如果是数字或可以转换为数字的字符串
       const numDate = Number(excelDate);
-      if (!isNaN(numDate) && numDate > 10000) {
-        // Excel日期是从1900-01-01开始的天数（有一天的误差）
-        const excelBaseDate = dayjs('1900-01-01');
-        // 转换Excel序列号为日期
-        const date = excelBaseDate.add(numDate - 1, 'day');
-        
+      if (!isNaN(numDate) && numDate > 0) {
+        // Excel 日期序列号从 1900-01-01 开始计数，但 Excel 错误地将 1900 视为闰年
+        // 因此对于 1900-03-01 之后的日期，需要减去额外的一天
+        const excelBaseDate = dayjs('1899-12-31');
+        let serial = Math.floor(numDate);
+
+        if (serial > 59) {
+          serial -= 1; // 调整 Excel 的闰年错误（虚构的 1900-02-29）
+        }
+
+        const date = excelBaseDate.add(serial, 'day');
+
         // 格式化为中文日期格式
         return date.format('YYYY年MM月DD日');
       }
