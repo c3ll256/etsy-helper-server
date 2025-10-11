@@ -464,7 +464,7 @@ export class ExcelService {
       const normalizeSkuValue = (value: string): string => (value || '').toLowerCase().trim();
       const tokenizeSkuValue = (value: string): string[] =>
         normalizeSkuValue(value)
-          .split(/[^a-z0-9]+/)
+          .split(/(?:\s+|-)+/)
           .filter(token => token.length > 0);
       const normalizedSku = normalizeSkuValue(sku);
       const orderTokens = tokenizeSkuValue(sku);
