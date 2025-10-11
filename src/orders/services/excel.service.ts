@@ -453,9 +453,6 @@ export class ExcelService {
       return { error: 'Order has no SKU information, cannot find matching template' };
     }
     
-    // Extract base part of SKU (e.g., from "AD-110-XX" to "AD-110")
-    const skuBase = sku.split('-').slice(0, 2).join('-');
-    
     try {
       const templates = await this.orderStampService.findTemplatesBySku(sku);
       
@@ -511,6 +508,9 @@ export class ExcelService {
           }
 
           const sharedTokens = aliasTokens.filter(token => orderTokenSet.has(token));
+          if (sharedTokens.length < 2) {
+            continue;
+          }
           const coverage = sharedTokens.length / aliasTokens.length;
 
           if (!bestMatch || coverage > bestMatch.coverage || (coverage === bestMatch.coverage && sharedTokens.length > bestMatch.sharedTokenCount)) {
@@ -528,11 +528,15 @@ export class ExcelService {
         }
       }
 
-      const template = bestMatch ? bestMatch.template : templates[0];
-      const matchedAlias = bestMatch?.alias;
-      const matchInfo = bestMatch
-        ? `coverage=${bestMatch.coverage.toFixed(2)}, sharedTokens=${bestMatch.sharedTokenCount}`
-        : 'fallback';
+      if (!bestMatch) {
+        const skuList = templates.flatMap(t => t.skus || []);
+        this.logger.warn(`No template alias met minimum token match for SKU ${sku}. Available aliases: ${skuList.join('|')}`);
+        return { error: `No matching template found for SKU: ${sku}` };
+      }
+
+      const template = bestMatch.template;
+      const matchedAlias = bestMatch.alias;
+      const matchInfo = `coverage=${bestMatch.coverage.toFixed(2)}, sharedTokens=${bestMatch.sharedTokenCount}`;
 
       this.logger.log(
         `Selected template ${(template.skus || []).join('|')} for SKU ${sku} (match: ${matchInfo}${matchedAlias ? `, alias: ${matchedAlias}` : ''})`
