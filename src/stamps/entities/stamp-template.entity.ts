@@ -12,6 +12,10 @@ export enum StampType {
   GOLF_SET = 'golf_set',
   WAX_SEAL = 'wax_seal',
   RATTLE = 'rattle',
+  RUBBER_PAD_CIRCLE = 'rubber_pad_circle', // 胶垫-圆形
+  RUBBER_PAD_RECTANGLE = 'rubber_pad_rectangle', // 胶垫-长方形
+  STEEL_ZHUODA = 'steel_zhuoda', // 钢印-卓达
+  STEEL_COPPER = 'steel_copper', // 钢印-铜片
 }
 
 @Entity('stamp_templates')

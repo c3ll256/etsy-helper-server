@@ -32,8 +32,8 @@ export class Order {
     example: OrderType.MANUAL
   })
   @Column({
-    type: 'enum',
-    enum: OrderType,
+    type: 'varchar',
+    length: 32,
     default: OrderType.MANUAL
   })
   orderType: OrderType;

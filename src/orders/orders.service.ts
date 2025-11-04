@@ -839,7 +839,7 @@ export class OrdersService {
           '尺寸': `${template?.width || 0}x${template?.height || 0}`,
           'SKU': order.etsyOrder.sku || 'N/A',
           '店铺': order.user?.shopName || 'N/A',
-          '导入时间': order.createdAt
+          '下单时间': order.platformOrderDate || 'N/A',
         });
       }
     }
