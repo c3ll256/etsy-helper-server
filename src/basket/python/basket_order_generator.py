@@ -198,7 +198,27 @@ def create_basket_order_slide(prs, order_data):
             except Exception as e:
                 logger.error(f"Error adding QR code to slide: {str(e)}")
     
-    # Shop name at the bottom (adjusted to not overlap with QR code)
+    # External Order Reminder (外部订单提醒) - if enabled
+    reminder_enabled = order_data.get('externalOrderReminderEnabled', False)
+    reminder_content = order_data.get('externalOrderReminderContent', '')
+    
+    # Calculate bottom section position based on whether reminder is shown
+    reminder_height = Inches(0)  # Default no reminder
+    if reminder_enabled and reminder_content:
+        reminder_height = Inches(0.8)  # Height for reminder box
+        # Add reminder box above the bottom section
+        reminder_box = slide.shapes.add_textbox(margin, prs.slide_height - margin - reminder_height - Inches(0.5), 
+                                                prs.slide_width - margin * 2, reminder_height)
+        reminder_text_frame = reminder_box.text_frame
+        reminder_text_frame.word_wrap = True
+        reminder_p = reminder_text_frame.paragraphs[0]
+        reminder_p.text = f"⚠️ 提醒: {reminder_content}"
+        reminder_p.alignment = PP_ALIGN.CENTER
+        reminder_p.font.size = Pt(20)
+        reminder_p.font.color.rgb = RGBColor(255, 0, 0)  # Red color for visibility
+        reminder_p.font.bold = True
+    
+    # Shop name at the bottom (adjusted to not overlap with QR code and reminder)
     # Reduce the width to leave space for QR code
     qr_space = Inches(1.4)  # Space reserved for QR code (QR size + margins)
     bottom_box = slide.shapes.add_textbox(margin, prs.slide_height - margin - Inches(0.4), 

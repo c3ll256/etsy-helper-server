@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsEnum, IsOptional, IsNumber, IsObject, IsArray, ValidateNested } from 'class-validator';
+import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { IsString, IsEnum, IsOptional, IsNumber, IsObject, IsArray, ValidateNested, IsBoolean } from 'class-validator';
 import { SkuType } from '../entities/sku-config.entity';
 import { Type } from 'class-transformer';
 
@@ -49,6 +49,16 @@ export class CreateSkuConfigDto {
   @Type(() => ComboItemDto)
   @IsOptional()
   comboItems?: ComboItemDto[];
+
+  @ApiProperty({ description: '外部订单提醒开关', required: false })
+  @IsBoolean()
+  @IsOptional()
+  externalOrderReminderEnabled?: boolean;
+
+  @ApiProperty({ description: '外部订单提醒内容', required: false })
+  @IsString()
+  @IsOptional()
+  externalOrderReminderContent?: string;
 }
 
 export class SkuConfigResponseDto extends CreateSkuConfigDto {
@@ -63,4 +73,18 @@ export class SkuConfigResponseDto extends CreateSkuConfigDto {
 
   @ApiProperty({ description: '更新时间' })
   updatedAt: Date;
-} 
+}
+
+export class BatchUpdateSkuConfigItemDto extends PartialType(CreateSkuConfigDto) {
+  @ApiProperty({ description: '配置ID（必需）' })
+  @IsNumber()
+  id: number;
+}
+
+export class BatchUpdateSkuConfigDto {
+  @ApiProperty({ description: '要更新的配置列表', type: [BatchUpdateSkuConfigItemDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BatchUpdateSkuConfigItemDto)
+  configs: BatchUpdateSkuConfigItemDto[];
+}

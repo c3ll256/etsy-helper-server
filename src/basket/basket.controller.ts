@@ -26,7 +26,7 @@ import { User } from '../users/entities/user.entity';
 import { BasketPaginationDto } from './dto/basket-pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { BasketGenerationRecord } from './entities/basket-generation-record.entity';
-import { CreateSkuConfigDto, SkuConfigResponseDto } from './dto/sku-config.dto';
+import { CreateSkuConfigDto, SkuConfigResponseDto, BatchUpdateSkuConfigDto } from './dto/sku-config.dto';
 import { SkuConfig } from './entities/sku-config.entity';
 
 @ApiTags('baskets')
@@ -151,6 +151,86 @@ export class BasketController {
     @CurrentUser() user: User
   ): Promise<void> {
     return this.basketService.deleteSkuConfig(id, user.id);
+  }
+
+  @Post('sku-config/batch')
+  @ApiOperation({ summary: '批量更新SKU配置（只需提供id和要更新的字段，未提供的字段不会更新）' })
+  @ApiResponse({ 
+    status: 200, 
+    description: '批量更新成功',
+    schema: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/SkuConfig' }
+    }
+  })
+  @ApiResponse({ status: 400, description: '无效的配置数据或批量更新失败' })
+  @ApiBody({
+    description: '批量更新SKU配置，每个配置项只需提供id和要更新的字段',
+    schema: {
+      type: 'object',
+      properties: {
+        configs: {
+          type: 'array',
+          description: '配置列表，每个配置项至少需要提供id和一个要更新的字段',
+          items: {
+            type: 'object',
+            required: ['id'],
+            properties: {
+              id: {
+                type: 'number',
+                description: '配置ID（必需）'
+              },
+              sku: {
+                type: 'string',
+                description: 'SKU编码（可选）'
+              },
+              type: {
+                type: 'string',
+                enum: ['basket', 'backpack', 'combo'],
+                description: 'SKU类型（可选）'
+              },
+              replaceValue: {
+                type: 'string',
+                description: '替换后的显示文本（可选）'
+              },
+              fontSize: {
+                type: 'number',
+                description: '字体大小（可选）'
+              },
+              font: {
+                type: 'string',
+                description: '字体名称（可选）'
+              },
+              yarnColorMap: {
+                type: 'object',
+                description: 'Yarn颜色替换映射（可选）'
+              },
+              comboItems: {
+                type: 'array',
+                description: '套组款式数组（可选）'
+              },
+              externalOrderReminderEnabled: {
+                type: 'boolean',
+                description: '外部订单提醒开关（可选）'
+              },
+              externalOrderReminderContent: {
+                type: 'string',
+                description: '外部订单提醒内容（可选）'
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+  async batchUpdateSkuConfigs(
+    @Body() batchUpdateDto: BatchUpdateSkuConfigDto,
+    @CurrentUser() user: User
+  ): Promise<SkuConfig[]> {
+    if (!batchUpdateDto.configs || batchUpdateDto.configs.length === 0) {
+      throw new BadRequestException('必须提供至少一个配置项');
+    }
+    return this.basketService.batchUpdateSkuConfigs(user.id, batchUpdateDto.configs);
   }
 
   @Delete('records/:id')

@@ -55,6 +55,14 @@ export class SkuConfig {
   @ApiProperty({ description: '套组款式数组，每个元素包含 { sku, color }', required: false, type: Array })
   comboItems?: Array<{ sku: string; color: string }>;
 
+  @Column({ type: 'boolean', default: false })
+  @ApiProperty({ description: '外部订单提醒开关' })
+  externalOrderReminderEnabled: boolean;
+
+  @Column({ nullable: true })
+  @ApiProperty({ description: '外部订单提醒内容', required: false })
+  externalOrderReminderContent: string;
+
   @CreateDateColumn({ type: 'timestamptz' })
   @ApiProperty({ description: '创建时间' })
   createdAt: Date;

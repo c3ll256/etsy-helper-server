@@ -18,7 +18,7 @@ import { BasketPaginationDto } from './dto/basket-pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { JobQueueService } from '../common/services/job-queue.service';
 import { SkuConfig } from './entities/sku-config.entity';
-import { CreateSkuConfigDto } from './dto/sku-config.dto';
+import { CreateSkuConfigDto, BatchUpdateSkuConfigItemDto } from './dto/sku-config.dto';
 import { AliyunService } from 'src/common/services/aliyun.service';
 import { RemoteAreaService } from 'src/common/services/remote-area.service';
 
@@ -47,6 +47,9 @@ interface ProcessedOrder {
   shipAddress?: string;
   // combo specific
   comboItems?: Array<{ sku: string; color: string }>;
+  // external order reminder
+  externalOrderReminderEnabled?: boolean;
+  externalOrderReminderContent?: string;
 }
 
 class JobCancelledError extends Error {
@@ -271,6 +274,92 @@ export class BasketService {
   }
 
   /**
+   * Batch update SKU configurations
+   * @param userId User ID
+   * @param configs Array of configuration updates
+   * @returns Array of updated configurations
+   */
+  async batchUpdateSkuConfigs(
+    userId: string,
+    configs: BatchUpdateSkuConfigItemDto[]
+  ): Promise<SkuConfig[]> {
+    const updatedConfigs: SkuConfig[] = [];
+    const errors: Array<{ id: number; reason: string }> = [];
+
+    for (const configUpdate of configs) {
+      try {
+        const { id, ...updateData } = configUpdate;
+        
+        // Find the configuration
+        const config = await this.skuConfigRepository.findOne({
+          where: { id, userId }
+        });
+
+        if (!config) {
+          errors.push({ id, reason: `SKU配置ID ${id} 不存在` });
+          continue;
+        }
+
+        // Build update object with only defined fields (excluding undefined)
+        const updateFields: Partial<SkuConfig> = {};
+        
+        // Only include fields that are explicitly provided (not undefined)
+        if (updateData.sku !== undefined) {
+          // Check if SKU is being changed and if it conflicts with existing config
+          if (updateData.sku !== config.sku) {
+            const existingConfig = await this.skuConfigRepository.findOne({
+              where: { 
+                userId,
+                sku: updateData.sku,
+                id: Not(id)
+              }
+            });
+
+            if (existingConfig) {
+              errors.push({ id, reason: `SKU ${updateData.sku} 已存在配置` });
+              continue;
+            }
+          }
+          updateFields.sku = updateData.sku;
+        }
+        
+        if (updateData.type !== undefined) updateFields.type = updateData.type;
+        if (updateData.replaceValue !== undefined) updateFields.replaceValue = updateData.replaceValue;
+        if (updateData.fontSize !== undefined) updateFields.fontSize = updateData.fontSize;
+        if (updateData.font !== undefined) updateFields.font = updateData.font;
+        if (updateData.yarnColorMap !== undefined) updateFields.yarnColorMap = updateData.yarnColorMap;
+        if (updateData.comboItems !== undefined) updateFields.comboItems = updateData.comboItems as any;
+        if (updateData.externalOrderReminderEnabled !== undefined) updateFields.externalOrderReminderEnabled = updateData.externalOrderReminderEnabled;
+        if (updateData.externalOrderReminderContent !== undefined) updateFields.externalOrderReminderContent = updateData.externalOrderReminderContent;
+
+        // Check if there are any fields to update
+        if (Object.keys(updateFields).length === 0) {
+          errors.push({ id, reason: '没有提供任何要更新的字段' });
+          continue;
+        }
+
+        // Update the configuration with only the provided fields
+        this.skuConfigRepository.merge(config, updateFields);
+        const savedConfig = await this.skuConfigRepository.save(config);
+        updatedConfigs.push(savedConfig);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : '未知错误';
+        errors.push({ id: configUpdate.id, reason });
+      }
+    }
+
+    if (errors.length > 0 && updatedConfigs.length === 0) {
+      throw new BadRequestException(`批量更新失败: ${errors.map(e => `ID ${e.id}: ${e.reason}`).join('; ')}`);
+    }
+
+    if (errors.length > 0) {
+      this.logger.warn(`批量更新部分失败: ${errors.map(e => `ID ${e.id}: ${e.reason}`).join('; ')}`);
+    }
+
+    return updatedConfigs;
+  }
+
+  /**
    * Determine order type based on SKU and user configuration
    * @param sku SKU from Excel
    * @param skuConfigs User's SKU configurations
@@ -396,6 +485,8 @@ export class BasketService {
               .filter(Boolean)
               .join(', '),
             comboItems: skuConfig?.type === 'combo' ? ((skuConfig as any).comboItems || []) : undefined,
+            externalOrderReminderEnabled: skuConfig?.externalOrderReminderEnabled || false,
+            externalOrderReminderContent: skuConfig?.externalOrderReminderContent || undefined,
           };
           
           processedOrders.push(orderData);
@@ -980,6 +1071,8 @@ export class BasketService {
           originalVariations: variation.originalText || '',
           datePaid: order.datePaid || '',
           isRemoteArea: order.isRemoteArea || false,
+          externalOrderReminderEnabled: order.externalOrderReminderEnabled || false,
+          externalOrderReminderContent: order.externalOrderReminderContent || '',
         } as any;
 
         if (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length) {
