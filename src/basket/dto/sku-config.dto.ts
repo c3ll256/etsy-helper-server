@@ -1,17 +1,7 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
-import { IsString, IsEnum, IsOptional, IsNumber, IsObject, IsArray, ValidateNested, IsBoolean } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsNumber, IsObject, IsArray, IsBoolean, ValidateNested } from 'class-validator';
 import { SkuType } from '../entities/sku-config.entity';
 import { Type } from 'class-transformer';
-
-export class ComboItemDto {
-  @ApiProperty({ description: '款式 SKU' })
-  @IsString()
-  sku: string;
-
-  @ApiProperty({ description: '颜色配置' })
-  @IsString()
-  color: string;
-}
 
 export class CreateSkuConfigDto {
   @ApiProperty({ description: 'SKU编码' })
@@ -43,12 +33,11 @@ export class CreateSkuConfigDto {
   yarnColorMap?: Record<string, string>;
 
   // 套组配置（当 type = combo 时生效）
-  @ApiProperty({ description: '套组款式数组', required: false, type: [ComboItemDto] })
+  @ApiProperty({ description: '套组款式数组，例如 ["SKU1", "SKU2"]', required: false, type: [String] })
   @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => ComboItemDto)
+  @IsString({ each: true })
   @IsOptional()
-  comboItems?: ComboItemDto[];
+  comboItems?: string[];
 
   @ApiProperty({ description: '外部订单提醒开关', required: false })
   @IsBoolean()

@@ -46,7 +46,7 @@ interface ProcessedOrder {
   isRemoteArea?: boolean;
   shipAddress?: string;
   // combo specific
-  comboItems?: Array<{ sku: string; color: string }>;
+  comboItems?: string[];
   // external order reminder
   externalOrderReminderEnabled?: boolean;
   externalOrderReminderContent?: string;
@@ -804,7 +804,7 @@ export class BasketService {
           if (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length) {
             for (const item of order.comboItems) {
               this.ensureJobNotCancelled(jobId);
-              const combinedSku = `${order.originalSku || ''} + ${item?.sku || ''}`.trim();
+              const combinedSku = `${order.originalSku || ''} + ${item || ''}`.trim();
               await addOneRow(combinedSku);
             }
           } else {
@@ -1083,9 +1083,9 @@ export class BasketService {
 
             const slide = {
               ...base,
-              color: item.color || '',
+              color: '', // combo items are now just SKU strings, no color info
               orderType: 'combo',
-              sku: `${order.sku || order.originalSku || ''} + ${item.sku || ''}`.trim(),
+              sku: `${order.sku || order.originalSku || ''} + ${item || ''}`.trim(),
               position,
             } as any;
             pptSlides.push(slide);

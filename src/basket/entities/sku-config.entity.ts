@@ -52,8 +52,8 @@ export class SkuConfig {
   yarnColorMap: Record<string, string>;
 
   @Column({ type: 'jsonb', nullable: true })
-  @ApiProperty({ description: '套组款式数组，每个元素包含 { sku, color }', required: false, type: Array })
-  comboItems?: Array<{ sku: string; color: string }>;
+  @ApiProperty({ description: '套组款式数组，例如 ["SKU1", "SKU2"]', required: false, type: Array })
+  comboItems?: string[];
 
   @Column({ type: 'boolean', default: false })
   @ApiProperty({ description: '外部订单提醒开关' })

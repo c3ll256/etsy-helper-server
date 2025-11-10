@@ -66,9 +66,11 @@ export class StampsService {
     createStampTemplateDto: CreateStampTemplateDto,
     user: User
   ): Promise<StampTemplate> {
-    // Check uniqueness across skus only
+    // Check uniqueness across skus only within the same user's templates
     const candidateSkus = Array.from(new Set([...(createStampTemplateDto.skus || [])].filter(Boolean)));
-    const templatesWithAliases = await this.stampTemplateRepository.find();
+    const templatesWithAliases = await this.stampTemplateRepository.find({
+      where: { userId: user.id as string }
+    });
     const conflictByAliases = templatesWithAliases.find(t => Array.isArray(t.skus) && t.skus.some(s => candidateSkus.includes(s)));
     if (conflictByAliases) {
       throw new BadRequestException(`SKU conflict: one or more SKUs already exist in another template.`);
@@ -198,7 +200,9 @@ export class StampsService {
         finalSku = `${base}-copy-${timestamp}`;
     }
 
-    const templates = await this.stampTemplateRepository.find();
+    const templates = await this.stampTemplateRepository.find({
+      where: { userId: user.id as string }
+    });
     const exists = templates.some(t => Array.isArray(t.skus) && t.skus.includes(finalSku));
     if (exists) {
       throw new BadRequestException(`SKU "${finalSku}" already exists. Please choose a different SKU.`);
@@ -299,7 +303,9 @@ export class StampsService {
     
     if (updateStampTemplateDto.skus) {
       const candidate = new Set(updateStampTemplateDto.skus.filter(Boolean));
-      const others = await this.stampTemplateRepository.find();
+      const others = await this.stampTemplateRepository.find({
+        where: { userId: user.id as string }
+      });
       const conflict = others.find(t => t.id !== id && Array.isArray(t.skus) && t.skus.some(s => candidate.has(s)));
       if (conflict) {
         throw new BadRequestException('SKU conflict: one or more SKUs already exist in another template.');

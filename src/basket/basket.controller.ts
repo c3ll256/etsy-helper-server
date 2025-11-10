@@ -207,7 +207,10 @@ export class BasketController {
               },
               comboItems: {
                 type: 'array',
-                description: '套组款式数组（可选）'
+                items: {
+                  type: 'string'
+                },
+                description: '套组款式数组，例如 ["SKU1", "SKU2"]（可选）'
               },
               externalOrderReminderEnabled: {
                 type: 'boolean',
