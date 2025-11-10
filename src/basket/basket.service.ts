@@ -1155,6 +1155,11 @@ export class BasketService {
 
 返回结果: [ { "color": "Mix-1", "icon": "", "value": "Adler" } ]
 
+例子5：
+变量 (Variations): Basket Color + Size:Cream-- XL,Name Color:Purple,Personalization:Poppy
+
+返回结果: [ { "color": "Purple", "icon": "", "value": "Poppy" } ]
+
 3. 客户的名字一定不是阿拉伯数字！！！
 4. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
 `;
