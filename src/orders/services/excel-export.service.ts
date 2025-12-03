@@ -384,7 +384,7 @@ export class ExcelExportService {
         { header: '交易ID', key: 'transactionId', width: 20 },
         { header: 'SKU', key: 'sku', width: 20 },
         { header: '图章路径', key: 'stampPath', width: 50 },
-        { header: '客户名称', key: 'buyer', width: 20 },
+        { header: 'Variations', key: 'variations', width: 50 },
         { header: '收件人', key: 'shipName', width: 20 }
       ];
 
@@ -417,7 +417,7 @@ export class ExcelExportService {
         dataRow.getCell('transactionId').value = stamp.transactionId;
         dataRow.getCell('sku').value = originalItem?.['SKU']?.toString() || '';
         dataRow.getCell('stampPath').value = stamp.stampPath;
-        dataRow.getCell('buyer').value = originalItem?.['Buyer']?.toString() || '';
+        dataRow.getCell('variations').value = originalItem?.['Variations']?.toString() || '';
         dataRow.getCell('shipName').value = originalItem?.['Ship Name']?.toString() || '';
         dataRow.alignment = { vertical: 'middle', horizontal: 'left' };
       });
@@ -429,8 +429,8 @@ export class ExcelExportService {
         { header: '订单号', key: 'orderId', width: 20 },
         { header: '交易ID', key: 'transactionId', width: 20 },
         { header: 'SKU', key: 'sku', width: 20 },
-        { header: '跳过原因', key: 'reason', width: 50 },
-        { header: '客户名称', key: 'buyer', width: 20 }
+        { header: 'Variations', key: 'variations', width: 50 },
+        { header: '跳过原因', key: 'reason', width: 50 }
       ];
 
       const skippedHeaderRow = skippedSheet.getRow(1);
@@ -449,8 +449,8 @@ export class ExcelExportService {
         dataRow.getCell('orderId').value = item.orderId;
         dataRow.getCell('transactionId').value = item.transactionId;
         dataRow.getCell('sku').value = originalItem?.['SKU']?.toString() || '';
+        dataRow.getCell('variations').value = originalItem?.['Variations']?.toString() || '';
         dataRow.getCell('reason').value = item.reason;
-        dataRow.getCell('buyer').value = originalItem?.['Buyer']?.toString() || '';
         dataRow.alignment = { vertical: 'middle', horizontal: 'left' };
       });
 
@@ -462,7 +462,6 @@ export class ExcelExportService {
         { header: '订单号', key: 'orderId', width: 20 },
         { header: '交易ID', key: 'transactionId', width: 20 },
         { header: 'SKU', key: 'sku', width: 20 },
-        { header: '客户名称', key: 'buyer', width: 20 },
         { header: '收件人', key: 'shipName', width: 20 },
         { header: '收件地址1', key: 'shipAddress1', width: 30 },
         { header: '收件地址2', key: 'shipAddress2', width: 30 },
@@ -534,7 +533,6 @@ export class ExcelExportService {
         dataRow.getCell('orderId').value = detail.orderId;
         dataRow.getCell('transactionId').value = detail.transactionId;
         dataRow.getCell('sku').value = originalData?.['SKU']?.toString() || '';
-        dataRow.getCell('buyer').value = originalData?.['Buyer']?.toString() || '';
         dataRow.getCell('shipName').value = originalData?.['Ship Name']?.toString() || '';
         dataRow.getCell('shipAddress1').value = originalData?.['Ship Address1']?.toString() || '';
         dataRow.getCell('shipAddress2').value = originalData?.['Ship Address2']?.toString() || '';

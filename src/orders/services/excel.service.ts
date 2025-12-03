@@ -147,20 +147,6 @@ export class ExcelService {
     return this.orderProcessingService.findTemplateDescription(item);
   }
 
-  /**
-   * Prepare data for exporting orders to Excel
-   */
-  private prepareOrdersExportData(orders: Order[]): any[] {
-    return this.excelExportService.prepareOrdersExportData(orders);
-  }
-
-  /**
-   * Generate Excel file from data
-   */
-  private generateExcelFile(excelData: any[]): string {
-    return this.excelExportService.generateExcelFile(excelData);
-  }
-
   async updateOrderStatus(orderId: string, status: OrderStatus) {
     await this.orderRepository.update(
       { id: orderId },
