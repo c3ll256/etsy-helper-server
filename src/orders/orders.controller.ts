@@ -10,6 +10,7 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import { Order } from './entities/order.entity';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import * as fs from 'fs';
+import * as path from 'path';
 import { In } from 'typeorm';
 import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -145,6 +146,11 @@ export class OrdersController {
                   stampPath: { type: 'string' }
                 }
               }
+            },
+            reportPath: {
+              type: 'string',
+              description: '处理报告 Excel 文件路径（处理完成后可用）',
+              example: '/uploads/exports/processing_report_2024-01-01T12-00-00-000Z.xlsx'
             }
           }
         },
@@ -185,6 +191,27 @@ export class OrdersController {
         failedOrders: jobProgress.result.failed,
         generatedStamps: jobProgress.result.stamps
       };
+      
+      // Add report path if available (convert to web-accessible path)
+      if (jobProgress.result.reportPath) {
+        let reportPath = jobProgress.result.reportPath;
+        // Convert to web-accessible path if needed
+        // Handle different path formats: absolute, relative, or already web-accessible
+        if (path.isAbsolute(reportPath)) {
+          // Absolute path: extract filename and make it web-accessible
+          const fileName = path.basename(reportPath);
+          reportPath = `/uploads/exports/${fileName}`;
+        } else if (!reportPath.startsWith('/uploads')) {
+          // Relative path: extract filename and make it web-accessible
+          const fileName = path.basename(reportPath);
+          reportPath = `/uploads/exports/${fileName}`;
+        } else if (!reportPath.startsWith('/')) {
+          // Path starts with uploads but missing leading slash
+          reportPath = `/${reportPath}`;
+        }
+        // Path is already in correct format (/uploads/exports/...)
+        response.result.reportPath = reportPath;
+      }
     }
     
     // Add error if available
