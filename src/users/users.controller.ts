@@ -7,6 +7,7 @@ import { LoginUserDto } from './dto/login-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { User } from './entities/user.entity';
 
 @ApiTags('users')
@@ -15,6 +16,7 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post('login')
+  @Public()
   @ApiOperation({ summary: 'Login with username and password' })
   @ApiResponse({ status: 200, description: 'Login successful and returns an access token' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })

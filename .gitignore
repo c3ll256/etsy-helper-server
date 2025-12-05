@@ -7,3 +7,5 @@ dist.zip
 venv/
 uploads/
 __pycache__/
+
+scripts/
