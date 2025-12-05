@@ -37,6 +37,7 @@ import { StampType } from './entities/stamp-template.entity';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { StampTemplate } from './entities/stamp-template.entity';
 import { JobQueueService } from '../common/services/job-queue.service';
+import { validateImageFile } from '../common/utils/file-validator.util';
 
 const BACKGROUND_UPLOAD_DIR = 'uploads/backgrounds';
 const ICON_UPLOAD_DIR = 'uploads/icons';
@@ -46,6 +47,39 @@ for (const dir of [BACKGROUND_UPLOAD_DIR, ICON_UPLOAD_DIR]) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+}
+
+/**
+ * 清理文件名，移除路径遍历和危险字符
+ * SECURITY: 防止文件名注入攻击
+ */
+function sanitizeFilename(filename: string): string {
+  // 只取文件名部分，移除路径
+  let sanitized = path.basename(filename)
+    .replace(/[\/\\]/g, '') // 移除路径分隔符
+    .replace(/\.\./g, '') // 移除路径遍历
+    .replace(/[<>:"|?*\x00-\x1F]/g, '') // 移除Windows禁止字符和控制字符
+    .trim();
+  
+  // 限制文件名长度
+  if (sanitized.length > 255) {
+    const ext = path.extname(sanitized);
+    sanitized = sanitized.slice(0, 255 - ext.length) + ext;
+  }
+  
+  return sanitized || 'file';
+}
+
+/**
+ * 清理文件扩展名，只保留安全的字符
+ * SECURITY: 防止扩展名注入
+ */
+function sanitizeExtension(originalname: string): string {
+  const ext = path.extname(originalname).toLowerCase();
+  // 只允许字母和数字，移除其他字符
+  const sanitizedExt = ext.replace(/[^a-z0-9]/g, '');
+  // 限制扩展名长度
+  return sanitizedExt.slice(0, 10);
 }
 
 @ApiTags('stamps')
@@ -116,10 +150,10 @@ export class StampsController {
     const storage = multer.diskStorage({
       destination: uploadDir,
       filename: (req, file, cb) => {
-        // 生成唯一文件名
+        // SECURITY: 清理文件名和扩展名，防止路径遍历攻击
+        const sanitizedExt = sanitizeExtension(file.originalname);
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const extension = path.extname(file.originalname);
-        cb(null, uniqueSuffix + extension);
+        cb(null, `${uniqueSuffix}${sanitizedExt}`);
       }
     });
     
@@ -161,6 +195,20 @@ export class StampsController {
       
       if (!req.file) {
         return res.status(400).json({ message: '未提供文件或文件上传失败' });
+      }
+      
+      // SECURITY: 验证文件的实际内容类型，只允许图片文件
+      try {
+        await validateImageFile(req.file.path);
+      } catch (error) {
+        // 删除已上传的文件
+        if (fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+        return res.status(400).json({
+          success: false,
+          message: error.message || '文件类型验证失败，只允许上传图片文件'
+        });
       }
       
       // 返回文件信息
@@ -208,9 +256,10 @@ export class StampsController {
     const storage = multer.diskStorage({
       destination: uploadDir,
       filename: (req, file, cb) => {
+        // SECURITY: 清理文件名和扩展名，防止路径遍历攻击
+        const sanitizedExt = sanitizeExtension(file.originalname);
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const extension = path.extname(file.originalname);
-        cb(null, `${uniqueSuffix}${extension}`);
+        cb(null, `${uniqueSuffix}${sanitizedExt}`);
       }
     });
 
@@ -247,6 +296,20 @@ export class StampsController {
 
       if (!req.file) {
         return res.status(400).json({ message: '未提供文件或文件上传失败' });
+      }
+
+      // SECURITY: 验证文件的实际内容类型，只允许图片文件
+      try {
+        await validateImageFile(req.file.path);
+      } catch (error) {
+        // 删除已上传的文件
+        if (fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+        return res.status(400).json({
+          success: false,
+          message: error.message || '文件类型验证失败，只允许上传图片文件'
+        });
       }
 
       return res.status(201).json({

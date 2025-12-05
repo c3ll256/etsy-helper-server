@@ -6,6 +6,7 @@ import base64
 import time
 import logging
 from io import BytesIO
+from pathlib import Path
 import svgwrite
 from svgwrite import Drawing
 from svgwrite.text import Text
@@ -24,6 +25,50 @@ logging.basicConfig(
     format='%(levelname)s: %(message)s'
 )
 logger = logging.getLogger('stamp_generator')
+
+def validate_path(user_path, allowed_base_dir):
+    """
+    验证路径是否在允许的目录内，防止路径遍历攻击
+    
+    Args:
+        user_path: 用户提供的路径
+        allowed_base_dir: 允许的基础目录
+        
+    Returns:
+        规范化后的安全路径
+        
+    Raises:
+        ValueError: 如果路径不在允许的目录内
+    """
+    if not user_path:
+        raise ValueError("Path cannot be empty")
+    
+    # 规范化基础目录
+    base_path = Path(allowed_base_dir).resolve()
+    
+    # 规范化用户路径
+    user_path_obj = Path(user_path)
+    
+    # 如果是相对路径，相对于当前工作目录解析
+    if not user_path_obj.is_absolute():
+        user_path_obj = (Path.cwd() / user_path_obj).resolve()
+    else:
+        user_path_obj = user_path_obj.resolve()
+    
+    # 检查路径是否在允许的目录内
+    try:
+        user_path_obj.relative_to(base_path)
+    except ValueError:
+        logger.error(f"Path traversal attempt detected: {user_path} -> {user_path_obj} (not in {base_path})")
+        raise ValueError(f"Path {user_path} is outside allowed directory {allowed_base_dir}")
+    
+    # 检查路径中是否包含危险字符
+    path_str = str(user_path_obj)
+    if '..' in path_str or path_str.startswith('/') and not path_str.startswith(str(base_path)):
+        logger.error(f"Path traversal attempt detected: {user_path}")
+        raise ValueError(f"Invalid path: {user_path}")
+    
+    return str(user_path_obj)
 
 class StampGenerator:
     def __init__(self, data):
@@ -631,8 +676,15 @@ class StampGenerator:
             
         # 如果有背景SVG，进行后期处理合并
         if self.background_image_path and self.background_image_path.lower().endswith('.svg'):
-            full_bg_path = os.path.join(os.getcwd(), self.background_image_path)
-            if os.path.exists(full_bg_path):
+            try:
+                # SECURITY: Validate path to prevent path traversal attacks
+                allowed_bg_dir = os.path.join(os.getcwd(), 'uploads', 'backgrounds')
+                full_bg_path = validate_path(self.background_image_path, allowed_bg_dir)
+            except ValueError as e:
+                logger.warning(f"Invalid background image path: {self.background_image_path} - {e}")
+                full_bg_path = None
+            
+            if full_bg_path and os.path.exists(full_bg_path):
                 try:
                     # 读取背景SVG
                     with open(full_bg_path, 'r') as f:

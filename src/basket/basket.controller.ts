@@ -16,6 +16,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth, ApiQuery, ApiParam, ApiForbiddenResponse } from '@nestjs/swagger';
 import { Express } from 'express';
+import * as path from 'path';
 
 import { BasketService } from './basket.service';
 import { BasketGenerationResponseDto } from './dto/basket-generation-response.dto';
@@ -46,7 +47,11 @@ export class BasketController {
   })
   @ApiResponse({ status: 400, description: '无效的文件类型或参数' })
   @ApiResponse({ status: 401, description: '未授权' })
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', {
+    limits: {
+      fileSize: 50 * 1024 * 1024, // SECURITY: 限制Excel文件大小为50MB，防止DoS攻击
+    }
+  }))
   @ApiBody({
     schema: {
       type: 'object',
@@ -77,6 +82,17 @@ export class BasketController {
   ): Promise<BasketGenerationResponseDto> {
     if (!file) {
       throw new BadRequestException('没有提供Excel文件');
+    }
+    
+    // SECURITY: 验证文件扩展名，防止路径遍历
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ext.match(/^\.(xlsx|xls)$/)) {
+      throw new BadRequestException('请上传Excel文件 (.xlsx 或 .xls)');
+    }
+    
+    // SECURITY: 验证文件名不包含路径遍历字符
+    if (file.originalname.includes('..') || file.originalname.includes('/') || file.originalname.includes('\\')) {
+      throw new BadRequestException('无效的文件名');
     }
     
     return this.basketService.generateBasketOrders(file, user, originalFilename, orderType);

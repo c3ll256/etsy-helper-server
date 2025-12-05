@@ -7,6 +7,7 @@ import os
 import base64
 import tempfile
 import traceback
+from pathlib import Path
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
@@ -20,6 +21,53 @@ logging.basicConfig(
     format='%(levelname)s: %(message)s'
 )
 logger = logging.getLogger('basket_order_generator')
+
+def validate_output_path(output_path, allowed_base_dir):
+    """
+    验证输出路径是否在允许的目录内，防止路径遍历攻击
+    
+    Args:
+        output_path: 用户提供的输出路径
+        allowed_base_dir: 允许的基础目录
+        
+    Returns:
+        规范化后的安全路径
+        
+    Raises:
+        ValueError: 如果路径不在允许的目录内
+    """
+    if not output_path:
+        raise ValueError("Output path cannot be empty")
+    
+    # 规范化基础目录
+    base_path = Path(allowed_base_dir).resolve()
+    
+    # 规范化用户路径
+    output_path_obj = Path(output_path)
+    
+    # 如果是相对路径，相对于当前工作目录解析
+    if not output_path_obj.is_absolute():
+        output_path_obj = (Path.cwd() / output_path_obj).resolve()
+    else:
+        output_path_obj = output_path_obj.resolve()
+    
+    # 检查路径是否在允许的目录内
+    try:
+        output_path_obj.relative_to(base_path)
+    except ValueError:
+        logger.error(f"Path traversal attempt detected: {output_path} -> {output_path_obj} (not in {base_path})")
+        raise ValueError(f"Output path {output_path} is outside allowed directory {allowed_base_dir}")
+    
+    # 检查路径中是否包含危险字符
+    path_str = str(output_path_obj)
+    if '..' in path_str:
+        logger.error(f"Path traversal attempt detected: {output_path}")
+        raise ValueError(f"Invalid output path: {output_path}")
+    
+    # 确保父目录存在
+    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+    
+    return str(output_path_obj)
 
 # Set constants for A4 landscape dimensions (in inches)
 A4_WIDTH = 11.69  # 297mm
@@ -329,14 +377,20 @@ def main():
                 # If output path is provided and PPT data is available, write directly to file
                 if output_path and result.get('success') and result.get('data'):
                     try:
-                        ppt_dir = os.path.dirname(output_path)
-                        if not os.path.exists(ppt_dir):
-                            os.makedirs(ppt_dir)
-                            
-                        with open(output_path, 'wb') as f:
+                        # SECURITY: Validate output path to prevent path traversal attacks
+                        allowed_output_dir = os.path.join(os.getcwd(), 'uploads', 'baskets')
+                        safe_output_path = validate_output_path(output_path, allowed_output_dir)
+                        
+                        with open(safe_output_path, 'wb') as f:
                             f.write(base64.b64decode(result['data']))
-                        result['message'] += f" PPT saved to {output_path}"
+                        result['message'] += f" PPT saved to {safe_output_path}"
+                    except ValueError as ve:
+                        # Path validation error - log and fail securely
+                        logger.error(f"Path validation failed: {str(ve)}")
+                        result['success'] = False
+                        result['message'] = f"Invalid output path: {str(ve)}"
                     except Exception as e:
+                        logger.error(f"Failed to save PPT: {str(e)}")
                         result['message'] += f" (Warning: Failed to save to {output_path}: {str(e)})"
                 
             except Exception as e:

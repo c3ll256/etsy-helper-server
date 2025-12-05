@@ -10,6 +10,7 @@ import math
 import html
 import freetype
 import numpy as np
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
@@ -20,6 +21,50 @@ logging.basicConfig(
     format='%(levelname)s: %(message)s'
 )
 logger = logging.getLogger('png_stamp_generator')
+
+def validate_path(user_path, allowed_base_dir):
+    """
+    验证路径是否在允许的目录内，防止路径遍历攻击
+    
+    Args:
+        user_path: 用户提供的路径
+        allowed_base_dir: 允许的基础目录
+        
+    Returns:
+        规范化后的安全路径
+        
+    Raises:
+        ValueError: 如果路径不在允许的目录内
+    """
+    if not user_path:
+        raise ValueError("Path cannot be empty")
+    
+    # 规范化基础目录
+    base_path = Path(allowed_base_dir).resolve()
+    
+    # 规范化用户路径
+    user_path_obj = Path(user_path)
+    
+    # 如果是相对路径，相对于当前工作目录解析
+    if not user_path_obj.is_absolute():
+        user_path_obj = (Path.cwd() / user_path_obj).resolve()
+    else:
+        user_path_obj = user_path_obj.resolve()
+    
+    # 检查路径是否在允许的目录内
+    try:
+        user_path_obj.relative_to(base_path)
+    except ValueError:
+        logger.error(f"Path traversal attempt detected: {user_path} -> {user_path_obj} (not in {base_path})")
+        raise ValueError(f"Path {user_path} is outside allowed directory {allowed_base_dir}")
+    
+    # 检查路径中是否包含危险字符
+    path_str = str(user_path_obj)
+    if '..' in path_str or path_str.startswith('/') and not path_str.startswith(str(base_path)):
+        logger.error(f"Path traversal attempt detected: {user_path}")
+        raise ValueError(f"Invalid path: {user_path}")
+    
+    return str(user_path_obj)
 
 class PNGStampGenerator:
     def __init__(self, data):
@@ -80,17 +125,60 @@ class PNGStampGenerator:
         if nodejs_font_mapping:            
             # Convert NestJS font mapping to our internal format
             for font_name, font_path in nodejs_font_mapping.items():
-                if os.path.exists(font_path):
-                    # Check if it's a variable font and extract axes information
-                    is_variable, axes_info = self._analyze_font(font_path)
+                try:
+                    # SECURITY: Validate font path to prevent path traversal
+                    allowed_font_dirs = [
+                        os.path.join(os.getcwd(), 'uploads', 'fonts'),
+                        os.path.join(os.getcwd(), 'uploads', 'temp_fonts')
+                    ]
                     
-                    font_map[font_name] = {
-                        'path': font_path,
-                        'isVariableFont': is_variable,
-                        'variableAxes': axes_info
-                    }
-                else:
-                    logger.warning(f"Font path from NestJS does not exist: {font_path}")
+                    # Check if font path is in any allowed directory
+                    font_path_valid = False
+                    for allowed_dir in allowed_font_dirs:
+                        try:
+                            validate_path(font_path, allowed_dir)
+                            font_path_valid = True
+                            break
+                        except ValueError:
+                            continue
+                    
+                    # Also allow system fonts (macOS, Linux, Windows)
+                    system_font_dirs = [
+                        '/System/Library/Fonts',
+                        '/usr/share/fonts',
+                        'C:\\Windows\\Fonts'
+                    ]
+                    
+                    if not font_path_valid:
+                        font_path_obj = Path(font_path).resolve()
+                        for sys_dir in system_font_dirs:
+                            sys_path = Path(sys_dir)
+                            if sys_path.exists():
+                                try:
+                                    font_path_obj.relative_to(sys_path.resolve())
+                                    font_path_valid = True
+                                    break
+                                except ValueError:
+                                    continue
+                    
+                    if not font_path_valid:
+                        logger.warning(f"Font path from NestJS is not in allowed directories: {font_path}")
+                        continue
+                    
+                    if os.path.exists(font_path):
+                        # Check if it's a variable font and extract axes information
+                        is_variable, axes_info = self._analyze_font(font_path)
+                        
+                        font_map[font_name] = {
+                            'path': font_path,
+                            'isVariableFont': is_variable,
+                            'variableAxes': axes_info
+                        }
+                    else:
+                        logger.warning(f"Font path from NestJS does not exist: {font_path}")
+                except Exception as e:
+                    logger.error(f"Error validating font path {font_path}: {e}")
+                    continue
         
         # Default font as fallback
         default_fonts = [
@@ -385,9 +473,13 @@ class PNGStampGenerator:
         if not image_path:
             return None, 0, 0, 0, 'before', None
 
-        icon_path = image_path
-        if not os.path.isabs(icon_path):
-            icon_path = os.path.join(os.getcwd(), icon_path)
+        try:
+            # SECURITY: Validate icon path to prevent path traversal
+            allowed_icon_dir = os.path.join(os.getcwd(), 'uploads', 'icons')
+            icon_path = validate_path(image_path, allowed_icon_dir)
+        except ValueError as e:
+            logger.warning(f"Invalid icon path: {image_path} - {e}")
+            return None, 0, 0, 0, 'before', None
 
         if not os.path.exists(icon_path):
             logger.warning(f"Icon image not found at path: {icon_path}")
@@ -1688,7 +1780,10 @@ class PNGStampGenerator:
             # Load background image if specified
             if self.background_image_path:
                 try:
-                    bg_path = os.path.join(os.getcwd(), self.background_image_path)
+                    # SECURITY: Validate path to prevent path traversal attacks
+                    allowed_bg_dir = os.path.join(os.getcwd(), 'uploads', 'backgrounds')
+                    bg_path = validate_path(self.background_image_path, allowed_bg_dir)
+                    
                     if os.path.exists(bg_path):
                         bg_img = Image.open(bg_path).convert('RGBA')
                         

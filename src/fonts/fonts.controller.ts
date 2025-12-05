@@ -11,16 +11,19 @@ import {
   BadRequestException,
   Patch,
   Query,
-  Req
+  Req,
+  UseGuards
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import * as fs from 'fs';
 import * as path from 'path';
 import { diskStorage } from 'multer';
 
 import { FontsService } from './fonts.service';
 import { CreateFontDto } from './dto/create-font.dto';
+import { validateFontFile } from '../common/utils/file-validator.util';
 
 const UPLOADS_DIR = 'uploads/fonts';
 
@@ -29,8 +32,43 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
+/**
+ * 清理文件名，移除路径遍历和危险字符
+ * SECURITY: 防止文件名注入攻击
+ */
+function sanitizeFilename(filename: string): string {
+  // 只取文件名部分，移除路径
+  let sanitized = path.basename(filename)
+    .replace(/[\/\\]/g, '') // 移除路径分隔符
+    .replace(/\.\./g, '') // 移除路径遍历
+    .replace(/[<>:"|?*\x00-\x1F]/g, '') // 移除Windows禁止字符和控制字符
+    .trim();
+  
+  // 限制文件名长度
+  if (sanitized.length > 255) {
+    const ext = path.extname(sanitized);
+    sanitized = sanitized.slice(0, 255 - ext.length) + ext;
+  }
+  
+  return sanitized || 'file';
+}
+
+/**
+ * 清理文件扩展名，只保留安全的字符
+ * SECURITY: 防止扩展名注入
+ */
+function sanitizeExtension(originalname: string): string {
+  const ext = path.extname(originalname).toLowerCase();
+  // 只允许字母和数字，移除其他字符
+  const sanitizedExt = ext.replace(/[^a-z0-9]/g, '');
+  // 限制扩展名长度
+  return sanitizedExt.slice(0, 10);
+}
+
 @ApiTags('fonts')
 @Controller('fonts')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class FontsController {
   constructor(private readonly fontsService: FontsService) {}
 
@@ -72,12 +110,16 @@ export class FontsController {
       storage: diskStorage({
         destination: UPLOADS_DIR,
         filename: (req, file, cb) => {
+          // SECURITY: 清理文件名和扩展名，防止路径遍历攻击
+          const sanitizedExt = sanitizeExtension(file.originalname);
           const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          const ext = path.extname(file.originalname);
-          const filename = `font-${uniqueSuffix}${ext}`;
+          const filename = `font-${uniqueSuffix}${sanitizedExt}`;
           cb(null, filename);
         },
       }),
+      limits: {
+        fileSize: 10 * 1024 * 1024, // SECURITY: 限制字体文件大小为10MB，防止DoS攻击
+      },
       fileFilter: (req, file, cb) => {
         const validExt = ['.ttf', '.otf', '.woff', '.woff2'];
         const ext = path.extname(file.originalname).toLowerCase();
@@ -102,6 +144,19 @@ export class FontsController {
     
     if (!name) {
       throw new BadRequestException('Font name is required');
+    }
+    
+    // SECURITY: 验证文件的实际内容类型，只允许字体文件
+    try {
+      await validateFontFile(file.path);
+    } catch (error) {
+      // 删除已上传的文件
+      if (fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path);
+      }
+      throw new BadRequestException(
+        error.message || '文件类型验证失败，只允许上传字体文件'
+      );
     }
     
     // 创建 DTO 对象

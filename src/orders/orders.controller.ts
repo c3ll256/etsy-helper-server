@@ -71,7 +71,11 @@ export class OrdersController {
     }
   })
   @ApiResponse({ status: 400, description: 'Invalid file or file processing error.' })
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', {
+    limits: {
+      fileSize: 50 * 1024 * 1024, // SECURITY: 限制Excel文件大小为50MB，防止DoS攻击
+    }
+  }))
   async uploadFile(
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: User
@@ -80,8 +84,15 @@ export class OrdersController {
       throw new BadRequestException('No file uploaded');
     }
 
-    if (!file.originalname.match(/\.(xlsx|xls)$/)) {
-      throw new BadRequestException('Please upload an Excel file');
+    // SECURITY: 验证文件扩展名，防止路径遍历
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ext.match(/^\.(xlsx|xls)$/)) {
+      throw new BadRequestException('Please upload an Excel file (.xlsx or .xls)');
+    }
+    
+    // SECURITY: 验证文件名不包含路径遍历字符
+    if (file.originalname.includes('..') || file.originalname.includes('/') || file.originalname.includes('\\')) {
+      throw new BadRequestException('Invalid filename');
     }
 
     try {
