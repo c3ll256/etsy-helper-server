@@ -4,8 +4,10 @@ dist
 dist.zip
 .env
 .venv
+.env.example
 venv/
 uploads/
 __pycache__/
 
 scripts/
+pnpm-lock.yaml
