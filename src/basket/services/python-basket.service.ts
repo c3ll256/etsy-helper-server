@@ -8,10 +8,12 @@ import * as crypto from 'crypto';
 export class PythonBasketService {
   private readonly logger = new Logger(PythonBasketService.name);
   private readonly pythonScriptPath: string;
+  private readonly pythonExecutable: string;
   private readonly outputDir = 'uploads/baskets';
 
   constructor() {
     this.pythonScriptPath = path.join(process.cwd(), 'src', 'basket', 'python', 'basket_order_generator.py');
+    this.pythonExecutable = this.resolvePythonExecutable();
     
     // Ensure the python script exists and is executable
     if (!fs.existsSync(this.pythonScriptPath)) {
@@ -30,6 +32,22 @@ export class PythonBasketService {
     if (!fs.existsSync(this.outputDir)) {
       fs.mkdirSync(this.outputDir, { recursive: true });
     }
+
+    this.logger.log(`Using Python executable: ${this.pythonExecutable}`);
+  }
+
+  private resolvePythonExecutable(): string {
+    const configuredPython = process.env.PYTHON_EXECUTABLE?.trim();
+    if (configuredPython) {
+      return configuredPython;
+    }
+
+    const venvPython = path.join(process.cwd(), 'venv', 'bin', 'python');
+    if (fs.existsSync(venvPython)) {
+      return venvPython;
+    }
+
+    return 'python3';
   }
 
   /**
@@ -52,7 +70,7 @@ export class PythonBasketService {
       };
 
       // Spawn Python process
-      const pythonProcess = spawn('python3', [this.pythonScriptPath]);
+      const pythonProcess = spawn(this.pythonExecutable, [this.pythonScriptPath]);
       
       let resultData = '';
       let errorData = '';
