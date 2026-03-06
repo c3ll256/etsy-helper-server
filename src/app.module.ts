@@ -8,6 +8,7 @@ import { FontsModule } from './fonts/fonts.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { BasketModule } from './basket/basket.module';
+import { RattleIconLibraryModule } from './rattle-icon-library/rattle-icon-library.module';
 import * as dotenv from 'dotenv';
 dotenv.config({ override: true });
 
@@ -42,6 +43,7 @@ dotenv.config({ override: true });
     UsersModule,
     AuthModule,
     BasketModule,
+    RattleIconLibraryModule,
   ],
 })
-export class AppModule {} 
+export class AppModule {}
