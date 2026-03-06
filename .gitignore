@@ -13,4 +13,4 @@ scripts/
 pnpm-lock.yaml
 
 # docs (local development documentation)
-/docs
+# /docs
