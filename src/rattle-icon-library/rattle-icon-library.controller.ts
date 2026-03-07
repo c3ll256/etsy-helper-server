@@ -10,10 +10,11 @@ import {
   Post,
   Query,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -43,6 +44,11 @@ function sanitizeExtension(originalname: string): string {
   const ext = path.extname(originalname).toLowerCase();
   const sanitizedExt = ext.replace(/[^a-z0-9]/g, '');
   return sanitizedExt.slice(0, 10);
+}
+
+function normalizeAssetName(name: string): string {
+  const base = name.trim().replace(/\.[^/.]+$/, '');
+  return base || `icon-${Date.now()}`;
 }
 
 @ApiTags('rattle-icons')
@@ -121,7 +127,7 @@ export class RattleIconLibraryController {
         },
       }),
       limits: {
-        fileSize: 2 * 1024 * 1024,
+        fileSize: 10 * 1024 * 1024,
       },
       fileFilter: (req, file, cb) => {
         const allowedMimes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'];
@@ -182,6 +188,110 @@ export class RattleIconLibraryController {
       width: asset.width,
       height: asset.height,
       createdAt: asset.createdAt,
+    };
+  }
+
+  @Post('upload-batch')
+  @ApiOperation({ summary: '批量上传摇铃 icon 并写入资产库' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          items: {
+            type: 'string',
+            format: 'binary',
+          },
+          description: 'icon 图片文件列表（png/jpg/jpeg/svg）',
+        },
+      },
+      required: ['files'],
+    },
+  })
+  @ApiResponse({ status: 201, description: '批量上传成功并返回资产信息列表' })
+  @UseInterceptors(
+    AnyFilesInterceptor({
+      storage: diskStorage({
+        destination: RATTLE_ICON_UPLOAD_DIR,
+        filename: (req, file, cb) => {
+          const sanitizedExt = sanitizeExtension(file.originalname);
+          const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+          cb(null, `${uniqueSuffix}${sanitizedExt}`);
+        },
+      }),
+      limits: {
+        fileSize: 10 * 1024 * 1024,
+      },
+      fileFilter: (req, file, cb) => {
+        const allowedMimes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'];
+        const allowedExts = ['.png', '.jpg', '.jpeg', '.svg'];
+        const ext = path.extname(file.originalname).toLowerCase();
+
+        if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
+          cb(null, true);
+          return;
+        }
+
+        cb(new BadRequestException('仅支持 PNG、JPG 或 SVG 格式的图片'), false);
+      },
+    }),
+  )
+  async uploadBatch(
+    @CurrentUser() user: User,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('未提供文件或文件上传失败');
+    }
+
+    const results: Array<{
+      id: number;
+      name: string;
+      filePath: string;
+      mimeType: string;
+      width: number | null;
+      height: number | null;
+      createdAt: Date;
+    }> = [];
+
+    for (const file of files) {
+      try {
+        await validateImageFile(file.path);
+      } catch (error) {
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+        throw new BadRequestException(
+          `文件 ${file.originalname} 验证失败: ${error.message || '仅允许上传图片文件'}`,
+        );
+      }
+
+      const filePath = `${RATTLE_ICON_UPLOAD_DIR}/${file.filename}`;
+      const asset = await this.rattleIconLibraryService.createAsset({
+        userId: user.id as string,
+        name: normalizeAssetName(file.originalname),
+        filePath,
+        mimeType: file.mimetype,
+        width: null,
+        height: null,
+      });
+
+      results.push({
+        id: asset.id,
+        name: asset.name,
+        filePath: asset.filePath,
+        mimeType: asset.mimeType,
+        width: asset.width,
+        height: asset.height,
+        createdAt: asset.createdAt,
+      });
+    }
+
+    return {
+      items: results,
+      total: results.length,
     };
   }
 
