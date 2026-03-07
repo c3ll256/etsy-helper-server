@@ -12,6 +12,11 @@ export class CreateStampTemplateDto {
   @IsString({ each: true })
   skus: string[];
 
+  @ApiProperty({ description: '是否在 SKU 冲突时自动生成唯一副本 SKU', required: false, default: false })
+  @IsBoolean()
+  @IsOptional()
+  autoResolveSkuConflicts?: boolean;
+
   @ApiProperty({ description: 'Name of the stamp template' })
   @IsString()
   name: string;
