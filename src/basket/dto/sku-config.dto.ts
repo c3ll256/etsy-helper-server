@@ -1,7 +1,28 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
-import { IsString, IsEnum, IsOptional, IsNumber, IsObject, IsArray, IsBoolean, ValidateNested } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsNumber, IsObject, IsArray, IsBoolean, ValidateNested, IsInt, Min } from 'class-validator';
 import { SkuType } from '../entities/sku-config.entity';
 import { Type } from 'class-transformer';
+
+export class ComboOverrideDto {
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  fontSize?: number;
+
+  @ApiProperty({ required: false })
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  colorGroupId?: number;
+
+  @ApiProperty({ required: false })
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  iconGroupId?: number;
+}
 
 export class CreateSkuConfigDto {
   @ApiProperty({ description: 'SKU编码' })
@@ -38,6 +59,25 @@ export class CreateSkuConfigDto {
   @IsString({ each: true })
   @IsOptional()
   comboItems?: string[];
+
+  @ApiProperty({ description: '颜色组ID', required: false })
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  colorGroupId?: number;
+
+  @ApiProperty({ description: '图标组ID', required: false })
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  iconGroupId?: number;
+
+  @ApiProperty({ description: '套组子 SKU 覆盖配置', required: false, type: Object })
+  @IsObject()
+  @IsOptional()
+  comboOverridesJson?: Record<string, ComboOverrideDto>;
 
   @ApiProperty({ description: '外部订单提醒开关', required: false })
   @IsBoolean()

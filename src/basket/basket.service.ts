@@ -1,6 +1,6 @@
 import { Injectable, Logger, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { ILike, Repository, Not } from 'typeorm';
 import * as fs from 'fs';
 import { read, utils } from 'xlsx';
 import * as ExcelJS from 'exceljs';
@@ -21,6 +21,24 @@ import { SkuConfig } from './entities/sku-config.entity';
 import { CreateSkuConfigDto, BatchUpdateSkuConfigItemDto } from './dto/sku-config.dto';
 import { AliyunService } from 'src/common/services/aliyun.service';
 import { RemoteAreaService } from 'src/common/services/remote-area.service';
+import { ColorGroup } from './entities/color-group.entity';
+import { ColorKv } from './entities/color-kv.entity';
+import { IconGroup } from './entities/icon-group.entity';
+import { IconKv } from './entities/icon-kv.entity';
+import {
+  CreateColorGroupDto,
+  CreateColorKvDto,
+  CreateIconGroupDto,
+  CreateIconKvDto,
+  QueryColorGroupsDto,
+  QueryColorKvDto,
+  QueryIconGroupsDto,
+  QueryIconKvDto,
+  UpdateColorGroupDto,
+  UpdateColorKvDto,
+  UpdateIconGroupDto,
+  UpdateIconKvDto,
+} from './dto/basket-dictionaries.dto';
 
 interface ParsedVariation {
   color: string;
@@ -28,6 +46,15 @@ interface ParsedVariation {
   icon?: string;
   design?: string;
   originalText?: string;
+  iconFilePath?: string;
+}
+
+interface ResolvedComboOverride {
+  fontSize?: number;
+  colorGroupId?: number;
+  iconGroupId?: number;
+  colorMap?: Record<string, string>;
+  iconMap?: Record<string, string>;
 }
 
 interface ProcessedOrder {
@@ -41,6 +68,12 @@ interface ProcessedOrder {
   orderType?: 'basket' | 'backpack' | 'combo';
   fontSize?: number;
   font?: string;
+  rawVariations?: ParsedVariation[];
+  colorGroupId?: number | null;
+  iconGroupId?: number | null;
+  baseColorMap?: Record<string, string>;
+  baseIconMap?: Record<string, string>;
+  comboOverrides?: Record<string, ResolvedComboOverride>;
   datePaid?: string;
   orderDate?: string;
   isRemoteArea?: boolean;
@@ -69,6 +102,14 @@ export class BasketService {
     private readonly basketRecordRepository: Repository<BasketGenerationRecord>,
     @InjectRepository(SkuConfig)
     private readonly skuConfigRepository: Repository<SkuConfig>,
+    @InjectRepository(ColorGroup)
+    private readonly colorGroupRepository: Repository<ColorGroup>,
+    @InjectRepository(ColorKv)
+    private readonly colorKvRepository: Repository<ColorKv>,
+    @InjectRepository(IconGroup)
+    private readonly iconGroupRepository: Repository<IconGroup>,
+    @InjectRepository(IconKv)
+    private readonly iconKvRepository: Repository<IconKv>,
     private readonly pythonBasketService: PythonBasketService,
     private readonly jobQueueService: JobQueueService,
     private readonly aliyunService: AliyunService,
@@ -166,6 +207,8 @@ export class BasketService {
     // Create query builder
     const queryBuilder = this.skuConfigRepository.createQueryBuilder('config')
       .leftJoinAndSelect('config.user', 'user')
+      .leftJoinAndSelect('config.colorGroup', 'colorGroup')
+      .leftJoinAndSelect('config.iconGroup', 'iconGroup')
       .orderBy('config.createdAt', 'DESC')
       .skip(skip)
       .take(limit);
@@ -218,6 +261,8 @@ export class BasketService {
       throw new BadRequestException(`SKU ${configDto.sku} 已存在配置`);
     }
 
+    await this.validateSkuConfigReferences(userId, configDto);
+
     const config = this.skuConfigRepository.create({
       userId,
       ...configDto
@@ -254,6 +299,8 @@ export class BasketService {
     if (existingConfig) {
       throw new BadRequestException(`SKU ${configDto.sku} 已存在配置`);
     }
+
+    await this.validateSkuConfigReferences(userId, configDto);
 
     // Update the configuration
     this.skuConfigRepository.merge(config, configDto);
@@ -329,6 +376,9 @@ export class BasketService {
         if (updateData.font !== undefined) updateFields.font = updateData.font;
         if (updateData.yarnColorMap !== undefined) updateFields.yarnColorMap = updateData.yarnColorMap;
         if (updateData.comboItems !== undefined) updateFields.comboItems = updateData.comboItems as any;
+        if (updateData.colorGroupId !== undefined) updateFields.colorGroupId = updateData.colorGroupId;
+        if (updateData.iconGroupId !== undefined) updateFields.iconGroupId = updateData.iconGroupId;
+        if (updateData.comboOverridesJson !== undefined) updateFields.comboOverridesJson = updateData.comboOverridesJson as any;
         if (updateData.externalOrderReminderEnabled !== undefined) updateFields.externalOrderReminderEnabled = updateData.externalOrderReminderEnabled;
         if (updateData.externalOrderReminderContent !== undefined) updateFields.externalOrderReminderContent = updateData.externalOrderReminderContent;
 
@@ -337,6 +387,21 @@ export class BasketService {
           errors.push({ id, reason: '没有提供任何要更新的字段' });
           continue;
         }
+
+        await this.validateSkuConfigReferences(userId, {
+          sku: updateFields.sku ?? config.sku,
+          type: updateFields.type ?? config.type,
+          replaceValue: updateFields.replaceValue ?? config.replaceValue,
+          fontSize: updateFields.fontSize ?? config.fontSize,
+          font: updateFields.font ?? config.font,
+          yarnColorMap: updateFields.yarnColorMap ?? config.yarnColorMap,
+          comboItems: (updateFields.comboItems ?? config.comboItems) as string[] | undefined,
+          colorGroupId: updateFields.colorGroupId ?? config.colorGroupId,
+          iconGroupId: updateFields.iconGroupId ?? config.iconGroupId,
+          comboOverridesJson: (updateFields.comboOverridesJson ?? config.comboOverridesJson) as any,
+          externalOrderReminderEnabled: updateFields.externalOrderReminderEnabled ?? config.externalOrderReminderEnabled,
+          externalOrderReminderContent: updateFields.externalOrderReminderContent ?? config.externalOrderReminderContent,
+        });
 
         // Update the configuration with only the provided fields
         this.skuConfigRepository.merge(config, updateFields);
@@ -357,6 +422,316 @@ export class BasketService {
     }
 
     return updatedConfigs;
+  }
+
+  async listColorGroups(user: User, query: QueryColorGroupsDto): Promise<PaginatedResponse<ColorGroup>> {
+    const page = query.page && query.page > 0 ? Number(query.page) : 1;
+    const limit = query.limit && query.limit > 0 ? Number(query.limit) : 20;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.colorGroupRepository.createQueryBuilder('group')
+      .where('group.isActive = :isActive', { isActive: true })
+      .orderBy('group.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    if (!user.isAdmin) {
+      queryBuilder.andWhere('group.userId = :userId', { userId: user.id });
+    }
+
+    if (query.search?.trim()) {
+      queryBuilder.andWhere('group.name ILIKE :search', { search: `%${query.search.trim()}%` });
+    }
+
+    if (query.productType?.trim()) {
+      queryBuilder.andWhere('group.productType = :productType', { productType: query.productType.trim() });
+    }
+
+    const [items, total] = await queryBuilder.getManyAndCount();
+    return { items, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  }
+
+  async createColorGroup(user: User, dto: CreateColorGroupDto): Promise<ColorGroup> {
+    const group = this.colorGroupRepository.create({
+      userId: user.id,
+      name: dto.name.trim(),
+      description: dto.description?.trim() || null,
+      productType: dto.productType?.trim() || null,
+      isActive: true,
+    });
+    return this.colorGroupRepository.save(group);
+  }
+
+  async updateColorGroup(id: number, user: User, dto: UpdateColorGroupDto): Promise<ColorGroup> {
+    const group = await this.getOwnedColorGroup(id, user);
+    if (dto.name !== undefined) group.name = dto.name.trim();
+    if (dto.description !== undefined) group.description = dto.description?.trim() || null;
+    if (dto.productType !== undefined) group.productType = dto.productType?.trim() || null;
+    return this.colorGroupRepository.save(group);
+  }
+
+  async deleteColorGroup(id: number, user: User): Promise<void> {
+    const group = await this.getOwnedColorGroup(id, user);
+    const activeBinding = await this.skuConfigRepository.findOne({ where: { colorGroupId: id } });
+    if (activeBinding) {
+      throw new BadRequestException('该颜色组仍被 SKU 配置引用，请先解除绑定');
+    }
+    group.isActive = false;
+    await this.colorGroupRepository.save(group);
+  }
+
+  async listColorKv(user: User, query: QueryColorKvDto): Promise<PaginatedResponse<ColorKv>> {
+    const page = query.page && query.page > 0 ? Number(query.page) : 1;
+    const limit = query.limit && query.limit > 0 ? Number(query.limit) : 20;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.colorKvRepository.createQueryBuilder('kv')
+      .leftJoinAndSelect('kv.group', 'group')
+      .where('kv.isActive = :isActive', { isActive: true })
+      .orderBy('kv.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    if (!user.isAdmin) {
+      queryBuilder.andWhere('kv.userId = :userId', { userId: user.id });
+    }
+
+    if (query.groupId) {
+      queryBuilder.andWhere('kv.groupId = :groupId', { groupId: query.groupId });
+    }
+
+    if (query.search?.trim()) {
+      queryBuilder.andWhere('(kv.name ILIKE :search OR kv.colorValue ILIKE :search)', { search: `%${query.search.trim()}%` });
+    }
+
+    const [items, total] = await queryBuilder.getManyAndCount();
+    return { items, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  }
+
+  async createColorKv(user: User, dto: CreateColorKvDto): Promise<ColorKv> {
+    let groupId: number | null = null;
+
+    if (dto.groupId) {
+      const group = await this.getOwnedColorGroup(dto.groupId, user);
+      groupId = group.id;
+    }
+
+    const entity = this.colorKvRepository.create({
+      userId: user.id,
+      groupId,
+      name: dto.name.trim(),
+      colorValue: dto.colorValue.trim(),
+      isActive: true,
+    });
+    return this.colorKvRepository.save(entity);
+  }
+
+  async updateColorKv(id: number, user: User, dto: UpdateColorKvDto): Promise<ColorKv> {
+    const kv = await this.getOwnedColorKv(id, user);
+    if (dto.groupId !== undefined) {
+      if (dto.groupId === null) {
+        kv.groupId = null;
+        kv.group = null;
+      } else {
+        const group = await this.getOwnedColorGroup(dto.groupId, user);
+        kv.groupId = group.id;
+        kv.group = group;
+      }
+    }
+    if (dto.name !== undefined) kv.name = dto.name.trim();
+    if (dto.colorValue !== undefined) kv.colorValue = dto.colorValue.trim();
+    return this.colorKvRepository.save(kv);
+  }
+
+  async deleteColorKv(id: number, user: User): Promise<void> {
+    const kv = await this.getOwnedColorKv(id, user);
+    kv.isActive = false;
+    await this.colorKvRepository.save(kv);
+  }
+
+  async listIconGroups(user: User, query: QueryIconGroupsDto): Promise<PaginatedResponse<IconGroup>> {
+    const page = query.page && query.page > 0 ? Number(query.page) : 1;
+    const limit = query.limit && query.limit > 0 ? Number(query.limit) : 20;
+    const skip = (page - 1) * limit;
+    const where = !user.isAdmin ? { userId: user.id, isActive: true, ...(query.search ? { name: ILike(`%${query.search.trim()}%`) } : {}) } : { isActive: true, ...(query.search ? { name: ILike(`%${query.search.trim()}%`) } : {}) };
+    const [items, total] = await this.iconGroupRepository.findAndCount({ where, order: { createdAt: 'DESC' }, skip, take: limit });
+    return { items, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  }
+
+  async createIconGroup(user: User, dto: CreateIconGroupDto): Promise<IconGroup> {
+    const group = this.iconGroupRepository.create({ userId: user.id, name: dto.name.trim(), description: dto.description?.trim() || null, isActive: true });
+    return this.iconGroupRepository.save(group);
+  }
+
+  async updateIconGroup(id: number, user: User, dto: UpdateIconGroupDto): Promise<IconGroup> {
+    const group = await this.getOwnedIconGroup(id, user);
+    if (dto.name !== undefined) group.name = dto.name.trim();
+    if (dto.description !== undefined) group.description = dto.description?.trim() || null;
+    return this.iconGroupRepository.save(group);
+  }
+
+  async deleteIconGroup(id: number, user: User): Promise<void> {
+    const group = await this.getOwnedIconGroup(id, user);
+    const activeBinding = await this.skuConfigRepository.findOne({ where: { iconGroupId: id } });
+    if (activeBinding) {
+      throw new BadRequestException('该图标组仍被 SKU 配置引用，请先解除绑定');
+    }
+    group.isActive = false;
+    await this.iconGroupRepository.save(group);
+  }
+
+  async listIconKv(user: User, query: QueryIconKvDto): Promise<PaginatedResponse<IconKv>> {
+    const page = query.page && query.page > 0 ? Number(query.page) : 1;
+    const limit = query.limit && query.limit > 0 ? Number(query.limit) : 20;
+    const skip = (page - 1) * limit;
+    const queryBuilder = this.iconKvRepository.createQueryBuilder('kv')
+      .leftJoinAndSelect('kv.group', 'group')
+      .where('kv.isActive = :isActive', { isActive: true })
+      .orderBy('kv.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    if (!user.isAdmin) {
+      queryBuilder.andWhere('kv.userId = :userId', { userId: user.id });
+    }
+
+    if (query.groupId) {
+      queryBuilder.andWhere('kv.groupId = :groupId', { groupId: query.groupId });
+    }
+
+    if (query.search?.trim()) {
+      queryBuilder.andWhere('kv.name ILIKE :search', { search: `%${query.search.trim()}%` });
+    }
+
+    const [items, total] = await queryBuilder.getManyAndCount();
+    return { items, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  }
+
+  async createIconKv(user: User, dto: CreateIconKvDto, file: Express.Multer.File): Promise<IconKv> {
+    let groupId: number | null = null;
+    let group: IconGroup | null = null;
+
+    if (dto.groupId) {
+      group = await this.getOwnedIconGroup(dto.groupId, user);
+      groupId = group.id;
+    }
+
+    if (!file) {
+      throw new BadRequestException('请上传图标文件');
+    }
+
+    const filePath = `/uploads/baskets/icons/${file.filename}`;
+    const entity = this.iconKvRepository.create({
+      userId: user.id,
+      groupId,
+      group,
+      name: dto.name.trim(),
+      fileName: file.originalname,
+      filePath,
+      mimeType: file.mimetype,
+      isActive: true,
+    });
+    return this.iconKvRepository.save(entity);
+  }
+
+  async updateIconKv(id: number, user: User, dto: UpdateIconKvDto): Promise<IconKv> {
+    const kv = await this.getOwnedIconKv(id, user);
+    if (dto.groupId !== undefined) {
+      if (dto.groupId === null) {
+        kv.groupId = null;
+        kv.group = null;
+      } else {
+        const group = await this.getOwnedIconGroup(dto.groupId, user);
+        kv.groupId = group.id;
+        kv.group = group;
+      }
+    }
+    if (dto.name !== undefined) kv.name = dto.name.trim();
+    return this.iconKvRepository.save(kv);
+  }
+
+  async deleteIconKv(id: number, user: User): Promise<void> {
+    const kv = await this.getOwnedIconKv(id, user);
+    kv.isActive = false;
+    await this.iconKvRepository.save(kv);
+  }
+
+  async getActiveColorGroups(user: User): Promise<ColorGroup[]> {
+    return this.colorGroupRepository.find({ where: { userId: user.id, isActive: true }, order: { name: 'ASC' } });
+  }
+
+  async getActiveIconGroups(user: User): Promise<IconGroup[]> {
+    return this.iconGroupRepository.find({ where: { userId: user.id, isActive: true }, order: { name: 'ASC' } });
+  }
+
+  private async validateSkuConfigReferences(userId: string, configDto: Partial<CreateSkuConfigDto>): Promise<void> {
+    if (configDto.colorGroupId) {
+      const group = await this.colorGroupRepository.findOne({ where: { id: configDto.colorGroupId, userId, isActive: true } });
+      if (!group) throw new BadRequestException(`颜色组 ${configDto.colorGroupId} 不存在或无权限访问`);
+    }
+
+    if (configDto.iconGroupId) {
+      const group = await this.iconGroupRepository.findOne({ where: { id: configDto.iconGroupId, userId, isActive: true } });
+      if (!group) throw new BadRequestException(`图标组 ${configDto.iconGroupId} 不存在或无权限访问`);
+    }
+
+    if (configDto.comboOverridesJson) {
+      const comboItems = new Set((configDto.comboItems || []).map((item) => String(item).trim()).filter(Boolean));
+      for (const [key, value] of Object.entries(configDto.comboOverridesJson)) {
+        if (comboItems.size > 0 && !comboItems.has(key)) {
+          throw new BadRequestException(`子 SKU 覆盖项 ${key} 不在 comboItems 中`);
+        }
+        if (!value || Object.values(value).every((item) => item === undefined || item === null || item === '')) {
+          throw new BadRequestException(`子 SKU 覆盖项 ${key} 至少需要一个有效字段`);
+        }
+        if (value.colorGroupId) {
+          const group = await this.colorGroupRepository.findOne({ where: { id: value.colorGroupId, userId, isActive: true } });
+          if (!group) throw new BadRequestException(`子 SKU ${key} 绑定的颜色组不存在或无权限访问`);
+        }
+        if (value.iconGroupId) {
+          const group = await this.iconGroupRepository.findOne({ where: { id: value.iconGroupId, userId, isActive: true } });
+          if (!group) throw new BadRequestException(`子 SKU ${key} 绑定的图标组不存在或无权限访问`);
+        }
+      }
+    }
+  }
+
+  private async getOwnedColorGroup(id: number, user: User): Promise<ColorGroup> {
+    const group = await this.colorGroupRepository.findOne({ where: user.isAdmin ? { id, isActive: true } : { id, userId: user.id, isActive: true } });
+    if (!group) throw new NotFoundException(`颜色组 ${id} 不存在`);
+    return group;
+  }
+
+  private async getOwnedColorKv(id: number, user: User): Promise<ColorKv> {
+    const kv = await this.colorKvRepository.findOne({ where: { id, isActive: true }, relations: ['group'] });
+    if (!kv) throw new NotFoundException(`颜色词条 ${id} 不存在`);
+    if (!user.isAdmin) {
+      const ownedByGroup = kv.group?.userId === user.id;
+      const ownedBySelf = kv.userId === user.id;
+      if (!ownedByGroup && !ownedBySelf) {
+        throw new NotFoundException(`颜色词条 ${id} 不存在`);
+      }
+    }
+    return kv;
+  }
+
+  private async getOwnedIconGroup(id: number, user: User): Promise<IconGroup> {
+    const group = await this.iconGroupRepository.findOne({ where: user.isAdmin ? { id, isActive: true } : { id, userId: user.id, isActive: true } });
+    if (!group) throw new NotFoundException(`图标组 ${id} 不存在`);
+    return group;
+  }
+
+  private async getOwnedIconKv(id: number, user: User): Promise<IconKv> {
+    const kv = await this.iconKvRepository.findOne({ where: { id, isActive: true }, relations: ['group'] });
+    if (!kv) throw new NotFoundException(`图标词条 ${id} 不存在`);
+    if (!user.isAdmin) {
+      const ownedByGroup = kv.group?.userId === user.id;
+      const ownedBySelf = kv.userId === user.id;
+      if (!ownedByGroup && !ownedBySelf) {
+        throw new NotFoundException(`图标词条 ${id} 不存在`);
+      }
+    }
+    return kv;
   }
 
   /**
@@ -393,6 +768,8 @@ export class BasketService {
       this.logger.log(`Processing ${rawData.length} rows from Excel file`);
       
       const processedOrders: ProcessedOrder[] = [];
+      const colorGroupCache = new Map<number, Record<string, string>>();
+      const iconGroupCache = new Map<number, Record<string, string>>();
       
       // Process each row
       for (let i = 0; i < rawData.length; i++) {
@@ -434,6 +811,10 @@ export class BasketService {
           
           // Find matching SKU config for replacement value and font size
           const skuConfig = skuConfigs.find(config => skuRaw.includes(config.sku));
+
+          const baseColorMap = await this.resolveColorMapForSkuConfig(skuConfig, colorGroupCache);
+          const baseIconMap = await this.resolveIconMapForSkuConfig(skuConfig, iconGroupCache);
+          const comboOverrides = await this.resolveComboOverrides(skuConfig, colorGroupCache, iconGroupCache);
           
           // Replace the matched part while preserving the rest
           let replacedSku = skuRaw;
@@ -447,20 +828,7 @@ export class BasketService {
           }
 
           // Apply yarn color mapping if configured for this SKU
-          let finalVariations = analyzedVariations;
-          const colorMap = skuConfig?.yarnColorMap as Record<string, string> | undefined;
-          if (colorMap && analyzedVariations?.length) {
-            // Build a case-insensitive lookup map
-            const normalizedEntries = Object.entries(colorMap).map(([k, v]) => [String(k).trim().toLowerCase(), v]);
-            const normalizedMap = new Map<string, string>(normalizedEntries as [string, string][]);
-            finalVariations = analyzedVariations.map(v => {
-              const originalColor = (v?.color || '').trim();
-              if (!originalColor) return v;
-              const mapped = normalizedMap.get(originalColor.toLowerCase());
-              if (mapped == null) return v;
-              return { ...v, color: mapped };
-            });
-          }
+          const finalVariations = this.applyColorMap(analyzedVariations, baseColorMap);
           
           // 保存数据行号（注意：第一行是标题行，不包含在rawData中）
           // 因此实际的Excel行号需要加2（1是因为Excel从1开始，再加1是因为标题行）
@@ -473,11 +841,17 @@ export class BasketService {
             orderId,
             shipName,
             variations: finalVariations,
+            rawVariations: analyzedVariations,
             sku: replacedSku,
             originalSku: skuRaw,
             orderType,
             fontSize: skuConfig?.fontSize,
             font: skuConfig?.font,
+            colorGroupId: skuConfig?.colorGroupId,
+            iconGroupId: skuConfig?.iconGroupId,
+            baseColorMap,
+            baseIconMap,
+            comboOverrides,
             datePaid: formattedDatePaid,
             orderDate: formattedOrderDate,
             isRemoteArea: this.remoteAreaService.isRemoteArea(shipState),
@@ -546,6 +920,125 @@ export class BasketService {
       this.logger.warn(`Error formatting Excel date with dayjs: ${error.message}`, excelDate);
       return String(excelDate);
     }
+  }
+
+  private async resolveColorMapForSkuConfig(
+    skuConfig: SkuConfig | undefined,
+    cache: Map<number, Record<string, string>>,
+  ): Promise<Record<string, string>> {
+    if (!skuConfig) {
+      return {};
+    }
+
+    if (skuConfig.colorGroupId) {
+      return this.loadColorMapByGroupId(Number(skuConfig.colorGroupId), cache);
+    }
+
+    return skuConfig.yarnColorMap || {};
+  }
+
+  private async resolveIconMapForSkuConfig(
+    skuConfig: SkuConfig | undefined,
+    cache: Map<number, Record<string, string>>,
+  ): Promise<Record<string, string>> {
+    if (!skuConfig?.iconGroupId) {
+      return {};
+    }
+
+    return this.loadIconMapByGroupId(Number(skuConfig.iconGroupId), cache);
+  }
+
+  private async resolveComboOverrides(
+    skuConfig: SkuConfig | undefined,
+    colorCache: Map<number, Record<string, string>>,
+    iconCache: Map<number, Record<string, string>>,
+  ): Promise<Record<string, ResolvedComboOverride>> {
+    const overrides = skuConfig?.comboOverridesJson || {};
+    const resolved: Record<string, ResolvedComboOverride> = {};
+
+    for (const [key, value] of Object.entries(overrides || {})) {
+      resolved[key] = {
+        fontSize: value?.fontSize,
+        colorGroupId: value?.colorGroupId,
+        iconGroupId: value?.iconGroupId,
+        colorMap: value?.colorGroupId ? await this.loadColorMapByGroupId(Number(value.colorGroupId), colorCache) : undefined,
+        iconMap: value?.iconGroupId ? await this.loadIconMapByGroupId(Number(value.iconGroupId), iconCache) : undefined,
+      };
+    }
+
+    return resolved;
+  }
+
+  private async loadColorMapByGroupId(groupId: number, cache: Map<number, Record<string, string>>): Promise<Record<string, string>> {
+    if (cache.has(groupId)) {
+      return cache.get(groupId)!;
+    }
+
+    const items = await this.colorKvRepository.find({ where: { groupId, isActive: true } });
+    const mapped = Object.fromEntries(items.map((item) => [item.name, item.colorValue]));
+    cache.set(groupId, mapped);
+    return mapped;
+  }
+
+  private async loadIconMapByGroupId(groupId: number, cache: Map<number, Record<string, string>>): Promise<Record<string, string>> {
+    if (cache.has(groupId)) {
+      return cache.get(groupId)!;
+    }
+
+    const items = await this.iconKvRepository.find({ where: { groupId, isActive: true } });
+    const mapped = Object.fromEntries(items.map((item) => [item.name, item.filePath]));
+    cache.set(groupId, mapped);
+    return mapped;
+  }
+
+  private applyColorMap(variations: ParsedVariation[], colorMap?: Record<string, string>): ParsedVariation[] {
+    if (!variations?.length || !colorMap || Object.keys(colorMap).length === 0) {
+      return variations || [];
+    }
+
+    const normalizedMap = new Map<string, string>(
+      Object.entries(colorMap).map(([key, value]) => [this.normalizeDictionaryKey(key), value]),
+    );
+
+    return variations.map((variation) => {
+      const color = variation?.color?.trim();
+      if (!color) {
+        return variation;
+      }
+
+      const mapped = normalizedMap.get(this.normalizeDictionaryKey(color));
+      if (!mapped) {
+        return variation;
+      }
+
+      return {
+        ...variation,
+        color: mapped,
+      };
+    });
+  }
+
+  private resolveIconFilePath(iconName?: string, iconMap?: Record<string, string>): string {
+    if (!iconName || !iconMap || Object.keys(iconMap).length === 0) {
+      return '';
+    }
+
+    const normalizedTarget = this.normalizeDictionaryKey(iconName);
+    for (const [key, filePath] of Object.entries(iconMap)) {
+      if (this.normalizeDictionaryKey(key) === normalizedTarget) {
+        return filePath;
+      }
+    }
+
+    return '';
+  }
+
+  private normalizeDictionaryKey(value?: string): string {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_\-]+/g, '')
+      .replace(/[^\p{L}\p{N}]/gu, '');
   }
 
   /**
@@ -1054,14 +1547,20 @@ export class BasketService {
 
     // 生成每页
     for (const order of processedOrders) {
-      for (const variation of order.variations || []) {
+      const sourceVariations = order.rawVariations || order.variations || [];
+      for (let variationIndex = 0; variationIndex < sourceVariations.length; variationIndex++) {
+        const variation = sourceVariations[variationIndex];
         const orderIdKey = String(order.orderId || '');
         const totalForThisOrderId = totalSlidesByOrderId.get(orderIdKey) || 1;
+
+        const baseVariation = (order.variations || [])[variationIndex] || variation;
+        const baseIconFilePath = this.resolveIconFilePath(variation.icon, order.baseIconMap);
 
         const base = {
           date: new Date().toLocaleDateString('zh-CN'),
           orderNumber: String(order.orderId),
           icon: variation.icon || '',
+          iconFilePath: baseIconFilePath,
           recipientName: order.shipName || '',
           customName: variation.value || '',
           quantity: order.quantity || 1,
@@ -1077,15 +1576,20 @@ export class BasketService {
 
         if (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length) {
           for (const item of order.comboItems) {
+            const override = order.comboOverrides?.[item];
+            const comboVariation = this.applyColorMap([variation], override?.colorMap || order.baseColorMap)[0] || baseVariation;
+            const comboIconFilePath = this.resolveIconFilePath(variation.icon, override?.iconMap || order.baseIconMap);
             const current = (currentIndexByOrderId.get(orderIdKey) || 0) + 1;
             currentIndexByOrderId.set(orderIdKey, current);
             const position = `${current}/${totalForThisOrderId}`;
 
             const slide = {
               ...base,
-              color: '', // combo items are now just SKU strings, no color info
+              color: comboVariation.color || '',
               orderType: 'combo',
               sku: `${order.sku || order.originalSku || ''} + ${item || ''}`.trim(),
+              fontSize: override?.fontSize ?? order.fontSize,
+              iconFilePath: comboIconFilePath,
               position,
             } as any;
             pptSlides.push(slide);
@@ -1097,7 +1601,7 @@ export class BasketService {
 
           const slideData = {
             ...base,
-            color: variation.color || '',
+            color: baseVariation.color || '',
             orderType: order.orderType || 'basket',
             sku: order.sku || '',
             position,

@@ -149,6 +149,7 @@ def create_basket_order_slide(prs, order_data):
     sku_str = order_data.get('sku', '')
     color_str = order_data.get('color', '默认颜色')
     icon_str = order_data.get('icon', '')
+    icon_file_path = order_data.get('iconFilePath', '')
     
     combined_text = order_id_str
     if sku_str:
@@ -166,6 +167,16 @@ def create_basket_order_slide(prs, order_data):
     combined_p.alignment = PP_ALIGN.CENTER
     combined_p.font.size = Pt(22)
     combined_p.font.color.rgb = RGBColor(0, 0, 0)
+
+    if icon_file_path:
+        try:
+            normalized_icon_path = icon_file_path
+            if normalized_icon_path.startswith('/'):
+                normalized_icon_path = normalized_icon_path[1:]
+            if os.path.exists(normalized_icon_path):
+                slide.shapes.add_picture(normalized_icon_path, prs.slide_width - margin - Inches(2.2), margin + Inches(0.55), Inches(0.45), Inches(0.45))
+        except Exception as e:
+            logger.warning(f"Failed to add icon image: {str(e)}")
     
     # Position (一单多买的序号)
     position_box = slide.shapes.add_textbox(prs.slide_width - margin - Inches(1.2), date_top, Inches(1.2), Inches(0.4))
