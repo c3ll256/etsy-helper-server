@@ -635,6 +635,10 @@ export class BasketService {
     return this.iconGroupRepository.save(group);
   }
 
+  async getIconGroup(id: number, user: User): Promise<IconGroup> {
+    return this.getOwnedIconGroup(id, user);
+  }
+
   async deleteIconGroup(id: number, user: User): Promise<void> {
     const group = await this.getOwnedIconGroup(id, user);
     const activeBinding = await this.skuConfigRepository.findOne({ where: { iconGroupId: id } });
@@ -719,6 +723,22 @@ export class BasketService {
     const kv = await this.getOwnedIconKv(id, user);
     kv.isActive = false;
     await this.iconKvRepository.save(kv);
+  }
+
+  async deleteIconKvBatch(ids: number[], user: User): Promise<{ deletedIds: number[] }> {
+    if (!ids?.length) {
+      throw new BadRequestException('请选择要删除的图标字典项');
+    }
+
+    const deletedIds: number[] = [];
+    for (const id of ids) {
+      const kv = await this.getOwnedIconKv(id, user);
+      kv.isActive = false;
+      await this.iconKvRepository.save(kv);
+      deletedIds.push(id);
+    }
+
+    return { deletedIds };
   }
 
   async getActiveColorGroups(user: User): Promise<ColorGroup[]> {

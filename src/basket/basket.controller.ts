@@ -36,6 +36,7 @@ import {
   CreateColorKvDto,
   CreateColorKvBatchDto,
   DeleteColorKvBatchDto,
+  DeleteIconKvBatchDto,
   CreateIconGroupDto,
   CreateIconKvDto,
   QueryColorGroupsDto,
@@ -384,6 +385,12 @@ export class BasketController {
     @CurrentUser() user: User,
   ) {
     return this.basketService.updateIconGroup(id, user, dto);
+  }
+
+  @Get('icon-groups/:id')
+  @ApiOperation({ summary: '获取单个图标组详情' })
+  async getIconGroup(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
+    return this.basketService.getIconGroup(id, user);
   }
 
   @Delete('icon-groups/:id')

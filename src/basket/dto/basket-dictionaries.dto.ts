@@ -157,6 +157,14 @@ export class CreateIconKvDto {
   name: string;
 }
 
+export class DeleteIconKvBatchDto {
+  @ApiProperty({ type: [Number] })
+  @IsArray()
+  @Type(() => Number)
+  @IsNumber({}, { each: true })
+  ids: number[];
+}
+
 export class UpdateIconKvDto {
   @ApiProperty({ required: false })
   @IsOptional()
