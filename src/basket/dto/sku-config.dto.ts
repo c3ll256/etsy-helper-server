@@ -29,7 +29,7 @@ export class CreateSkuConfigDto {
   @IsString()
   sku: string;
 
-  @ApiProperty({ description: 'SKU类型：篮子、书包或套组', enum: SkuType })
+  @ApiProperty({ description: 'SKU类型：篮子、书包、毛衣或套组', enum: SkuType })
   @IsEnum(SkuType)
   type: SkuType;
 

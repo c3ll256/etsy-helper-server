@@ -7,6 +7,7 @@ import { IconGroup } from './icon-group.entity';
 export enum SkuType {
   BASKET = 'basket',
   BACKPACK = 'backpack',
+  SWEATER = 'sweater',
   COMBO = 'combo'
 }
 
@@ -30,8 +31,8 @@ export class SkuConfig {
   sku: string;
 
   @Column({
-    type: 'enum',
-    enum: SkuType,
+    type: 'varchar',
+    length: 32,
     default: SkuType.BASKET
   })
   @ApiProperty({ description: 'SKU类型：篮子、书包或套组', enum: SkuType })
