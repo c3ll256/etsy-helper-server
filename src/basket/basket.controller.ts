@@ -34,6 +34,8 @@ import { SkuConfig } from './entities/sku-config.entity';
 import {
   CreateColorGroupDto,
   CreateColorKvDto,
+  CreateColorKvBatchDto,
+  DeleteColorKvBatchDto,
   CreateIconGroupDto,
   CreateIconKvDto,
   QueryColorGroupsDto,
@@ -304,6 +306,12 @@ export class BasketController {
     return this.basketService.updateColorGroup(id, user, dto);
   }
 
+  @Get('color-groups/:id')
+  @ApiOperation({ summary: '获取单个颜色组详情' })
+  async getColorGroup(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
+    return this.basketService.getColorGroup(id, user);
+  }
+
   @Delete('color-groups/:id')
   @ApiOperation({ summary: '删除颜色组' })
   async deleteColorGroup(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
@@ -322,6 +330,12 @@ export class BasketController {
     return this.basketService.createColorKv(user, dto);
   }
 
+  @Post('color-kv/batch')
+  @ApiOperation({ summary: '批量新增颜色字典项' })
+  async createColorKvBatch(@Body() dto: CreateColorKvBatchDto, @CurrentUser() user: User) {
+    return this.basketService.createColorKvBatch(user, dto);
+  }
+
   @Put('color-kv/:id')
   @ApiOperation({ summary: '更新颜色字典项' })
   async updateColorKv(
@@ -336,6 +350,12 @@ export class BasketController {
   @ApiOperation({ summary: '删除颜色字典项' })
   async deleteColorKv(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
     return this.basketService.deleteColorKv(id, user);
+  }
+
+  @Delete('color-kv')
+  @ApiOperation({ summary: '批量删除颜色字典项' })
+  async deleteColorKvBatch(@Body() dto: DeleteColorKvBatchDto, @CurrentUser() user: User) {
+    return this.basketService.deleteColorKvBatch(dto.ids, user);
   }
 
   @Get('icon-groups')

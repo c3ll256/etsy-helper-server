@@ -34,6 +34,28 @@ export class OrderProcessingService {
     private readonly remoteAreaService: RemoteAreaService,
   ) {}
 
+  private extractBuyerNoteRaw(item: any): string | null {
+    const candidates = [
+      'Buyer Note',
+      'Buyer note',
+      'buyer_note_raw',
+      'Buyer Note Raw',
+      'Message From Buyer',
+      'Message from Buyer',
+      'Notes to seller',
+      'Note to seller',
+    ];
+
+    for (const key of candidates) {
+      const value = item?.[key];
+      if (value !== undefined && value !== null && String(value).trim()) {
+        return String(value).trim();
+      }
+    }
+
+    return null;
+  }
+
   /**
    * Validate order data from Excel
    */
@@ -417,6 +439,7 @@ export class OrderProcessingService {
       itemName: item['Item Name']?.toString(),
       listingId: item['Listing ID']?.toString(),
       buyer: item['Buyer']?.toString(),
+      buyerNoteRaw: this.extractBuyerNoteRaw(item),
       quantity: item['Quantity'] ? Number(item['Quantity']) : null,
       price: item['Price'] ? Number(item['Price']) : null,
       datePaid: item['Date Paid'] ? this.parseDate(item['Date Paid']) : null,
@@ -611,4 +634,3 @@ export class OrderProcessingService {
     }
   }
 }
-

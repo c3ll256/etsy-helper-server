@@ -21,6 +21,9 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { OrderStatus } from 'src/orders/enums/order.enum';
 import { StampType } from 'src/stamps/entities/stamp-template.entity';
+import { OrderUploadJobService } from './services/order-upload-job.service';
+import { QueryOrderUploadJobsDto } from './dto/query-order-upload-jobs.dto';
+import { QueryOrderUploadJobItemsDto } from './dto/query-order-upload-job-items.dto';
 
 @ApiTags('orders')
 @Controller('orders')
@@ -31,6 +34,7 @@ export class OrdersController {
     private readonly ordersService: OrdersService,
     private readonly excelService: ExcelService,
     private readonly jobQueueService: JobQueueService,
+    private readonly orderUploadJobService: OrderUploadJobService,
     @InjectRepository(StampGenerationRecord)
     private readonly stampGenerationRecordRepository: Repository<StampGenerationRecord>,
   ) {}
@@ -177,7 +181,7 @@ export class OrdersController {
     const jobProgress = this.jobQueueService.getJobProgress(jobId);
     
     if (!jobProgress) {
-      throw new NotFoundException(`Job with ID ${jobId} not found`);
+      return this.orderUploadJobService.getJobByJobIdForUser(jobId, user).then(job => this.orderUploadJobService.toStatusResponse(job));
     }
     
     // Check if job belongs to user (unless admin)
@@ -231,6 +235,22 @@ export class OrdersController {
     }
     
     return response;
+  }
+
+  @Get('upload-jobs')
+  @ApiOperation({ summary: 'List upload jobs history' })
+  async getUploadJobs(@Query() query: QueryOrderUploadJobsDto, @CurrentUser() user: User) {
+    return this.orderUploadJobService.listJobs(query, user);
+  }
+
+  @Get('upload-jobs/:jobId/items')
+  @ApiOperation({ summary: 'List upload job items' })
+  async getUploadJobItems(
+    @Param('jobId') jobId: string,
+    @Query() query: QueryOrderUploadJobItemsDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.orderUploadJobService.listJobItems(jobId, query, user);
   }
 
   @Get()

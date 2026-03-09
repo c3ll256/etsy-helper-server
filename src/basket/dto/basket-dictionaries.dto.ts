@@ -1,6 +1,6 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 
 export class DictionaryPaginationDto {
   @ApiProperty({ required: false, default: 1 })
@@ -73,6 +73,38 @@ export class CreateColorKvDto {
 }
 
 export class UpdateColorKvDto extends PartialType(CreateColorKvDto) {}
+
+export class CreateColorKvBatchItemDto {
+  @ApiProperty()
+  @IsString()
+  name: string;
+
+  @ApiProperty()
+  @IsString()
+  colorValue: string;
+}
+
+export class CreateColorKvBatchDto {
+  @ApiProperty({ nullable: true })
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  groupId?: number | null;
+
+  @ApiProperty({ type: [CreateColorKvBatchItemDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateColorKvBatchItemDto)
+  items: CreateColorKvBatchItemDto[];
+}
+
+export class DeleteColorKvBatchDto {
+  @ApiProperty({ type: [Number] })
+  @IsArray()
+  @Type(() => Number)
+  @IsNumber({}, { each: true })
+  ids: number[];
+}
 
 export class QueryIconGroupsDto extends DictionaryPaginationDto {}
 

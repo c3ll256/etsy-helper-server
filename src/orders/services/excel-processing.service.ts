@@ -5,6 +5,7 @@ import { User } from '../../users/entities/user.entity';
 import { OrderProcessingService } from './order-processing.service';
 import { VariationParsingService } from './variation-parsing.service';
 import { ProcessingResult } from './excel-export.service';
+import { OrderUploadJobService } from './order-upload-job.service';
 
 class JobCancelledError extends Error {
   constructor(message: string) {
@@ -21,6 +22,7 @@ export class ExcelProcessingService {
     private readonly jobQueueService: JobQueueService,
     private readonly orderProcessingService: OrderProcessingService,
     private readonly variationParsingService: VariationParsingService,
+    private readonly orderUploadJobService: OrderUploadJobService,
   ) {}
 
   /**
@@ -44,6 +46,7 @@ export class ExcelProcessingService {
         progress: 10,
         message: `Found ${data.length} orders to process`
       });
+      await this.orderUploadJobService.markProcessing(jobId, data.length);
     }
 
     // Initialize processing results
@@ -80,6 +83,7 @@ export class ExcelProcessingService {
           progress: progressPercentage,
           message: `Processing order ${i+1} of ${data.length}...`
         });
+        await this.orderUploadJobService.updateProgress(jobId, progressPercentage, data.length);
       }
 
       try {
@@ -99,6 +103,16 @@ export class ExcelProcessingService {
             reason: validationError,
             originalData: item
           });
+          if (jobId) {
+            await this.orderUploadJobService.addItem(jobId, {
+              orderId: orderId || 'Unknown',
+              transactionId: transactionId || 'Unknown',
+              sku: item['SKU']?.toString() || null,
+              status: 'skipped',
+              reason: validationError,
+              detailJson: { originalData: item },
+            });
+          }
           continue;
         }
 
@@ -121,6 +135,16 @@ export class ExcelProcessingService {
             stampCount: orderResult.stamps.length,
             originalData: item
           });
+          if (jobId) {
+            await this.orderUploadJobService.addItem(jobId, {
+              orderId,
+              transactionId,
+              sku: item['SKU']?.toString() || null,
+              status: 'success',
+              reason: null,
+              detailJson: { stampCount: orderResult.stamps.length },
+            });
+          }
           this.logger.log(`Successfully processed order ${orderId} with ${orderResult.stamps.length} personalizations`);
         } else {
           skipped++;
@@ -137,6 +161,16 @@ export class ExcelProcessingService {
             reason: errorReason,
             originalData: item
           });
+          if (jobId) {
+            await this.orderUploadJobService.addItem(jobId, {
+              orderId,
+              transactionId,
+              sku: item['SKU']?.toString() || null,
+              status: 'skipped',
+              reason: errorReason,
+              detailJson: { originalData: item },
+            });
+          }
         }
       } catch (error) {
         if (error instanceof JobCancelledError) {
@@ -159,6 +193,16 @@ export class ExcelProcessingService {
           reason: errorMessage,
           originalData: item
         });
+        if (jobId) {
+          await this.orderUploadJobService.addItem(jobId, {
+            orderId,
+            transactionId,
+            sku: item['SKU']?.toString() || null,
+            status: 'failed',
+            reason: errorMessage,
+            detailJson: { originalData: item },
+          });
+        }
       }
     }
 
@@ -177,4 +221,3 @@ export class ExcelProcessingService {
     };
   }
 }
-

@@ -28,6 +28,10 @@ export class EtsyOrder {
   @Column({ nullable: true })
   buyer: string;
 
+  @ApiProperty({ description: '买家备注原文', required: false })
+  @Column({ name: 'buyer_note_raw', type: 'text', nullable: true })
+  buyerNoteRaw: string;
+
   @ApiProperty({ description: 'Quantity ordered', example: 1, required: false })
   @Column({ nullable: true })
   quantity: number;

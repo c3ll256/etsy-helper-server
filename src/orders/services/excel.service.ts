@@ -10,6 +10,7 @@ import { ExcelProcessingService } from './excel-processing.service';
 import { ExcelExportService } from './excel-export.service';
 import { OrderProcessingService } from './order-processing.service';
 import { VariationParsingService } from './variation-parsing.service';
+import { OrderUploadJobService } from './order-upload-job.service';
 
 class JobCancelledError extends Error {
   constructor(message: string) {
@@ -28,6 +29,7 @@ export class ExcelService {
     private readonly excelExportService: ExcelExportService,
     private readonly orderProcessingService: OrderProcessingService,
     private readonly variationParsingService: VariationParsingService,
+    private readonly orderUploadJobService: OrderUploadJobService,
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
   ) {}
@@ -37,6 +39,9 @@ export class ExcelService {
    */
   async processExcelFileAsync(file: Express.Multer.File, user?: User): Promise<string> {
     const jobId = this.jobQueueService.createJob(user?.id);
+    if (user) {
+      await this.orderUploadJobService.createJob(jobId, file.originalname, user);
+    }
     
     this.processExcelFileWithProgress(file, jobId, user).catch(error => {
       this.logger.error(`Error in background processing: ${error.message}`, error.stack);
@@ -46,6 +51,7 @@ export class ExcelService {
         message: `Failed to process file: ${error.message}`,
         error: error.message
       });
+      void this.orderUploadJobService.failJob(jobId, error.message, 'failed');
     });
     
     return jobId;
@@ -85,6 +91,13 @@ export class ExcelService {
           reportPath: reportPath ? path.relative(process.cwd(), reportPath) : null
         }
       });
+      await this.orderUploadJobService.completeJob(jobId, {
+        progress: 100,
+        totalRows: data.length,
+        successRows: result.orderDetails.filter(item => item.status === 'success').length,
+        failedRows: result.failed,
+        reportPath: reportPath ? path.relative(process.cwd(), reportPath) : null,
+      });
       
       // Set cleanup timeout for this job
       this.jobQueueService.startJobCleanup(jobId);
@@ -97,6 +110,7 @@ export class ExcelService {
           progress: currentProgress,
           message: error.message || '任务已取消'
         });
+        await this.orderUploadJobService.failJob(jobId, error.message || '任务已取消', 'cancelled');
         return;
       }
       this.logger.error(`Failed to process Excel file: ${error.message}`, error.stack);
@@ -107,6 +121,7 @@ export class ExcelService {
         message: `Failed to process file: ${error.message}`,
         error: error.message
       });
+      await this.orderUploadJobService.failJob(jobId, error.message, status === 'cancelled' ? 'cancelled' : 'failed');
     }
   }
 

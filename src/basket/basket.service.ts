@@ -28,7 +28,9 @@ import { IconKv } from './entities/icon-kv.entity';
 import {
   CreateColorGroupDto,
   CreateColorKvDto,
+  CreateColorKvBatchDto,
   CreateIconGroupDto,
+  DeleteColorKvBatchDto,
   CreateIconKvDto,
   QueryColorGroupsDto,
   QueryColorKvDto,
@@ -470,6 +472,10 @@ export class BasketService {
     return this.colorGroupRepository.save(group);
   }
 
+  async getColorGroup(id: number, user: User): Promise<ColorGroup> {
+    return this.getOwnedColorGroup(id, user);
+  }
+
   async deleteColorGroup(id: number, user: User): Promise<void> {
     const group = await this.getOwnedColorGroup(id, user);
     const activeBinding = await this.skuConfigRepository.findOne({ where: { colorGroupId: id } });
@@ -516,6 +522,8 @@ export class BasketService {
       groupId = group.id;
     }
 
+    await this.ensureUniqueColorValueInGroup(user, groupId, dto.colorValue);
+
     const entity = this.colorKvRepository.create({
       userId: user.id,
       groupId,
@@ -526,20 +534,61 @@ export class BasketService {
     return this.colorKvRepository.save(entity);
   }
 
+  async createColorKvBatch(user: User, dto: CreateColorKvBatchDto): Promise<ColorKv[]> {
+    let groupId: number | null = null;
+
+    if (dto.groupId) {
+      const group = await this.getOwnedColorGroup(dto.groupId, user);
+      groupId = group.id;
+    }
+
+    if (!dto.items?.length) {
+      throw new BadRequestException('批量新增内容不能为空');
+    }
+
+    const normalizedValues = dto.items
+      .map((item) => item.colorValue?.trim())
+      .filter(Boolean);
+    const duplicatedInPayload = normalizedValues.find((value, index) => normalizedValues.indexOf(value) !== index);
+    if (duplicatedInPayload) {
+      throw new BadRequestException(`同一颜色组内颜色值不可重复：${duplicatedInPayload}`);
+    }
+
+    for (const item of dto.items) {
+      await this.ensureUniqueColorValueInGroup(user, groupId, item.colorValue);
+    }
+
+    const entities = dto.items.map((item) => this.colorKvRepository.create({
+      userId: user.id,
+      groupId,
+      name: item.name.trim(),
+      colorValue: item.colorValue.trim(),
+      isActive: true,
+    }));
+
+    return this.colorKvRepository.save(entities);
+  }
+
   async updateColorKv(id: number, user: User, dto: UpdateColorKvDto): Promise<ColorKv> {
     const kv = await this.getOwnedColorKv(id, user);
+    let nextGroupId = kv.groupId ?? null;
     if (dto.groupId !== undefined) {
       if (dto.groupId === null) {
         kv.groupId = null;
         kv.group = null;
+        nextGroupId = null;
       } else {
         const group = await this.getOwnedColorGroup(dto.groupId, user);
         kv.groupId = group.id;
         kv.group = group;
+        nextGroupId = group.id;
       }
     }
     if (dto.name !== undefined) kv.name = dto.name.trim();
-    if (dto.colorValue !== undefined) kv.colorValue = dto.colorValue.trim();
+    if (dto.colorValue !== undefined) {
+      await this.ensureUniqueColorValueInGroup(user, nextGroupId, dto.colorValue, kv.id);
+      kv.colorValue = dto.colorValue.trim();
+    }
     return this.colorKvRepository.save(kv);
   }
 
@@ -547,6 +596,22 @@ export class BasketService {
     const kv = await this.getOwnedColorKv(id, user);
     kv.isActive = false;
     await this.colorKvRepository.save(kv);
+  }
+
+  async deleteColorKvBatch(ids: number[], user: User): Promise<{ deletedIds: number[] }> {
+    if (!ids?.length) {
+      throw new BadRequestException('请选择要删除的颜色字典项');
+    }
+
+    const deletedIds: number[] = [];
+    for (const id of ids) {
+      const kv = await this.getOwnedColorKv(id, user);
+      kv.isActive = false;
+      await this.colorKvRepository.save(kv);
+      deletedIds.push(id);
+    }
+
+    return { deletedIds };
   }
 
   async listIconGroups(user: User, query: QueryIconGroupsDto): Promise<PaginatedResponse<IconGroup>> {
@@ -719,6 +784,37 @@ export class BasketService {
     const group = await this.iconGroupRepository.findOne({ where: user.isAdmin ? { id, isActive: true } : { id, userId: user.id, isActive: true } });
     if (!group) throw new NotFoundException(`图标组 ${id} 不存在`);
     return group;
+  }
+
+  private async ensureUniqueColorValueInGroup(user: User, groupId: number | null, colorValueRaw: string, excludeId?: number): Promise<void> {
+    const colorValue = colorValueRaw?.trim();
+    if (!colorValue) {
+      throw new BadRequestException('颜色映射值不能为空');
+    }
+
+    const qb = this.colorKvRepository.createQueryBuilder('kv')
+      .leftJoinAndSelect('kv.group', 'group')
+      .where('kv.isActive = :isActive', { isActive: true })
+      .andWhere('kv.colorValue = :colorValue', { colorValue });
+
+    if (groupId === null) {
+      qb.andWhere('kv.groupId IS NULL');
+    } else {
+      qb.andWhere('kv.groupId = :groupId', { groupId });
+    }
+
+    if (excludeId) {
+      qb.andWhere('kv.id != :excludeId', { excludeId });
+    }
+
+    if (!user.isAdmin) {
+      qb.andWhere('(kv.userId = :userId OR group.userId = :userId)', { userId: user.id });
+    }
+
+    const existed = await qb.getOne();
+    if (existed) {
+      throw new BadRequestException(`同一颜色组内颜色值不可重复：${colorValue}`);
+    }
   }
 
   private async getOwnedIconKv(id: number, user: User): Promise<IconKv> {
