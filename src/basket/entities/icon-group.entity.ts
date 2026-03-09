@@ -24,6 +24,10 @@ export class IconGroup {
   @ApiProperty({ description: '图标组描述', required: false })
   description?: string | null;
 
+  @Column({ type: 'varchar', nullable: true, name: 'product_type' })
+  @ApiProperty({ description: '产品类型', required: false, example: 'basket' })
+  productType?: string | null;
+
   @Column({ type: 'boolean', default: true, name: 'is_active' })
   @ApiProperty({ description: '是否启用' })
   isActive: boolean;

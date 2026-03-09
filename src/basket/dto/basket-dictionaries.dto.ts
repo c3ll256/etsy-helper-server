@@ -1,6 +1,6 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsIn, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 
 export class DictionaryPaginationDto {
   @ApiProperty({ required: false, default: 1 })
@@ -23,10 +23,13 @@ export class DictionaryPaginationDto {
   search?: string;
 }
 
+export const BASKET_PRODUCT_TYPES = ['basket', 'backpack', 'sweater'] as const;
+
 export class QueryColorGroupsDto extends DictionaryPaginationDto {
-  @ApiProperty({ required: false })
+  @ApiProperty({ required: false, enum: BASKET_PRODUCT_TYPES })
   @IsOptional()
   @IsString()
+  @IsIn(BASKET_PRODUCT_TYPES)
   productType?: string;
 }
 
@@ -40,9 +43,10 @@ export class CreateColorGroupDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({ required: false, enum: BASKET_PRODUCT_TYPES })
   @IsOptional()
   @IsString()
+  @IsIn(BASKET_PRODUCT_TYPES)
   productType?: string;
 }
 
@@ -106,7 +110,13 @@ export class DeleteColorKvBatchDto {
   ids: number[];
 }
 
-export class QueryIconGroupsDto extends DictionaryPaginationDto {}
+export class QueryIconGroupsDto extends DictionaryPaginationDto {
+  @ApiProperty({ required: false, enum: BASKET_PRODUCT_TYPES })
+  @IsOptional()
+  @IsString()
+  @IsIn(BASKET_PRODUCT_TYPES)
+  productType?: string;
+}
 
 export class CreateIconGroupDto {
   @ApiProperty()
@@ -117,6 +127,12 @@ export class CreateIconGroupDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiProperty({ required: false, enum: BASKET_PRODUCT_TYPES })
+  @IsOptional()
+  @IsString()
+  @IsIn(BASKET_PRODUCT_TYPES)
+  productType?: string;
 }
 
 export class UpdateIconGroupDto extends PartialType(CreateIconGroupDto) {}
