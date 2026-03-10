@@ -17,6 +17,15 @@ import { SweaterTransformJob } from './entities/sweater-transform-job.entity';
 
 const SWEATER_OUTPUT_DIR = path.join(process.cwd(), 'uploads', 'sweater');
 
+function normalizeUploadsPath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/');
+  if (normalized.startsWith('/uploads/')) return normalized;
+  if (normalized.startsWith('uploads/')) return `/${normalized}`;
+  const uploadsIndex = normalized.indexOf('uploads/');
+  if (uploadsIndex >= 0) return `/${normalized.slice(uploadsIndex)}`;
+  return normalized;
+}
+
 @Injectable()
 export class SweaterService {
   private readonly logger = new Logger(SweaterService.name);
@@ -141,7 +150,7 @@ export class SweaterService {
       templateId: template.id,
       jobId,
       inputFileName: file.originalname,
-      inputFilePath: file.path,
+      inputFilePath: this.toUploadsWebPath(file.path),
       status: 'pending',
       progress: 0,
       totalRows: 0,
@@ -191,7 +200,7 @@ export class SweaterService {
 
     const queryBuilder = this.jobRepository.createQueryBuilder('job')
       .leftJoinAndSelect('job.template', 'template')
-      .orderBy('job.created_at', 'DESC')
+      .orderBy('job.createdAt', 'DESC')
       .skip(skip)
       .take(limit);
 
@@ -275,7 +284,7 @@ export class SweaterService {
   }
 
   private readSourceExcel(filePath: string): Record<string, string>[] {
-    const workbook = XLSX.readFile(filePath, { cellDates: false });
+    const workbook = XLSX.readFile(this.toPhysicalFilePath(filePath), { cellDates: false });
     const sheetName = workbook.SheetNames[0];
     if (!sheetName) throw new BadRequestException('Excel 中未找到工作表');
     const sheet = workbook.Sheets[sheetName];
@@ -441,5 +450,17 @@ export class SweaterService {
   private async getEnabledSweaterSkus(userId: string): Promise<Set<string>> {
     const configs = await this.skuConfigRepository.find({ where: { userId, type: SkuType.SWEATER as any } });
     return new Set(configs.map((item) => item.sku?.trim()).filter(Boolean));
+  }
+
+  private toUploadsWebPath(filePath: string): string {
+    return normalizeUploadsPath(filePath);
+  }
+
+  private toPhysicalFilePath(filePath: string): string {
+    const normalized = normalizeUploadsPath(filePath);
+    if (normalized.startsWith('/uploads/')) {
+      return path.join(process.cwd(), normalized.slice(1));
+    }
+    return path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath);
   }
 }

@@ -8,6 +8,14 @@ import { User } from '../users/entities/user.entity';
 import { SweaterService } from './sweater.service';
 import { CreateSweaterHeaderTemplateDto, CreateSweaterTransformDto, QuerySweaterTemplatesDto, QuerySweaterTransformJobsDto, UpdateSweaterHeaderTemplateDto } from './dto/sweater.dto';
 
+function decodeOriginalFilename(filename: string): string {
+  try {
+    return Buffer.from(filename, 'latin1').toString('utf8');
+  } catch {
+    return filename;
+  }
+}
+
 @ApiTags('sweater')
 @Controller('sweater')
 @UseGuards(JwtAuthGuard)
@@ -65,8 +73,10 @@ export class SweaterController {
     @CurrentUser() user: User,
   ) {
     if (!file) throw new BadRequestException('没有提供 Excel 文件');
-    const ext = path.extname(file.originalname).toLowerCase();
+    const decodedOriginalName = decodeOriginalFilename(file.originalname);
+    const ext = path.extname(decodedOriginalName).toLowerCase();
     if (!ext.match(/^\.(xlsx|xls)$/)) throw new BadRequestException('请上传 Excel 文件');
+    file.originalname = decodedOriginalName;
     return this.sweaterService.createTransformJob(file, dto, user);
   }
 
