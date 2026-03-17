@@ -5,8 +5,7 @@ import { ColorGroup } from './color-group.entity';
 import { IconGroup } from './icon-group.entity';
 
 export enum SkuType {
-  BASKET = 'basket',
-  BACKPACK = 'backpack',
+  MATERNAL_BABY = 'maternal_baby',
   SWEATER = 'sweater',
   COMBO = 'combo'
 }
@@ -33,9 +32,9 @@ export class SkuConfig {
   @Column({
     type: 'varchar',
     length: 32,
-    default: SkuType.BASKET
+    default: SkuType.MATERNAL_BABY
   })
-  @ApiProperty({ description: 'SKU类型：篮子、书包或套组', enum: SkuType })
+  @ApiProperty({ description: 'SKU类型：母婴、毛衣或套组', enum: SkuType })
   type: SkuType;
 
   @Column({ nullable: true })

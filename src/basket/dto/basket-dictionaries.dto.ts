@@ -23,7 +23,7 @@ export class DictionaryPaginationDto {
   search?: string;
 }
 
-export const BASKET_PRODUCT_TYPES = ['basket', 'backpack', 'sweater'] as const;
+export const BASKET_PRODUCT_TYPES = ['maternal_baby', 'sweater'] as const;
 
 export class QueryColorGroupsDto extends DictionaryPaginationDto {
   @ApiProperty({ required: false, enum: BASKET_PRODUCT_TYPES })
@@ -43,11 +43,10 @@ export class CreateColorGroupDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ required: false, enum: BASKET_PRODUCT_TYPES })
-  @IsOptional()
+  @ApiProperty({ enum: BASKET_PRODUCT_TYPES })
   @IsString()
   @IsIn(BASKET_PRODUCT_TYPES)
-  productType?: string;
+  productType: string;
 }
 
 export class UpdateColorGroupDto extends PartialType(CreateColorGroupDto) {}
@@ -128,11 +127,10 @@ export class CreateIconGroupDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ required: false, enum: BASKET_PRODUCT_TYPES })
-  @IsOptional()
+  @ApiProperty({ enum: BASKET_PRODUCT_TYPES })
   @IsString()
   @IsIn(BASKET_PRODUCT_TYPES)
-  productType?: string;
+  productType: string;
 }
 
 export class UpdateIconGroupDto extends PartialType(CreateIconGroupDto) {}

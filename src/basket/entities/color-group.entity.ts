@@ -24,9 +24,9 @@ export class ColorGroup {
   @ApiProperty({ description: '颜色组描述', required: false })
   description?: string | null;
 
-  @Column({ type: 'varchar', nullable: true, name: 'product_type' })
-  @ApiProperty({ description: '产品类型', required: false, example: 'basket' })
-  productType?: string | null;
+  @Column({ type: 'varchar', name: 'product_type' })
+  @ApiProperty({ description: '产品类型', example: 'maternal_baby' })
+  productType: string;
 
   @Column({ type: 'boolean', default: true, name: 'is_active' })
   @ApiProperty({ description: '是否启用' })
