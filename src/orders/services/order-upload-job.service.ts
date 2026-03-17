@@ -28,11 +28,24 @@ export class OrderUploadJobService {
   ) {}
 
   async createJob(jobId: string, fileName: string, user: User, orderType: 'stamp' | 'rattle' = 'stamp'): Promise<OrderUploadJob> {
+    // 尝试修复可能的编码问题
+    let decodedFileName = fileName;
+    try {
+      // 检查是否是编码问题导致的乱码
+      if (fileName && /[^\x00-\x7F]/.test(fileName)) {
+        // 如果包含非ASCII字符，尝试解码
+        decodedFileName = decodeURIComponent(escape(fileName));
+      }
+    } catch (error) {
+      // 如果解码失败，使用原始文件名
+      decodedFileName = fileName;
+    }
+
     const entity = this.orderUploadJobRepository.create({
       jobId,
       userId: user.id,
       shopName: user.shopName || null,
-      fileName,
+      fileName: decodedFileName,
       orderType,
       status: 'queued',
       progress: 0,

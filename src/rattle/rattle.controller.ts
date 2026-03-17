@@ -32,8 +32,13 @@ export class RattleController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadRattleOrders(
     @UploadedFile() file: Express.Multer.File,
+    @Body('originalFilename') originalFilename: string,
     @CurrentUser() user: User,
   ) {
+    // 如果前端提供了 originalFilename，使用它来替代可能有编码问题的 file.originalname
+    if (originalFilename) {
+      file.originalname = originalFilename;
+    }
     return this.rattleService.uploadRattleOrders(file, user);
   }
 

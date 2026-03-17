@@ -68,6 +68,8 @@ export class ExcelService {
         progress: 5,
         message: 'Reading Excel file...'
       });
+      // 同步更新数据库
+      await this.orderUploadJobService.updateProgress(jobId, 5);
 
       // Read and process the data
       const { data, result } = await this.excelProcessingService.readAndProcessExcelData(file, jobId, user);

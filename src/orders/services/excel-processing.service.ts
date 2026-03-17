@@ -29,17 +29,39 @@ export class ExcelProcessingService {
    * Read Excel file and process its data
    */
   async readAndProcessExcelData(
-    file: Express.Multer.File, 
-    jobId?: string, 
+    file: Express.Multer.File,
+    jobId?: string,
     user?: User
-  ): Promise<{ 
-    data: any[]; 
+  ): Promise<{
+    data: any[];
     result: ProcessingResult;
   }> {
+    // 检查文件是否存在
+    if (!file || !file.buffer) {
+      throw new Error('文件上传失败或文件为空');
+    }
+
     // Read Excel file
     const workbook = read(file.buffer, { type: 'buffer' });
+
+    // 检查工作簿是否有工作表
+    if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+      throw new Error('Excel文件中没有找到工作表');
+    }
+
     const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+
+    // 检查工作表是否存在
+    if (!worksheet) {
+      throw new Error('无法读取Excel工作表');
+    }
+
     const data = utils.sheet_to_json(worksheet);
+
+    // 检查是否有数据
+    if (!data || data.length === 0) {
+      throw new Error('Excel文件中没有找到数据');
+    }
 
     if (jobId) {
       this.jobQueueService.updateJobProgress(jobId, {
