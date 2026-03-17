@@ -471,8 +471,6 @@ export class BasketService {
     if (dto.productType !== undefined) group.productType = dto.productType;
     return this.colorGroupRepository.save(group);
   }
-    return this.colorGroupRepository.save(group);
-  }
 
   async getColorGroup(id: number, user: User): Promise<ColorGroup> {
     return this.getOwnedColorGroup(id, user);

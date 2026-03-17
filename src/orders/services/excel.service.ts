@@ -40,7 +40,7 @@ export class ExcelService {
   async processExcelFileAsync(file: Express.Multer.File, user?: User): Promise<string> {
     const jobId = this.jobQueueService.createJob(user?.id);
     if (user) {
-      await this.orderUploadJobService.createJob(jobId, file.originalname, user);
+      await this.orderUploadJobService.createJob(jobId, file.originalname, user, 'stamp');
     }
     
     this.processExcelFileWithProgress(file, jobId, user).catch(error => {

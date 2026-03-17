@@ -27,12 +27,13 @@ export class OrderUploadJobService {
     private readonly orderUploadJobItemRepository: Repository<OrderUploadJobItem>,
   ) {}
 
-  async createJob(jobId: string, fileName: string, user: User): Promise<OrderUploadJob> {
+  async createJob(jobId: string, fileName: string, user: User, orderType: 'stamp' | 'rattle' = 'stamp'): Promise<OrderUploadJob> {
     const entity = this.orderUploadJobRepository.create({
       jobId,
       userId: user.id,
       shopName: user.shopName || null,
       fileName,
+      orderType,
       status: 'queued',
       progress: 0,
       totalRows: 0,
@@ -137,6 +138,10 @@ export class OrderUploadJobService {
 
     if (query.status) {
       qb.andWhere('job.status = :status', { status: query.status });
+    }
+
+    if (query.orderType) {
+      qb.andWhere('job.order_type = :orderType', { orderType: query.orderType });
     }
 
     if (query.dateFrom) {

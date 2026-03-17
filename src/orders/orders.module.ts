@@ -36,6 +36,6 @@ import { OrderUploadJobService } from './services/order-upload-job.service';
     RemoteAreaService,
     OrderUploadJobService,
   ],
-  exports: [OrdersService]
+  exports: [OrdersService, ExcelService, OrderUploadJobService]
 })
 export class OrdersModule {} 
