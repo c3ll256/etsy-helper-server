@@ -689,12 +689,35 @@ export class BasketService {
       throw new BadRequestException('请上传图标文件');
     }
 
+    // 检查同一组内是否有重复名称，如果有则自动添加后缀
+    let iconName = dto.name.trim();
+    if (groupId) {
+      const existingIcon = await this.iconKvRepository.findOne({
+        where: { groupId, name: iconName, isActive: true }
+      });
+
+      if (existingIcon) {
+        // 查找可用的后缀数字
+        let suffix = 1;
+        let newName = `${iconName} (${suffix})`;
+
+        while (await this.iconKvRepository.findOne({
+          where: { groupId, name: newName, isActive: true }
+        })) {
+          suffix++;
+          newName = `${iconName} (${suffix})`;
+        }
+
+        iconName = newName;
+      }
+    }
+
     const filePath = `/uploads/baskets/icons/${file.filename}`;
     const entity = this.iconKvRepository.create({
       userId: user.id,
       groupId,
       group,
-      name: dto.name.trim(),
+      name: iconName,
       fileName: file.originalname,
       filePath,
       mimeType: file.mimetype,
