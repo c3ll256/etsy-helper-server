@@ -458,7 +458,7 @@ export class BasketService {
       userId: user.id,
       name: dto.name.trim(),
       description: dto.description?.trim() || null,
-      productType: dto.productType?.trim() || null,
+      productType: dto.productType,
       isActive: true,
     });
     return this.colorGroupRepository.save(group);
@@ -468,7 +468,9 @@ export class BasketService {
     const group = await this.getOwnedColorGroup(id, user);
     if (dto.name !== undefined) group.name = dto.name.trim();
     if (dto.description !== undefined) group.description = dto.description?.trim() || null;
-    if (dto.productType !== undefined) group.productType = dto.productType?.trim() || null;
+    if (dto.productType !== undefined) group.productType = dto.productType;
+    return this.colorGroupRepository.save(group);
+  }
     return this.colorGroupRepository.save(group);
   }
 
@@ -624,7 +626,13 @@ export class BasketService {
   }
 
   async createIconGroup(user: User, dto: CreateIconGroupDto): Promise<IconGroup> {
-    const group = this.iconGroupRepository.create({ userId: user.id, name: dto.name.trim(), description: dto.description?.trim() || null, isActive: true });
+    const group = this.iconGroupRepository.create({
+      userId: user.id,
+      name: dto.name.trim(),
+      description: dto.description?.trim() || null,
+      productType: dto.productType,
+      isActive: true
+    });
     return this.iconGroupRepository.save(group);
   }
 
@@ -632,6 +640,7 @@ export class BasketService {
     const group = await this.getOwnedIconGroup(id, user);
     if (dto.name !== undefined) group.name = dto.name.trim();
     if (dto.description !== undefined) group.description = dto.description?.trim() || null;
+    if (dto.productType !== undefined) group.productType = dto.productType;
     return this.iconGroupRepository.save(group);
   }
 
