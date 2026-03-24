@@ -22,6 +22,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger('basket_order_generator')
 
+def normalize_image_path(file_path):
+    """Normalize stored upload path to a readable local file path."""
+    if not file_path:
+        return ''
+
+    normalized_path = str(file_path).strip()
+    if not normalized_path:
+        return ''
+
+    if os.path.isabs(normalized_path) and os.path.exists(normalized_path):
+        return normalized_path
+
+    if normalized_path.startswith('/'):
+        normalized_path = normalized_path[1:]
+
+    candidate_paths = [
+        normalized_path,
+        os.path.join(os.getcwd(), normalized_path),
+    ]
+
+    for candidate in candidate_paths:
+        if candidate and os.path.exists(candidate):
+            return candidate
+
+    return ''
+
 def validate_output_path(output_path, allowed_base_dir):
     """
     验证输出路径是否在允许的目录内，防止路径遍历攻击
@@ -168,15 +194,38 @@ def create_basket_order_slide(prs, order_data):
     combined_p.font.size = Pt(22)
     combined_p.font.color.rgb = RGBColor(0, 0, 0)
 
-    if icon_file_path:
-        try:
-            normalized_icon_path = icon_file_path
-            if normalized_icon_path.startswith('/'):
-                normalized_icon_path = normalized_icon_path[1:]
-            if os.path.exists(normalized_icon_path):
-                slide.shapes.add_picture(normalized_icon_path, prs.slide_width - margin - Inches(2.2), margin + Inches(0.55), Inches(0.45), Inches(0.45))
-        except Exception as e:
-            logger.warning(f"Failed to add icon image: {str(e)}")
+    group_icon_file_paths = order_data.get('groupIconFilePaths', []) or []
+    icon_paths_to_render = []
+
+    for path_value in group_icon_file_paths:
+        normalized_path = normalize_image_path(path_value)
+        if normalized_path and normalized_path not in icon_paths_to_render:
+            icon_paths_to_render.append(normalized_path)
+
+    if not icon_paths_to_render and icon_file_path:
+        fallback_icon_path = normalize_image_path(icon_file_path)
+        if fallback_icon_path:
+            icon_paths_to_render.append(fallback_icon_path)
+
+    if icon_paths_to_render:
+        icon_size = Inches(0.32)
+        icon_gap = Inches(0.06)
+        max_columns = 4
+        start_top = margin + Inches(0.52)
+        row_height = icon_size + icon_gap
+
+        for icon_index, icon_path in enumerate(icon_paths_to_render):
+            try:
+                column_index = icon_index % max_columns
+                row_index = icon_index // max_columns
+                icons_in_current_row = min(max_columns, len(icon_paths_to_render) - row_index * max_columns)
+                row_width = icons_in_current_row * icon_size + max(0, icons_in_current_row - 1) * icon_gap
+                row_start_left = prs.slide_width - margin - row_width
+                icon_left = row_start_left + column_index * (icon_size + icon_gap)
+                icon_top = start_top + row_index * row_height
+                slide.shapes.add_picture(icon_path, icon_left, icon_top, icon_size, icon_size)
+            except Exception as e:
+                logger.warning(f"Failed to add group icon image: {str(e)}")
     
     # Position (一单多买的序号)
     position_box = slide.shapes.add_textbox(prs.slide_width - margin - Inches(1.2), date_top, Inches(1.2), Inches(0.4))

@@ -57,6 +57,7 @@ interface ResolvedComboOverride {
   iconGroupId?: number;
   colorMap?: Record<string, string>;
   iconMap?: Record<string, string>;
+  iconAssetPaths?: string[];
 }
 
 interface ProcessedOrder {
@@ -75,6 +76,7 @@ interface ProcessedOrder {
   iconGroupId?: number | null;
   baseColorMap?: Record<string, string>;
   baseIconMap?: Record<string, string>;
+  baseIconAssetPaths?: string[];
   comboOverrides?: Record<string, ResolvedComboOverride>;
   datePaid?: string;
   orderDate?: string;
@@ -988,6 +990,7 @@ export class BasketService {
       const processedOrders: ProcessedOrder[] = [];
       const colorGroupCache = new Map<number, Record<string, string>>();
       const iconGroupCache = new Map<number, Record<string, string>>();
+      const iconAssetPathCache = new Map<number, string[]>();
       
       // Process each row
       for (let i = 0; i < rawData.length; i++) {
@@ -1032,7 +1035,8 @@ export class BasketService {
 
           const baseColorMap = await this.resolveColorMapForSkuConfig(skuConfig, colorGroupCache);
           const baseIconMap = await this.resolveIconMapForSkuConfig(skuConfig, iconGroupCache);
-          const comboOverrides = await this.resolveComboOverrides(skuConfig, colorGroupCache, iconGroupCache);
+          const baseIconAssetPaths = await this.resolveIconAssetPathsForSkuConfig(skuConfig, iconAssetPathCache);
+          const comboOverrides = await this.resolveComboOverrides(skuConfig, colorGroupCache, iconGroupCache, iconAssetPathCache);
           
           // Replace the matched part while preserving the rest
           let replacedSku = skuRaw;
@@ -1069,6 +1073,7 @@ export class BasketService {
             iconGroupId: skuConfig?.iconGroupId,
             baseColorMap,
             baseIconMap,
+            baseIconAssetPaths,
             comboOverrides,
             datePaid: formattedDatePaid,
             orderDate: formattedOrderDate,
@@ -1166,10 +1171,22 @@ export class BasketService {
     return this.loadIconMapByGroupId(Number(skuConfig.iconGroupId), cache);
   }
 
+  private async resolveIconAssetPathsForSkuConfig(
+    skuConfig: SkuConfig | undefined,
+    cache: Map<number, string[]>,
+  ): Promise<string[]> {
+    if (!skuConfig?.iconGroupId) {
+      return [];
+    }
+
+    return this.loadIconAssetPathsByGroupId(Number(skuConfig.iconGroupId), cache);
+  }
+
   private async resolveComboOverrides(
     skuConfig: SkuConfig | undefined,
     colorCache: Map<number, Record<string, string>>,
     iconCache: Map<number, Record<string, string>>,
+    iconAssetPathCache: Map<number, string[]>,
   ): Promise<Record<string, ResolvedComboOverride>> {
     const overrides = skuConfig?.comboOverridesJson || {};
     const resolved: Record<string, ResolvedComboOverride> = {};
@@ -1181,6 +1198,7 @@ export class BasketService {
         iconGroupId: value?.iconGroupId,
         colorMap: value?.colorGroupId ? await this.loadColorMapByGroupId(Number(value.colorGroupId), colorCache) : undefined,
         iconMap: value?.iconGroupId ? await this.loadIconMapByGroupId(Number(value.iconGroupId), iconCache) : undefined,
+        iconAssetPaths: value?.iconGroupId ? await this.loadIconAssetPathsByGroupId(Number(value.iconGroupId), iconAssetPathCache) : undefined,
       };
     }
 
@@ -1207,6 +1225,23 @@ export class BasketService {
     const mapped = Object.fromEntries(items.map((item) => [item.name, item.filePath]));
     cache.set(groupId, mapped);
     return mapped;
+  }
+
+  private async loadIconAssetPathsByGroupId(groupId: number, cache: Map<number, string[]>): Promise<string[]> {
+    if (cache.has(groupId)) {
+      return cache.get(groupId)!;
+    }
+
+    const items = await this.iconKvRepository.find({
+      where: { groupId, isActive: true },
+      order: { createdAt: 'ASC', id: 'ASC' },
+    });
+    const assetPaths = items
+      .map((item) => item.filePath)
+      .filter((filePath): filePath is string => typeof filePath === 'string' && filePath.trim().length > 0);
+
+    cache.set(groupId, assetPaths);
+    return assetPaths;
   }
 
   private applyColorMap(variations: ParsedVariation[], colorMap?: Record<string, string>): ParsedVariation[] {
@@ -1779,6 +1814,7 @@ export class BasketService {
           orderNumber: String(order.orderId),
           icon: variation.icon || '',
           iconFilePath: baseIconFilePath,
+          groupIconFilePaths: order.baseIconAssetPaths || [],
           recipientName: order.shipName || '',
           customName: variation.value || '',
           quantity: order.quantity || 1,
@@ -1808,6 +1844,7 @@ export class BasketService {
               sku: `${order.sku || order.originalSku || ''} + ${item || ''}`.trim(),
               fontSize: override?.fontSize ?? order.fontSize,
               iconFilePath: comboIconFilePath,
+              groupIconFilePaths: override?.iconAssetPaths || order.baseIconAssetPaths || [],
               position,
             } as any;
             pptSlides.push(slide);
@@ -1823,6 +1860,7 @@ export class BasketService {
             orderType: order.orderType || 'basket',
             sku: order.sku || '',
             position,
+            groupIconFilePaths: order.baseIconAssetPaths || [],
           } as any;
           if (order.orderType === 'backpack') slideData['backpackStyle'] = true;
           pptSlides.push(slideData);
