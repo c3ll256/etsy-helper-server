@@ -149,13 +149,15 @@ export class BasketController {
   @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认为1' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: '每页数量，默认为10' })
   @ApiQuery({ name: 'search', required: false, type: String, description: '搜索关键词' })
+  @ApiQuery({ name: 'colorGroupId', required: false, type: Number, description: '按颜色组筛选' })
   async getUserSkuConfigs(
     @CurrentUser() user: User,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
+    @Query('colorGroupId') colorGroupId?: number,
   ): Promise<PaginatedResponse<SkuConfig>> {
-    return this.basketService.getUserSkuConfigs(user, { page, limit, search });
+    return this.basketService.getUserSkuConfigs(user, { page, limit, search, colorGroupId });
   }
 
   @Post('sku-config')

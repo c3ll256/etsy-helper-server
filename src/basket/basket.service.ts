@@ -1,6 +1,6 @@
 import { Injectable, Logger, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository, Not } from 'typeorm';
+import { ILike, Repository, Not, In } from 'typeorm';
 import * as fs from 'fs';
 import { read, utils } from 'xlsx';
 import * as ExcelJS from 'exceljs';
@@ -85,6 +85,11 @@ interface ProcessedOrder {
   // external order reminder
   externalOrderReminderEnabled?: boolean;
   externalOrderReminderContent?: string;
+}
+
+interface GroupBindingSummary {
+  boundSkuCount: number;
+  boundSkus: string[];
 }
 
 class JobCancelledError extends Error {
@@ -201,9 +206,9 @@ export class BasketService {
    */
   async getUserSkuConfigs(
     user: User,
-    options: { page: number; limit: number; search?: string }
+    options: { page: number; limit: number; search?: string; colorGroupId?: number }
   ): Promise<PaginatedResponse<SkuConfig>> {
-    const { page = 1, limit = 10, search } = options;
+    const { page = 1, limit = 10, search, colorGroupId } = options;
     const skip = (page - 1) * limit;
 
     // Create query builder
@@ -221,6 +226,10 @@ export class BasketService {
         '(config.sku ILIKE :search OR config.replaceValue ILIKE :search)',
         { search: `%${search}%` }
       );
+    }
+
+    if (colorGroupId) {
+      queryBuilder.andWhere('config.colorGroupId = :colorGroupId', { colorGroupId });
     }
 
     // Apply user filter based on role
@@ -390,6 +399,13 @@ export class BasketService {
           continue;
         }
 
+        const nextColorGroupId = Object.prototype.hasOwnProperty.call(updateFields, 'colorGroupId')
+          ? updateFields.colorGroupId
+          : config.colorGroupId
+        const nextIconGroupId = Object.prototype.hasOwnProperty.call(updateFields, 'iconGroupId')
+          ? updateFields.iconGroupId
+          : config.iconGroupId
+
         await this.validateSkuConfigReferences(userId, {
           sku: updateFields.sku ?? config.sku,
           type: updateFields.type ?? config.type,
@@ -398,8 +414,8 @@ export class BasketService {
           font: updateFields.font ?? config.font,
           yarnColorMap: updateFields.yarnColorMap ?? config.yarnColorMap,
           comboItems: (updateFields.comboItems ?? config.comboItems) as string[] | undefined,
-          colorGroupId: updateFields.colorGroupId ?? config.colorGroupId,
-          iconGroupId: updateFields.iconGroupId ?? config.iconGroupId,
+          colorGroupId: nextColorGroupId,
+          iconGroupId: nextIconGroupId,
           comboOverridesJson: (updateFields.comboOverridesJson ?? config.comboOverridesJson) as any,
           externalOrderReminderEnabled: updateFields.externalOrderReminderEnabled ?? config.externalOrderReminderEnabled,
           externalOrderReminderContent: updateFields.externalOrderReminderContent ?? config.externalOrderReminderContent,
@@ -450,7 +466,11 @@ export class BasketService {
     }
 
     const [items, total] = await queryBuilder.getManyAndCount();
-    return { items, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    const summaries = await this.getGroupBindingSummaries('color', items.map((item) => item.id));
+    return {
+      items: items.map((item) => ({ ...item, ...(summaries.get(item.id) || this.emptyBindingSummary()) })) as any,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   async createColorGroup(user: User, dto: CreateColorGroupDto): Promise<ColorGroup> {
@@ -473,7 +493,9 @@ export class BasketService {
   }
 
   async getColorGroup(id: number, user: User): Promise<ColorGroup> {
-    return this.getOwnedColorGroup(id, user);
+    const group = await this.getOwnedColorGroup(id, user);
+    const summary = await this.getGroupBindingSummary('color', id);
+    return { ...group, ...summary } as any;
   }
 
   async deleteColorGroup(id: number, user: User): Promise<void> {
@@ -620,7 +642,11 @@ export class BasketService {
     const skip = (page - 1) * limit;
     const where = !user.isAdmin ? { userId: user.id, isActive: true, ...(query.search ? { name: ILike(`%${query.search.trim()}%`) } : {}) } : { isActive: true, ...(query.search ? { name: ILike(`%${query.search.trim()}%`) } : {}) };
     const [items, total] = await this.iconGroupRepository.findAndCount({ where, order: { createdAt: 'DESC' }, skip, take: limit });
-    return { items, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    const summaries = await this.getGroupBindingSummaries('icon', items.map((item) => item.id));
+    return {
+      items: items.map((item) => ({ ...item, ...(summaries.get(item.id) || this.emptyBindingSummary()) })) as any,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   async createIconGroup(user: User, dto: CreateIconGroupDto): Promise<IconGroup> {
@@ -643,7 +669,9 @@ export class BasketService {
   }
 
   async getIconGroup(id: number, user: User): Promise<IconGroup> {
-    return this.getOwnedIconGroup(id, user);
+    const group = await this.getOwnedIconGroup(id, user);
+    const summary = await this.getGroupBindingSummary('icon', id);
+    return { ...group, ...summary } as any;
   }
 
   async deleteIconGroup(id: number, user: User): Promise<void> {
@@ -878,6 +906,50 @@ export class BasketService {
       }
     }
     return kv;
+  }
+
+  private emptyBindingSummary(): GroupBindingSummary {
+    return { boundSkuCount: 0, boundSkus: [] };
+  }
+
+  private async getGroupBindingSummary(groupType: 'color' | 'icon', groupId: number): Promise<GroupBindingSummary> {
+    const summaries = await this.getGroupBindingSummaries(groupType, [groupId]);
+    return summaries.get(groupId) || this.emptyBindingSummary();
+  }
+
+  private async getGroupBindingSummaries(groupType: 'color' | 'icon', groupIds: number[]): Promise<Map<number, GroupBindingSummary>> {
+    const summaryMap = new Map<number, GroupBindingSummary>();
+
+    if (!groupIds.length) {
+      return summaryMap;
+    }
+
+    const bindingField = groupType === 'color' ? 'colorGroupId' : 'iconGroupId';
+    const configs = await this.skuConfigRepository.find({
+      where: {
+        [bindingField]: In(groupIds),
+      } as any,
+      select: ['id', 'sku', 'colorGroupId', 'iconGroupId'],
+      order: { sku: 'ASC' },
+    });
+
+    for (const groupId of groupIds) {
+      summaryMap.set(groupId, this.emptyBindingSummary());
+    }
+
+    for (const config of configs) {
+      const targetId = groupType === 'color' ? config.colorGroupId : config.iconGroupId;
+      if (!targetId) {
+        continue;
+      }
+
+      const summary = summaryMap.get(targetId) || this.emptyBindingSummary();
+      summary.boundSkus.push(config.sku);
+      summary.boundSkuCount = summary.boundSkus.length;
+      summaryMap.set(targetId, summary);
+    }
+
+    return summaryMap;
   }
 
   /**
