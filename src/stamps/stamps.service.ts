@@ -142,6 +142,7 @@ export class StampsService {
       user: User,
       search?: string,
       type?: StampType,
+      excludeType?: StampType,
   ): Promise<PaginatedResponse<StampTemplate>> {
     const { page = 1, limit = 10 } = paginationDto;
     const skip = (page - 1) * limit;
@@ -154,6 +155,10 @@ export class StampsService {
 
     if (type) {
       queryBuilder.andWhere('template.type = :type', { type });
+    }
+
+    if (excludeType) {
+      queryBuilder.andWhere('template.type != :excludeType', { excludeType });
     }
 
     if (search) {

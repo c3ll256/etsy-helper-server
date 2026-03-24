@@ -113,13 +113,15 @@ export class StampsController {
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
   @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by name or SKU' })
   @ApiQuery({ name: 'type', required: false, enum: StampType, description: 'Filter by stamp type' })
+  @ApiQuery({ name: 'excludeType', required: false, enum: StampType, description: 'Exclude a stamp type from results' })
   async findAll(
     @Query() paginationDto: PaginationDto, 
     @CurrentUser() user: User,
     @Query('search') search?: string,
-    @Query('type') type?: StampType
+    @Query('type') type?: StampType,
+    @Query('excludeType') excludeType?: StampType,
   ): Promise<PaginatedResponse<StampTemplate>> {
-    return this.stampsService.findAll(paginationDto, user, search, type);
+    return this.stampsService.findAll(paginationDto, user, search, type, excludeType);
   }
 
   @Post('upload-background')
