@@ -106,6 +106,10 @@ export class BasketService {
   private readonly logger = new Logger(BasketService.name);
   private readonly uploadsDir = 'uploads/baskets';
 
+  private isAdminGlobalSkuMatchEnabled(): boolean {
+    return process.env.ENABLE_ADMIN_GLOBAL_SKU_MATCH === 'true';
+  }
+
   constructor(
     @InjectRepository(BasketGenerationRecord)
     private readonly basketRecordRepository: Repository<BasketGenerationRecord>,
@@ -144,9 +148,11 @@ export class BasketService {
     originalFilename?: string,
     orderType: 'basket' | 'backpack' | 'all' = 'basket'
   ): Promise<BasketGenerationResponseDto> {
+    const allowAdminGlobalSkuMatch = user.isAdmin && this.isAdminGlobalSkuMatchEnabled();
+
     // Check if user has SKU configuration
     const findOptions: any = {
-      where: { userId: user.id },
+      where: allowAdminGlobalSkuMatch ? {} : { userId: user.id },
       order: { createdAt: 'DESC' }
     };
 
