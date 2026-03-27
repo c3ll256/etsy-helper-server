@@ -208,7 +208,7 @@ def create_basket_order_slide(prs, order_data):
             icon_paths_to_render.append(fallback_icon_path)
 
     if icon_paths_to_render:
-        icon_size = Inches(0.42)
+        icon_size = Inches(1.5)
         icon_gap = Inches(0.06)
         max_columns = 4
         start_top = margin + Inches(0.52)

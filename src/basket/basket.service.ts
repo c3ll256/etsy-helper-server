@@ -1286,6 +1286,74 @@ export class BasketService {
     return '';
   }
 
+  private resolveRequestedIconFilePaths(iconRequest?: string, iconMap?: Record<string, string>): string[] {
+    if (!iconRequest || !iconMap || Object.keys(iconMap).length === 0) {
+      return [];
+    }
+
+    const normalizedEntries = Object.entries(iconMap)
+      .map(([key, filePath]) => ({
+        key,
+        normalizedKey: this.normalizeDictionaryKey(key),
+        filePath,
+      }))
+      .filter((entry) => entry.normalizedKey && entry.filePath);
+
+    if (normalizedEntries.length === 0) {
+      return [];
+    }
+
+    const pushUnique = (target: string[], filePath?: string) => {
+      if (filePath && !target.includes(filePath)) {
+        target.push(filePath);
+      }
+    };
+
+    const exactNormalizedRequest = this.normalizeDictionaryKey(iconRequest);
+    if (exactNormalizedRequest) {
+      const exactMatch = normalizedEntries.find((entry) => entry.normalizedKey === exactNormalizedRequest);
+      if (exactMatch) {
+        return [exactMatch.filePath];
+      }
+    }
+
+    const requestWithoutParens = String(iconRequest)
+      .replace(/（[^）]*）/g, ' ')
+      .replace(/\([^)]*\)/g, ' ');
+
+    const requestParts = requestWithoutParens
+      .split(/\s*(?:&|\/|,|\+|和|and)\s*/i)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const resolvedPaths: string[] = [];
+
+    for (const part of requestParts) {
+      const normalizedPart = this.normalizeDictionaryKey(part);
+      if (!normalizedPart) {
+        continue;
+      }
+
+      const matchedEntry = normalizedEntries.find((entry) => entry.normalizedKey === normalizedPart);
+      if (matchedEntry) {
+        pushUnique(resolvedPaths, matchedEntry.filePath);
+      }
+    }
+
+    // Common case: icon IDs are numeric references like "4 & 22".
+    if (resolvedPaths.length === 0) {
+      const numericTokens = Array.from(new Set(requestWithoutParens.match(/\d+/g) || []));
+      for (const token of numericTokens) {
+        const matchedEntry = normalizedEntries.find((entry) => entry.normalizedKey === token);
+        if (matchedEntry) {
+          pushUnique(resolvedPaths, matchedEntry.filePath);
+        }
+      }
+    }
+
+    return resolvedPaths;
+  }
+
   private normalizeDictionaryKey(value?: string): string {
     return String(value || '')
       .trim()
@@ -1808,13 +1876,14 @@ export class BasketService {
 
         const baseVariation = (order.variations || [])[variationIndex] || variation;
         const baseIconFilePath = this.resolveIconFilePath(variation.icon, order.baseIconMap);
+        const baseRequestedIconFilePaths = this.resolveRequestedIconFilePaths(variation.icon, order.baseIconMap);
 
         const base = {
           date: new Date().toLocaleDateString('zh-CN'),
           orderNumber: String(order.orderId),
           icon: variation.icon || '',
           iconFilePath: baseIconFilePath,
-          groupIconFilePaths: order.baseIconAssetPaths || [],
+          groupIconFilePaths: baseRequestedIconFilePaths,
           recipientName: order.shipName || '',
           customName: variation.value || '',
           quantity: order.quantity || 1,
@@ -1833,6 +1902,10 @@ export class BasketService {
             const override = order.comboOverrides?.[item];
             const comboVariation = this.applyColorMap([variation], override?.colorMap || order.baseColorMap)[0] || baseVariation;
             const comboIconFilePath = this.resolveIconFilePath(variation.icon, override?.iconMap || order.baseIconMap);
+            const comboRequestedIconFilePaths = this.resolveRequestedIconFilePaths(
+              variation.icon,
+              override?.iconMap || order.baseIconMap,
+            );
             const current = (currentIndexByOrderId.get(orderIdKey) || 0) + 1;
             currentIndexByOrderId.set(orderIdKey, current);
             const position = `${current}/${totalForThisOrderId}`;
@@ -1844,7 +1917,7 @@ export class BasketService {
               sku: `${order.sku || order.originalSku || ''} + ${item || ''}`.trim(),
               fontSize: override?.fontSize ?? order.fontSize,
               iconFilePath: comboIconFilePath,
-              groupIconFilePaths: override?.iconAssetPaths || order.baseIconAssetPaths || [],
+              groupIconFilePaths: comboRequestedIconFilePaths,
               position,
             } as any;
             pptSlides.push(slide);
@@ -1860,7 +1933,7 @@ export class BasketService {
             orderType: order.orderType || 'basket',
             sku: order.sku || '',
             position,
-            groupIconFilePaths: order.baseIconAssetPaths || [],
+            groupIconFilePaths: baseRequestedIconFilePaths,
           } as any;
           if (order.orderType === 'backpack') slideData['backpackStyle'] = true;
           pptSlides.push(slideData);
