@@ -211,7 +211,7 @@ def create_basket_order_slide(prs, order_data):
         icon_size = Inches(1.5)
         icon_gap = Inches(0.06)
         max_columns = 4
-        start_top = margin + Inches(0.52)
+        start_top = margin + Inches(1)
         row_height = icon_size + icon_gap
 
         for icon_index, icon_path in enumerate(icon_paths_to_render):
