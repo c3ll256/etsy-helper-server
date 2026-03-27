@@ -54,6 +54,14 @@ if (!fs.existsSync(BASKET_ICONS_DIR)) {
   fs.mkdirSync(BASKET_ICONS_DIR, { recursive: true });
 }
 
+function decodeOriginalFilename(filename: string): string {
+  try {
+    return Buffer.from(filename, 'latin1').toString('utf8');
+  } catch {
+    return filename;
+  }
+}
+
 @ApiTags('baskets')
 @Controller('baskets')
 @UseGuards(JwtAuthGuard)
@@ -414,7 +422,9 @@ export class BasketController {
     storage: diskStorage({
       destination: (_req, _file, cb) => cb(null, BASKET_ICONS_DIR),
       filename: (_req, file, cb) => {
-        const ext = path.extname(file.originalname);
+        const decodedOriginalName = decodeOriginalFilename(file.originalname);
+        file.originalname = decodedOriginalName;
+        const ext = path.extname(decodedOriginalName);
         cb(null, `basket-icon-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
       },
     }),
