@@ -1974,6 +1974,22 @@ export class BasketService {
 
 返回结果: [ { "color": "Mix-2", "icon": "13 and 23", "value": "Aaliyah" } ]
 
+例子9：
+变量 (Variations): Backpack & Lunch Bag ColorPinkBerriesBackpack,Name Color02 Red (Popular),PersonalizationAva, M
+
+返回结果: [ { "color": "02 Red (Popular)", "icon": "M", "value": "Ava" } ]
+
+例子10：
+变量 (Variations): Bag Color & DesignPink + Icon,Name Color03 Pink,PersonalizationKiyana, BDK
+
+返回结果: [ { "color": "03 Pink", "icon": "B" , "value": "Kiyana" }, { "color": "03 Pink", "icon": "D", "value": "Kiyana" }, { "color": "03 Pink", "icon": "K", "value": "Kiyana" } ]
+解释：一般 icon 不会超过两个字符，所以这三个字符以上一般是表示分开的 icon 编号
+
+例子11：
+变量 (Variations): Basket ColorPink,Name ColorYR2-Blush,PersonalizationElodie, F1
+
+返回结果: [ { "color": "YR2-Blush", "icon": "F1", "value": "Elodie" } ]
+
 3. 客户的名字一定不是阿拉伯数字！！！
 4. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
 `;
