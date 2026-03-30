@@ -1959,6 +1959,21 @@ export class BasketService {
 
 返回结果: [ { "color": "Purple", "icon": "", "value": "Poppy" } ]
 
+例子6：
+变量 (Variations): Backpack ColorBlue,Yarn ColorMix-1,PersonalizationLucas, 15 and 21
+
+返回结果: [ { "color": "Mix-1", "icon": "15 and 21", "value": "Lucas" } ]
+
+例子7：
+变量 (Variations): Bag ColorCream,Yarn ColorMix-2,PersonalizationRuby,9,7
+
+返回结果: [ { "color": "Mix-2", "icon": "9,7", "value": "Ruby" } ]
+
+例子8：
+变量 (Variations): Bag ColorRose,Yarn ColorMix-2,PersonalizationAaliyah, 13 and 23
+
+返回结果: [ { "color": "Mix-2", "icon": "13 and 23", "value": "Aaliyah" } ]
+
 3. 客户的名字一定不是阿拉伯数字！！！
 4. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
 `;
