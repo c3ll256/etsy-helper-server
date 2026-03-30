@@ -1816,6 +1816,29 @@ export class BasketService {
    */
   private preparePPTData(processedOrders: ProcessedOrder[], shopName: string = ''): any[] {
     const pptSlides = [];
+    const logIconResolution = (
+      scope: 'base' | 'combo',
+      order: ProcessedOrder,
+      variation: ParsedVariation,
+      iconFilePath: string,
+      groupIconFilePaths: string[],
+      comboItem?: string,
+    ) => {
+      const requestedIcon = String(variation?.icon || '').trim();
+      if (!requestedIcon) {
+        return;
+      }
+
+      const logContext = `orderId=${String(order.orderId || '')}, sku=${String(order.originalSku || order.sku || '')}, scope=${scope}${comboItem ? `, comboItem=${comboItem}` : ''}, requestedIcon=${requestedIcon}`;
+
+      if ((groupIconFilePaths?.length || 0) > 0 || iconFilePath) {
+        const resolvedPaths = Array.from(new Set([...(groupIconFilePaths || []), ...(iconFilePath ? [iconFilePath] : [])]));
+        this.logger.debug(`[Basket PPT][Icon Matched] ${logContext}, resolvedPaths=${JSON.stringify(resolvedPaths)}`);
+        return;
+      }
+
+      this.logger.warn(`[Basket PPT][Icon Missing] ${logContext}, resolvedPaths=[]`);
+    };
 
     // 预计算每个订单号总页数（考虑套组展开）
     const totalSlidesByOrderId = new Map<string, number>();
@@ -1843,6 +1866,7 @@ export class BasketService {
         const baseVariation = (order.variations || [])[variationIndex] || variation;
         const baseIconFilePath = this.resolveIconFilePath(variation.icon, order.baseIconMap);
         const baseRequestedIconFilePaths = this.resolveRequestedIconFilePaths(variation.icon, order.baseIconMap);
+        logIconResolution('base', order, variation, baseIconFilePath, baseRequestedIconFilePaths);
 
         const base = {
           date: new Date().toLocaleDateString('zh-CN'),
@@ -1872,6 +1896,7 @@ export class BasketService {
               variation.icon,
               override?.iconMap || order.baseIconMap,
             );
+            logIconResolution('combo', order, variation, comboIconFilePath, comboRequestedIconFilePaths, item);
             const current = (currentIndexByOrderId.get(orderIdKey) || 0) + 1;
             currentIndexByOrderId.set(orderIdKey, current);
             const position = `${current}/${totalForThisOrderId}`;
