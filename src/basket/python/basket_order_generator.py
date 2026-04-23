@@ -159,7 +159,7 @@ def create_basket_order_slide(prs, order_data):
     variations_text.word_wrap = True
     variations_p = variations_text.paragraphs[0]
     variations_p.text = order_data.get('originalVariations', '')
-    variations_p.font.size = Pt(14)
+    variations_p.font.size = Pt(18)
     variations_p.font.color.rgb = RGBColor(0, 0, 0)
     
     # Date (下单日期)
