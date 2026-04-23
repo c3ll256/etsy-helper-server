@@ -21,6 +21,7 @@ import { SkuConfig } from './entities/sku-config.entity';
 import { CreateSkuConfigDto, BatchUpdateSkuConfigItemDto } from './dto/sku-config.dto';
 import { AliyunService } from 'src/common/services/aliyun.service';
 import { RemoteAreaService } from 'src/common/services/remote-area.service';
+import { replaceSkuDisplayValue } from './sku-display.util';
 import { ColorGroup } from './entities/color-group.entity';
 import { ColorKv } from './entities/color-kv.entity';
 import { IconGroup } from './entities/icon-group.entity';
@@ -1005,15 +1006,7 @@ export class BasketService {
           const comboOverrides = await this.resolveComboOverrides(skuConfig, colorGroupCache, iconGroupCache, iconAssetPathCache);
           
           // Replace the matched part while preserving the rest
-          let replacedSku = skuRaw;
-          if (skuConfig) {
-            const matchedIndex = skuRaw.indexOf(skuConfig.sku);
-            if (matchedIndex !== -1) {
-              replacedSku = skuRaw.slice(0, matchedIndex) + 
-                           skuConfig.replaceValue + 
-                           skuRaw.slice(matchedIndex + skuConfig.sku.length);
-            }
-          }
+          const replacedSku = replaceSkuDisplayValue(skuRaw, skuConfig?.sku, skuConfig?.replaceValue);
 
           // Apply yarn color mapping if configured for this SKU
           const finalVariations = this.applyColorMap(analyzedVariations, baseColorMap);
