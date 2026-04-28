@@ -7,6 +7,7 @@ import os
 import base64
 import tempfile
 import traceback
+import re
 from pathlib import Path
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -128,6 +129,18 @@ def generate_qr_code(order_id):
         logger.error(f"Error generating QR code for order {order_id}: {str(e)}")
         return None
 
+def get_title_sku_display(sku_value):
+    """Return the product label portion of a SKU for the slide title."""
+    sku_str = str(sku_value or '').strip()
+    if not sku_str:
+        return ''
+
+    split_parts = re.split(r'\s*\+\s+', sku_str, maxsplit=1)
+    if len(split_parts) == 2:
+        return split_parts[1].strip()
+
+    return sku_str
+
 def create_basket_order_slide(prs, order_data):
     logger.info(f"Creating slide for order: {order_data}")
     """Create a slide for a basket order"""
@@ -151,7 +164,7 @@ def create_basket_order_slide(prs, order_data):
     slide.background.fill.fore_color.rgb = RGBColor(255, 255, 255)
     
     # ----- TOP SECTION -----
-    # Row 1: Date on left, combined orderID-color-icon in center, position on right
+    # Row 1: Date on left, combined orderID-product-color-icon in center, position on right
     
     # Original Variations (原始变量)
     variations_box = slide.shapes.add_textbox(margin, margin + Inches(1.3), Inches(2.5), Inches(1.2))
@@ -170,17 +183,20 @@ def create_basket_order_slide(prs, order_data):
     date_p.font.size = Pt(22)
     date_p.font.color.rgb = RGBColor(0, 0, 0)
     
-    # 组合 orderID-color-icon
+    # 组合 orderID-product-color-icon
     order_id_str = str(order_data.get('orderNumber', ''))
+    sku_str = get_title_sku_display(order_data.get('sku', ''))
     color_str = order_data.get('color', '默认颜色')
     icon_str = order_data.get('icon', '')
     icon_file_path = order_data.get('iconFilePath', '')
-    
-    combined_text = order_id_str
-    if color_str:
-        combined_text += f" - {color_str}"
-    if icon_str:
-        combined_text += f" - {icon_str}"
+
+    combined_parts = [order_id_str]
+    for part in [sku_str, color_str, icon_str]:
+        part_str = str(part or '').strip()
+        if part_str and part_str not in combined_parts:
+            combined_parts.append(part_str)
+
+    combined_text = ' - '.join(combined_parts)
     
     # Center combined text
     combined_box = slide.shapes.add_textbox(margin + Inches(2.7), combined_top, Inches(6), Inches(0.4))
