@@ -151,7 +151,7 @@ def create_basket_order_slide(prs, order_data):
     slide.background.fill.fore_color.rgb = RGBColor(255, 255, 255)
     
     # ----- TOP SECTION -----
-    # Row 1: Date on left, combined orderID-SKU-color-icon in center, position on right
+    # Row 1: Date on left, combined orderID-color-icon in center, position on right
     
     # Original Variations (原始变量)
     variations_box = slide.shapes.add_textbox(margin, margin + Inches(1.3), Inches(2.5), Inches(1.2))
@@ -170,16 +170,13 @@ def create_basket_order_slide(prs, order_data):
     date_p.font.size = Pt(22)
     date_p.font.color.rgb = RGBColor(0, 0, 0)
     
-    # 组合 orderID-SKU-color-icon
+    # 组合 orderID-color-icon
     order_id_str = str(order_data.get('orderNumber', ''))
-    sku_str = order_data.get('sku', '')
     color_str = order_data.get('color', '默认颜色')
     icon_str = order_data.get('icon', '')
     icon_file_path = order_data.get('iconFilePath', '')
     
     combined_text = order_id_str
-    if sku_str:
-        combined_text += f" - {sku_str}"
     if color_str:
         combined_text += f" - {color_str}"
     if icon_str:
