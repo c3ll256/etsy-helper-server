@@ -17,6 +17,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth, ApiQuery, ApiParam, ApiForbiddenResponse } from '@nestjs/swagger';
 import { Express } from 'express';
 import * as path from 'path';
+import * as fs from 'fs';
+import { diskStorage } from 'multer';
 
 import { BasketService } from './basket.service';
 import { BasketGenerationResponseDto } from './dto/basket-generation-response.dto';
@@ -29,6 +31,36 @@ import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { BasketGenerationRecord } from './entities/basket-generation-record.entity';
 import { CreateSkuConfigDto, SkuConfigResponseDto, BatchUpdateSkuConfigDto } from './dto/sku-config.dto';
 import { SkuConfig } from './entities/sku-config.entity';
+import {
+  CreateColorGroupDto,
+  CreateColorKvDto,
+  CreateColorKvBatchDto,
+  DeleteColorKvBatchDto,
+  DeleteIconKvBatchDto,
+  CreateIconGroupDto,
+  CreateIconKvDto,
+  QueryColorGroupsDto,
+  QueryColorKvDto,
+  QueryIconGroupsDto,
+  QueryIconKvDto,
+  UpdateColorGroupDto,
+  UpdateColorKvDto,
+  UpdateIconGroupDto,
+  UpdateIconKvDto,
+} from './dto/basket-dictionaries.dto';
+
+const BASKET_ICONS_DIR = 'uploads/baskets/icons';
+if (!fs.existsSync(BASKET_ICONS_DIR)) {
+  fs.mkdirSync(BASKET_ICONS_DIR, { recursive: true });
+}
+
+function decodeOriginalFilename(filename: string): string {
+  try {
+    return Buffer.from(filename, 'latin1').toString('utf8');
+  } catch {
+    return filename;
+  }
+}
 
 @ApiTags('baskets')
 @Controller('baskets')
@@ -125,13 +157,15 @@ export class BasketController {
   @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认为1' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: '每页数量，默认为10' })
   @ApiQuery({ name: 'search', required: false, type: String, description: '搜索关键词' })
+  @ApiQuery({ name: 'colorGroupId', required: false, type: Number, description: '按颜色组筛选' })
   async getUserSkuConfigs(
     @CurrentUser() user: User,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
+    @Query('colorGroupId') colorGroupId?: number,
   ): Promise<PaginatedResponse<SkuConfig>> {
-    return this.basketService.getUserSkuConfigs(user, { page, limit, search });
+    return this.basketService.getUserSkuConfigs(user, { page, limit, search, colorGroupId });
   }
 
   @Post('sku-config')
@@ -250,6 +284,173 @@ export class BasketController {
       throw new BadRequestException('必须提供至少一个配置项');
     }
     return this.basketService.batchUpdateSkuConfigs(user.id, batchUpdateDto.configs);
+  }
+
+  @Get('color-groups')
+  @ApiOperation({ summary: '获取颜色组列表' })
+  async listColorGroups(
+    @Query() query: QueryColorGroupsDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.basketService.listColorGroups(user, query);
+  }
+
+  @Get('color-groups/options')
+  @ApiOperation({ summary: '获取当前用户可用颜色组选项' })
+  async colorGroupOptions(@CurrentUser() user: User) {
+    return this.basketService.getActiveColorGroups(user);
+  }
+
+  @Post('color-groups')
+  @ApiOperation({ summary: '创建颜色组' })
+  async createColorGroup(@Body() dto: CreateColorGroupDto, @CurrentUser() user: User) {
+    return this.basketService.createColorGroup(user, dto);
+  }
+
+  @Put('color-groups/:id')
+  @ApiOperation({ summary: '更新颜色组' })
+  async updateColorGroup(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateColorGroupDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.basketService.updateColorGroup(id, user, dto);
+  }
+
+  @Get('color-groups/:id')
+  @ApiOperation({ summary: '获取单个颜色组详情' })
+  async getColorGroup(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
+    return this.basketService.getColorGroup(id, user);
+  }
+
+  @Delete('color-groups/:id')
+  @ApiOperation({ summary: '删除颜色组' })
+  async deleteColorGroup(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
+    return this.basketService.deleteColorGroup(id, user);
+  }
+
+  @Get('color-kv')
+  @ApiOperation({ summary: '获取颜色字典列表' })
+  async listColorKv(@Query() query: QueryColorKvDto, @CurrentUser() user: User) {
+    return this.basketService.listColorKv(user, query);
+  }
+
+  @Post('color-kv')
+  @ApiOperation({ summary: '创建颜色字典项' })
+  async createColorKv(@Body() dto: CreateColorKvDto, @CurrentUser() user: User) {
+    return this.basketService.createColorKv(user, dto);
+  }
+
+  @Post('color-kv/batch')
+  @ApiOperation({ summary: '批量新增颜色字典项' })
+  async createColorKvBatch(@Body() dto: CreateColorKvBatchDto, @CurrentUser() user: User) {
+    return this.basketService.createColorKvBatch(user, dto);
+  }
+
+  @Put('color-kv/:id')
+  @ApiOperation({ summary: '更新颜色字典项' })
+  async updateColorKv(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateColorKvDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.basketService.updateColorKv(id, user, dto);
+  }
+
+  @Delete('color-kv/:id')
+  @ApiOperation({ summary: '删除颜色字典项' })
+  async deleteColorKv(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
+    return this.basketService.deleteColorKv(id, user);
+  }
+
+  @Delete('color-kv')
+  @ApiOperation({ summary: '批量删除颜色字典项' })
+  async deleteColorKvBatch(@Body() dto: DeleteColorKvBatchDto, @CurrentUser() user: User) {
+    return this.basketService.deleteColorKvBatch(dto.ids, user);
+  }
+
+  @Get('icon-groups')
+  @ApiOperation({ summary: '获取图标组列表' })
+  async listIconGroups(@Query() query: QueryIconGroupsDto, @CurrentUser() user: User) {
+    return this.basketService.listIconGroups(user, query);
+  }
+
+  @Get('icon-groups/options')
+  @ApiOperation({ summary: '获取当前用户可用图标组选项' })
+  async iconGroupOptions(@CurrentUser() user: User) {
+    return this.basketService.getActiveIconGroups(user);
+  }
+
+  @Post('icon-groups')
+  @ApiOperation({ summary: '创建图标组' })
+  async createIconGroup(@Body() dto: CreateIconGroupDto, @CurrentUser() user: User) {
+    return this.basketService.createIconGroup(user, dto);
+  }
+
+  @Put('icon-groups/:id')
+  @ApiOperation({ summary: '更新图标组' })
+  async updateIconGroup(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateIconGroupDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.basketService.updateIconGroup(id, user, dto);
+  }
+
+  @Get('icon-groups/:id')
+  @ApiOperation({ summary: '获取单个图标组详情' })
+  async getIconGroup(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
+    return this.basketService.getIconGroup(id, user);
+  }
+
+  @Delete('icon-groups/:id')
+  @ApiOperation({ summary: '删除图标组' })
+  async deleteIconGroup(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
+    return this.basketService.deleteIconGroup(id, user);
+  }
+
+  @Get('icon-kv')
+  @ApiOperation({ summary: '获取图标字典列表' })
+  async listIconKv(@Query() query: QueryIconKvDto, @CurrentUser() user: User) {
+    return this.basketService.listIconKv(user, query);
+  }
+
+  @Post('icon-kv/upload')
+  @ApiOperation({ summary: '上传图标字典项' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: (_req, _file, cb) => cb(null, BASKET_ICONS_DIR),
+      filename: (_req, file, cb) => {
+        const decodedOriginalName = decodeOriginalFilename(file.originalname);
+        file.originalname = decodedOriginalName;
+        const ext = path.extname(decodedOriginalName);
+        cb(null, `basket-icon-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+      },
+    }),
+  }))
+  async createIconKv(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: CreateIconKvDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.basketService.createIconKv(user, dto, file);
+  }
+
+  @Put('icon-kv/:id')
+  @ApiOperation({ summary: '更新图标字典项' })
+  async updateIconKv(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateIconKvDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.basketService.updateIconKv(id, user, dto);
+  }
+
+  @Delete('icon-kv/:id')
+  @ApiOperation({ summary: '删除图标字典项' })
+  async deleteIconKv(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
+    return this.basketService.deleteIconKv(id, user);
   }
 
   @Delete('records/:id')

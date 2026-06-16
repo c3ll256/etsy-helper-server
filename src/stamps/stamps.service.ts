@@ -33,6 +33,54 @@ export class StampsService {
   ) {
   }
 
+  private generateCopySku(baseSku: string, suffixSeed: number): string {
+    const normalizedBase = (baseSku || 'SKU').trim() || 'SKU';
+    return `${normalizedBase}-copy-${suffixSeed}`;
+  }
+
+  private async resolveTemplateSkus(
+    skus: string[] | undefined,
+    userId: string,
+    options?: { autoResolveConflicts?: boolean; excludeTemplateId?: number }
+  ): Promise<string[]> {
+    const requestedSkus = (skus || []).map((sku) => sku?.trim()).filter(Boolean) as string[];
+    const uniqueRequestedSkus = Array.from(new Set(requestedSkus));
+
+    const templates = await this.stampTemplateRepository.find({
+      where: { userId }
+    });
+
+    const occupiedSkus = new Set(
+      templates
+        .filter((template) => template.id !== options?.excludeTemplateId)
+        .flatMap((template) => Array.isArray(template.skus) ? template.skus : [])
+        .filter(Boolean)
+    );
+
+    if (!options?.autoResolveConflicts) {
+      const hasConflict = uniqueRequestedSkus.some((sku) => occupiedSkus.has(sku));
+      if (hasConflict) {
+        throw new BadRequestException('SKU conflict: one or more SKUs already exist in another template.');
+      }
+      return uniqueRequestedSkus;
+    }
+
+    let suffixSeed = Date.now();
+    return uniqueRequestedSkus.map((sku) => {
+      if (!occupiedSkus.has(sku)) {
+        occupiedSkus.add(sku);
+        return sku;
+      }
+
+      let resolvedSku = this.generateCopySku(sku, suffixSeed++);
+      while (occupiedSkus.has(resolvedSku)) {
+        resolvedSku = this.generateCopySku(sku, suffixSeed++);
+      }
+      occupiedSkus.add(resolvedSku);
+      return resolvedSku;
+    });
+  }
+
   private async generateAndSavePreview(template: StampTemplate): Promise<string> {
     if (!template || !template.id || !template.textElements) {
       console.error('Cannot generate preview: Template data is incomplete', template);
@@ -66,18 +114,13 @@ export class StampsService {
     createStampTemplateDto: CreateStampTemplateDto,
     user: User
   ): Promise<StampTemplate> {
-    // Check uniqueness across skus only within the same user's templates
-    const candidateSkus = Array.from(new Set([...(createStampTemplateDto.skus || [])].filter(Boolean)));
-    const templatesWithAliases = await this.stampTemplateRepository.find({
-      where: { userId: user.id as string }
+    const resolvedSkus = await this.resolveTemplateSkus(createStampTemplateDto.skus, user.id as string, {
+      autoResolveConflicts: createStampTemplateDto.autoResolveSkuConflicts,
     });
-    const conflictByAliases = templatesWithAliases.find(t => Array.isArray(t.skus) && t.skus.some(s => candidateSkus.includes(s)));
-    if (conflictByAliases) {
-      throw new BadRequestException(`SKU conflict: one or more SKUs already exist in another template.`);
-    }
 
     const templateData: Partial<StampTemplate> = {
         ...createStampTemplateDto,
+        skus: resolvedSkus,
         userId: user.id as string,
     };
     
@@ -99,6 +142,7 @@ export class StampsService {
       user: User,
       search?: string,
       type?: StampType,
+      excludeType?: StampType,
   ): Promise<PaginatedResponse<StampTemplate>> {
     const { page = 1, limit = 10 } = paginationDto;
     const skip = (page - 1) * limit;
@@ -111,6 +155,10 @@ export class StampsService {
 
     if (type) {
       queryBuilder.andWhere('template.type = :type', { type });
+    }
+
+    if (excludeType) {
+      queryBuilder.andWhere('template.type != :excludeType', { excludeType });
     }
 
     if (search) {
@@ -302,14 +350,9 @@ export class StampsService {
     let template = await this.findById(id, user);
     
     if (updateStampTemplateDto.skus) {
-      const candidate = new Set(updateStampTemplateDto.skus.filter(Boolean));
-      const others = await this.stampTemplateRepository.find({
-        where: { userId: user.id as string }
+      updateStampTemplateDto.skus = await this.resolveTemplateSkus(updateStampTemplateDto.skus, user.id as string, {
+        excludeTemplateId: id,
       });
-      const conflict = others.find(t => t.id !== id && Array.isArray(t.skus) && t.skus.some(s => candidate.has(s)));
-      if (conflict) {
-        throw new BadRequestException('SKU conflict: one or more SKUs already exist in another template.');
-      }
     }
     
     template = this.stampTemplateRepository.merge(template, updateStampTemplateDto);

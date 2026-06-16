@@ -5,6 +5,7 @@ import { User } from '../../users/entities/user.entity';
 import { OrderProcessingService } from './order-processing.service';
 import { VariationParsingService } from './variation-parsing.service';
 import { ProcessingResult } from './excel-export.service';
+import { OrderUploadJobService } from './order-upload-job.service';
 
 class JobCancelledError extends Error {
   constructor(message: string) {
@@ -21,29 +22,53 @@ export class ExcelProcessingService {
     private readonly jobQueueService: JobQueueService,
     private readonly orderProcessingService: OrderProcessingService,
     private readonly variationParsingService: VariationParsingService,
+    private readonly orderUploadJobService: OrderUploadJobService,
   ) {}
 
   /**
    * Read Excel file and process its data
    */
   async readAndProcessExcelData(
-    file: Express.Multer.File, 
-    jobId?: string, 
+    file: Express.Multer.File,
+    jobId?: string,
     user?: User
-  ): Promise<{ 
-    data: any[]; 
+  ): Promise<{
+    data: any[];
     result: ProcessingResult;
   }> {
+    // 检查文件是否存在
+    if (!file || !file.buffer) {
+      throw new Error('文件上传失败或文件为空');
+    }
+
     // Read Excel file
     const workbook = read(file.buffer, { type: 'buffer' });
+
+    // 检查工作簿是否有工作表
+    if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+      throw new Error('Excel文件中没有找到工作表');
+    }
+
     const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+
+    // 检查工作表是否存在
+    if (!worksheet) {
+      throw new Error('无法读取Excel工作表');
+    }
+
     const data = utils.sheet_to_json(worksheet);
+
+    // 检查是否有数据
+    if (!data || data.length === 0) {
+      throw new Error('Excel文件中没有找到数据');
+    }
 
     if (jobId) {
       this.jobQueueService.updateJobProgress(jobId, {
         progress: 10,
         message: `Found ${data.length} orders to process`
       });
+      await this.orderUploadJobService.markProcessing(jobId, data.length);
     }
 
     // Initialize processing results
@@ -80,6 +105,7 @@ export class ExcelProcessingService {
           progress: progressPercentage,
           message: `Processing order ${i+1} of ${data.length}...`
         });
+        await this.orderUploadJobService.updateProgress(jobId, progressPercentage, data.length);
       }
 
       try {
@@ -99,6 +125,16 @@ export class ExcelProcessingService {
             reason: validationError,
             originalData: item
           });
+          if (jobId) {
+            await this.orderUploadJobService.addItem(jobId, {
+              orderId: orderId || 'Unknown',
+              transactionId: transactionId || 'Unknown',
+              sku: item['SKU']?.toString() || null,
+              status: 'skipped',
+              reason: validationError,
+              detailJson: { originalData: item },
+            });
+          }
           continue;
         }
 
@@ -121,6 +157,16 @@ export class ExcelProcessingService {
             stampCount: orderResult.stamps.length,
             originalData: item
           });
+          if (jobId) {
+            await this.orderUploadJobService.addItem(jobId, {
+              orderId,
+              transactionId,
+              sku: item['SKU']?.toString() || null,
+              status: 'success',
+              reason: null,
+              detailJson: { stampCount: orderResult.stamps.length },
+            });
+          }
           this.logger.log(`Successfully processed order ${orderId} with ${orderResult.stamps.length} personalizations`);
         } else {
           skipped++;
@@ -137,6 +183,16 @@ export class ExcelProcessingService {
             reason: errorReason,
             originalData: item
           });
+          if (jobId) {
+            await this.orderUploadJobService.addItem(jobId, {
+              orderId,
+              transactionId,
+              sku: item['SKU']?.toString() || null,
+              status: 'skipped',
+              reason: errorReason,
+              detailJson: { originalData: item },
+            });
+          }
         }
       } catch (error) {
         if (error instanceof JobCancelledError) {
@@ -159,6 +215,16 @@ export class ExcelProcessingService {
           reason: errorMessage,
           originalData: item
         });
+        if (jobId) {
+          await this.orderUploadJobService.addItem(jobId, {
+            orderId,
+            transactionId,
+            sku: item['SKU']?.toString() || null,
+            status: 'failed',
+            reason: errorMessage,
+            detailJson: { originalData: item },
+          });
+        }
       }
     }
 
@@ -177,4 +243,3 @@ export class ExcelProcessingService {
     };
   }
 }
-

@@ -2,11 +2,22 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as fs from 'fs';
-import * as path from 'path';
 
 import { Font } from './entities/font.entity';
 import { CreateFontDto } from './dto/create-font.dto';
 import { StampTemplate } from '../stamps/entities/stamp-template.entity';
+
+export interface FontTemplateUsage {
+  id: number;
+  name: string;
+  type: string;
+}
+
+export interface FontUsageResult {
+  isUsed: boolean;
+  templateCount: number;
+  templates: FontTemplateUsage[];
+}
 
 @Injectable()
 export class FontsService {
@@ -63,42 +74,57 @@ export class FontsService {
     return font;
   }
 
-  async isFontUsedByTemplates(fontId: number): Promise<{ isUsed: boolean; templateCount: number }> {
-    const font = await this.findOne(fontId);
-    
-    // Find all templates that use this font
+  private async getTemplatesUsingFont(font: Font): Promise<FontTemplateUsage[]> {
     const templates = await this.stampTemplateRepository.find();
-    
-    let usageCount = 0;
-    
-    // Check each template to see if it uses this font
-    for (const template of templates) {
-      if (template.textElements && Array.isArray(template.textElements)) {
-        for (const element of template.textElements) {
-          if (element.fontFamily === font.name) {
-            usageCount++;
-            break; // Only count each template once
-          }
-        }
-      }
+
+    return templates
+      .filter((template) =>
+        Array.isArray(template.textElements) &&
+        template.textElements.some((element) => element.fontFamily === font.name),
+      )
+      .map((template) => ({
+        id: template.id,
+        name: template.name,
+        type: template.type,
+      }));
+  }
+
+  private formatTemplateUsageMessage(templates: FontTemplateUsage[]): string {
+    return templates
+      .map((template) => `#${template.id} ${template.name} (${template.type})`)
+      .join('、');
+  }
+
+  private async assertFontCanBeModified(fontId: number, action: 'delete' | 'disable'): Promise<Font> {
+    const font = await this.findOne(fontId);
+    const templates = await this.getTemplatesUsingFont(font);
+
+    if (templates.length === 0) {
+      return font;
     }
-    
+
+    const actionText = action === 'delete' ? '删除' : '停用';
+    const templateList = this.formatTemplateUsageMessage(templates);
+
+    throw new BadRequestException(
+      `无法${actionText}字体“${font.name}”。该字体正在被 ${templates.length} 个印章模板使用：${templateList}。请先将这些模板改为其他字体后再重试。`,
+    );
+  }
+
+  async isFontUsedByTemplates(fontId: number): Promise<FontUsageResult> {
+    const font = await this.findOne(fontId);
+    const templates = await this.getTemplatesUsingFont(font);
+
     return {
-      isUsed: usageCount > 0,
-      templateCount: usageCount,
+      isUsed: templates.length > 0,
+      templateCount: templates.length,
+      templates,
     };
   }
 
   async remove(id: number): Promise<void> {
-    const font = await this.findOne(id);
-    
-    // Check if font is being used by any templates
-    const { isUsed, templateCount } = await this.isFontUsedByTemplates(id);
-    
-    if (isUsed) {
-      throw new BadRequestException(`Cannot delete font that is being used by ${templateCount} templates. Please update the templates to use a different font first.`);
-    }
-    
+    const font = await this.assertFontCanBeModified(id, 'delete');
+
     // Delete the physical file
     try {
       fs.unlinkSync(font.filePath);
@@ -112,7 +138,12 @@ export class FontsService {
 
   async updateStatus(id: number, isActive: boolean): Promise<Font> {
     const font = await this.findOne(id);
+
+    if (!isActive) {
+      await this.assertFontCanBeModified(id, 'disable');
+    }
+
     font.isActive = isActive;
     return this.fontRepository.save(font);
   }
-} 
+}

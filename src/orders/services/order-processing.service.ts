@@ -34,6 +34,54 @@ export class OrderProcessingService {
     private readonly remoteAreaService: RemoteAreaService,
   ) {}
 
+  private normalizeOrderIdentityValue(value: unknown): string {
+    return String(value ?? '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .trim();
+  }
+
+  private getOriginalVariationsInput(item: any, personalizationText?: string): string {
+    return this.normalizeOrderIdentityValue(personalizationText || item?.['Variations']);
+  }
+
+  private async findExistingImportedOrder(
+    transactionId: string,
+    sku: string,
+    originalVariations: string,
+  ): Promise<EtsyOrder | null> {
+    return this.etsyOrderRepository.findOne({
+      where: {
+        transactionId,
+        sku,
+        originalVariations,
+      },
+      relations: ['order'],
+    });
+  }
+
+  private extractBuyerNoteRaw(item: any): string | null {
+    const candidates = [
+      'Buyer Note',
+      'Buyer note',
+      'buyer_note_raw',
+      'Buyer Note Raw',
+      'Message From Buyer',
+      'Message from Buyer',
+      'Notes to seller',
+      'Note to seller',
+    ];
+
+    for (const key of candidates) {
+      const value = item?.[key];
+      if (value !== undefined && value !== null && String(value).trim()) {
+        return String(value).trim();
+      }
+    }
+
+    return null;
+  }
+
   /**
    * Validate order data from Excel
    */
@@ -209,6 +257,8 @@ export class OrderProcessingService {
   }> {
     const orderId = item['Order ID']?.toString() || '';
     const baseTransactionId = item['Transaction ID']?.toString() || '';
+    const sku = this.normalizeOrderIdentityValue(item['SKU']);
+    const originalVariationsInput = this.getOriginalVariationsInput(item, personalizationText);
     
     if (!orderId || !baseTransactionId) {
       return {
@@ -222,13 +272,11 @@ export class OrderProcessingService {
     }
 
     // Check if order already exists
-    const existingOrder = await this.etsyOrderRepository.findOne({
-      where: { 
-        transactionId: baseTransactionId,
-        sku: item['SKU']?.toString()
-      },
-      relations: ['order']
-    });
+    const existingOrder = await this.findExistingImportedOrder(
+      baseTransactionId,
+      sku,
+      originalVariationsInput,
+    );
 
     if (existingOrder) {
       // If order exists and is in stamp_not_generated status, delete it and its related records
@@ -266,7 +314,7 @@ export class OrderProcessingService {
       }
       
       // Parse variations
-      const originalVariations = personalizationText || item['Variations'];
+      const originalVariations = originalVariationsInput;
       
       if (!originalVariations) {
         return {
@@ -282,7 +330,7 @@ export class OrderProcessingService {
       const parsedResult = await variationParsingService.parseVariations(originalVariations, templateDescription);
       
       // Generate stamp
-      return await this.generateStamp(item, parsedResult, baseTransactionId, user, templateId, jobId);
+      return await this.generateStamp(item, parsedResult, baseTransactionId, user, templateId, jobId, originalVariations);
       
     } catch (error) {
       if (error instanceof JobCancelledError) {
@@ -305,23 +353,26 @@ export class OrderProcessingService {
     baseTransactionId: string,
     user?: User,
     templateId?: number,
-    jobId?: string
+    jobId?: string,
+    originalVariationsInput?: string,
   ): Promise<{
     success: boolean;
     stamps?: Array<{ orderId: string; transactionId: string; stampPath: string; recordId?: number }>;
     error?: string;
   }> {
     const orderId = item['Order ID']?.toString() || '';
+    const sku = this.normalizeOrderIdentityValue(item['SKU']);
+    const originalVariations = this.normalizeOrderIdentityValue(
+      originalVariationsInput || parsedResult.originalVariations || item['Variations'],
+    );
     const platformOrderDate = item['Date Paid'] ? this.parseDate(item['Date Paid']) : null;
     
     // Double-check if order already exists before creating (race condition protection)
-    const existingOrderCheck = await this.etsyOrderRepository.findOne({
-      where: { 
-        transactionId: baseTransactionId,
-        sku: item['SKU']?.toString()
-      },
-      relations: ['order']
-    });
+    const existingOrderCheck = await this.findExistingImportedOrder(
+      baseTransactionId,
+      sku,
+      originalVariations,
+    );
 
     if (existingOrderCheck) {
       // If order exists and is not in stamp_not_generated status, skip it
@@ -363,13 +414,11 @@ export class OrderProcessingService {
     await this.orderRepository.save(order);
     
     // Final check before creating EtsyOrder to prevent race conditions
-    const finalCheck = await this.etsyOrderRepository.findOne({
-      where: { 
-        transactionId: baseTransactionId,
-        sku: item['SKU']?.toString()
-      },
-      relations: ['order']
-    });
+    const finalCheck = await this.findExistingImportedOrder(
+      baseTransactionId,
+      sku,
+      originalVariations,
+    );
 
     if (finalCheck) {
       // If order was created by another concurrent request
@@ -399,9 +448,9 @@ export class OrderProcessingService {
       orderId,
       transactionId: baseTransactionId,
       order: order,
-      sku: item['SKU']?.toString(),
+      sku,
       variations: parsedResult.variations,
-      originalVariations: parsedResult.originalVariations,
+      originalVariations,
       stampImageUrls: [],
       stampGenerationRecordIds: [],
       // Shipping information
@@ -417,6 +466,7 @@ export class OrderProcessingService {
       itemName: item['Item Name']?.toString(),
       listingId: item['Listing ID']?.toString(),
       buyer: item['Buyer']?.toString(),
+      buyerNoteRaw: this.extractBuyerNoteRaw(item),
       quantity: item['Quantity'] ? Number(item['Quantity']) : null,
       price: item['Price'] ? Number(item['Price']) : null,
       datePaid: item['Date Paid'] ? this.parseDate(item['Date Paid']) : null,
@@ -436,13 +486,11 @@ export class OrderProcessingService {
     });
     
     // One more check before saving EtsyOrder to prevent duplicates
-    const preSaveCheck = await this.etsyOrderRepository.findOne({
-      where: { 
-        transactionId: baseTransactionId,
-        sku: item['SKU']?.toString()
-      },
-      relations: ['order']
-    });
+    const preSaveCheck = await this.findExistingImportedOrder(
+      baseTransactionId,
+      sku,
+      originalVariations,
+    );
 
     if (preSaveCheck && preSaveCheck.order?.id !== order.id) {
       // Another concurrent request created the EtsyOrder, clean up and return
@@ -478,7 +526,7 @@ export class OrderProcessingService {
         orderId,
         transactionId: baseTransactionId,
         order_id: order.id,
-        sku: item['SKU']?.toString(),
+        sku,
         variations: {
           ...parsedResult.variations,
           personalization: personalizationGroup.reduce((acc, curr) => {
@@ -486,7 +534,7 @@ export class OrderProcessingService {
             return acc;
           }, {})
         },
-        originalVariations: parsedResult.originalVariations
+        originalVariations
       };
       
       this.logger.log(`Processing personalization group #${i + 1}: ${JSON.stringify(personalizationGroup)}`);
@@ -611,4 +659,3 @@ export class OrderProcessingService {
     }
   }
 }
-

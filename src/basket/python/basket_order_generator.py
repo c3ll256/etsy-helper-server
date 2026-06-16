@@ -7,6 +7,7 @@ import os
 import base64
 import tempfile
 import traceback
+import re
 from pathlib import Path
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -21,6 +22,32 @@ logging.basicConfig(
     format='%(levelname)s: %(message)s'
 )
 logger = logging.getLogger('basket_order_generator')
+
+def normalize_image_path(file_path):
+    """Normalize stored upload path to a readable local file path."""
+    if not file_path:
+        return ''
+
+    normalized_path = str(file_path).strip()
+    if not normalized_path:
+        return ''
+
+    if os.path.isabs(normalized_path) and os.path.exists(normalized_path):
+        return normalized_path
+
+    if normalized_path.startswith('/'):
+        normalized_path = normalized_path[1:]
+
+    candidate_paths = [
+        normalized_path,
+        os.path.join(os.getcwd(), normalized_path),
+    ]
+
+    for candidate in candidate_paths:
+        if candidate and os.path.exists(candidate):
+            return candidate
+
+    return ''
 
 def validate_output_path(output_path, allowed_base_dir):
     """
@@ -102,6 +129,18 @@ def generate_qr_code(order_id):
         logger.error(f"Error generating QR code for order {order_id}: {str(e)}")
         return None
 
+def get_title_sku_display(sku_value):
+    """Return the product label portion of a SKU for the slide title."""
+    sku_str = str(sku_value or '').strip()
+    if not sku_str:
+        return ''
+
+    split_parts = re.split(r'\s*\+\s+', sku_str, maxsplit=1)
+    if len(split_parts) == 2:
+        return split_parts[1].strip()
+
+    return sku_str
+
 def create_basket_order_slide(prs, order_data):
     logger.info(f"Creating slide for order: {order_data}")
     """Create a slide for a basket order"""
@@ -125,7 +164,7 @@ def create_basket_order_slide(prs, order_data):
     slide.background.fill.fore_color.rgb = RGBColor(255, 255, 255)
     
     # ----- TOP SECTION -----
-    # Row 1: Date on left, combined orderID-SKU-color-icon in center, position on right
+    # Row 1: Date on left, combined orderID-product-color-icon in center, position on right
     
     # Original Variations (原始变量)
     variations_box = slide.shapes.add_textbox(margin, margin + Inches(1.3), Inches(2.5), Inches(1.2))
@@ -133,7 +172,7 @@ def create_basket_order_slide(prs, order_data):
     variations_text.word_wrap = True
     variations_p = variations_text.paragraphs[0]
     variations_p.text = order_data.get('originalVariations', '')
-    variations_p.font.size = Pt(14)
+    variations_p.font.size = Pt(18)
     variations_p.font.color.rgb = RGBColor(0, 0, 0)
     
     # Date (下单日期)
@@ -144,19 +183,20 @@ def create_basket_order_slide(prs, order_data):
     date_p.font.size = Pt(22)
     date_p.font.color.rgb = RGBColor(0, 0, 0)
     
-    # 组合 orderID-SKU-color-icon
+    # 组合 orderID-product-color-icon
     order_id_str = str(order_data.get('orderNumber', ''))
-    sku_str = order_data.get('sku', '')
+    sku_str = get_title_sku_display(order_data.get('sku', ''))
     color_str = order_data.get('color', '默认颜色')
     icon_str = order_data.get('icon', '')
-    
-    combined_text = order_id_str
-    if sku_str:
-        combined_text += f" - {sku_str}"
-    if color_str:
-        combined_text += f" - {color_str}"
-    if icon_str:
-        combined_text += f" - {icon_str}"
+    icon_file_path = order_data.get('iconFilePath', '')
+
+    combined_parts = [order_id_str]
+    for part in [sku_str, color_str, icon_str]:
+        part_str = str(part or '').strip()
+        if part_str and part_str not in combined_parts:
+            combined_parts.append(part_str)
+
+    combined_text = ' - '.join(combined_parts)
     
     # Center combined text
     combined_box = slide.shapes.add_textbox(margin + Inches(2.7), combined_top, Inches(6), Inches(0.4))
@@ -166,6 +206,39 @@ def create_basket_order_slide(prs, order_data):
     combined_p.alignment = PP_ALIGN.CENTER
     combined_p.font.size = Pt(22)
     combined_p.font.color.rgb = RGBColor(0, 0, 0)
+
+    group_icon_file_paths = order_data.get('groupIconFilePaths', []) or []
+    icon_paths_to_render = []
+
+    for path_value in group_icon_file_paths:
+        normalized_path = normalize_image_path(path_value)
+        if normalized_path and normalized_path not in icon_paths_to_render:
+            icon_paths_to_render.append(normalized_path)
+
+    if not icon_paths_to_render and icon_file_path:
+        fallback_icon_path = normalize_image_path(icon_file_path)
+        if fallback_icon_path:
+            icon_paths_to_render.append(fallback_icon_path)
+
+    if icon_paths_to_render:
+        icon_size = Inches(1.5)
+        icon_gap = Inches(0.06)
+        max_columns = 4
+        start_top = margin + Inches(1)
+        row_height = icon_size + icon_gap
+
+        for icon_index, icon_path in enumerate(icon_paths_to_render):
+            try:
+                column_index = icon_index % max_columns
+                row_index = icon_index // max_columns
+                icons_in_current_row = min(max_columns, len(icon_paths_to_render) - row_index * max_columns)
+                row_width = icons_in_current_row * icon_size + max(0, icons_in_current_row - 1) * icon_gap
+                row_start_left = prs.slide_width - margin - row_width
+                icon_left = row_start_left + column_index * (icon_size + icon_gap)
+                icon_top = start_top + row_index * row_height
+                slide.shapes.add_picture(icon_path, icon_left, icon_top, icon_size, icon_size)
+            except Exception as e:
+                logger.warning(f"Failed to add group icon image: {str(e)}")
     
     # Position (一单多买的序号)
     position_box = slide.shapes.add_textbox(prs.slide_width - margin - Inches(1.2), date_top, Inches(1.2), Inches(0.4))

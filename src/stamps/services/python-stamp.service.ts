@@ -21,6 +21,7 @@ export interface FontSizeAdjustment {
 export class PythonStampService {
   private readonly logger = new Logger(PythonStampService.name);
   private readonly pythonScriptPath: string;
+  private readonly pythonExecutable: string;
   private readonly outputDir = 'uploads/stamps';
 
   constructor(
@@ -28,6 +29,7 @@ export class PythonStampService {
     private readonly fontRepository: Repository<Font>
   ) {
     this.pythonScriptPath = path.join(process.cwd(), 'src', 'stamps', 'python', 'png_stamp_generator.py');
+    this.pythonExecutable = this.resolvePythonExecutable();
     
     // Ensure the python script exists and is executable
     if (!fs.existsSync(this.pythonScriptPath)) {
@@ -46,6 +48,22 @@ export class PythonStampService {
     if (!fs.existsSync(this.outputDir)) {
       fs.mkdirSync(this.outputDir, { recursive: true });
     }
+
+    this.logger.log(`Using Python executable: ${this.pythonExecutable}`);
+  }
+
+  private resolvePythonExecutable(): string {
+    const configuredPython = process.env.PYTHON_EXECUTABLE?.trim();
+    if (configuredPython) {
+      return configuredPython;
+    }
+
+    const venvPython = path.join(process.cwd(), 'venv', 'bin', 'python');
+    if (fs.existsSync(venvPython)) {
+      return venvPython;
+    }
+
+    return 'python3';
   }
 
   /**
@@ -118,7 +136,7 @@ export class PythonStampService {
       };
 
       // Spawn Python process
-      const pythonProcess = spawn('python3', [this.pythonScriptPath]);
+      const pythonProcess = spawn(this.pythonExecutable, [this.pythonScriptPath]);
       
       let resultData = '';
       let errorData = '';
@@ -207,7 +225,7 @@ export class PythonStampService {
       };
 
       // Spawn Python process
-      const pythonProcess = spawn('python3', [this.pythonScriptPath]);
+      const pythonProcess = spawn(this.pythonExecutable, [this.pythonScriptPath]);
       
       let resultData = '';
       let errorData = '';

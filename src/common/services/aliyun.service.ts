@@ -13,6 +13,7 @@ interface AliyunRequestBody {
   top_p?: number;
   max_tokens?: number;
   stream?: boolean;
+  enable_thinking?: boolean;
 }
 
 @Injectable()
@@ -72,6 +73,7 @@ export class AliyunService {
       temperature?: number;
       topP?: number;
       maxTokens?: number;
+      enableThinking?: boolean;
     } = {},
   ) {
     const requestBody: AliyunRequestBody = {
@@ -80,6 +82,7 @@ export class AliyunService {
       temperature: options.temperature || this.defaultTemperature,
       top_p: options.topP || this.defaultTopP,
       max_tokens: options.maxTokens || this.defaultMaxTokens,
+      enable_thinking: false,
     };
 
     return this.makeRequest('/chat/completions', requestBody);
@@ -93,6 +96,7 @@ export class AliyunService {
       topP?: number;
       maxTokens?: number;
       systemPrompt?: string;
+      enableThinking?: boolean;
     } = {},
   ) {
     const messages: AliyunMessage[] = [];
@@ -121,6 +125,7 @@ export class AliyunService {
       topP?: number;
       maxTokens?: number;
       systemPrompt?: string;
+      enableThinking?: boolean;
     } = {},
   ): Promise<any> {
     try {      

@@ -498,7 +498,7 @@ export class OrdersService {
     
     console.log(`将创建压缩包: ${absoluteFilePath}`);
 
-    // 按订单号(platformOrderId或orderId)对订单进行分组
+    // 优先按 transactionId 分组，避免同一个 Order ID 下的多件商品被错误合并
     const orderGroups = new Map<string, Array<{order: Order, stamps: Array<{url: string, path: string, recordId?: number}>}>>();
     
     // 第一步：收集所有有效的图章并按订单分组
@@ -510,8 +510,11 @@ export class OrdersService {
           continue;
         }
 
-        // 使用平台订单ID或Etsy订单ID作为分组键
-        const groupKey = order.platformOrderId || order.etsyOrder.orderId || order.id.toString();
+        const groupKey =
+          order.etsyOrder.transactionId ||
+          order.platformOrderId ||
+          order.etsyOrder.orderId ||
+          order.id.toString();
         
         if (!orderGroups.has(groupKey)) {
           orderGroups.set(groupKey, []);
@@ -766,7 +769,7 @@ export class OrdersService {
       throw new NotFoundException('没有找到符合条件的订单');
     }
 
-    // 按订单号(platformOrderId或orderId)对订单进行分组
+    // 优先按 transactionId 分组，避免同一个 Order ID 下的多件商品被错误合并
     const orderGroups = new Map<string, Array<{order: Order, records: any[]}>>(); 
     
     // 首先收集所有订单的印章记录
@@ -781,8 +784,11 @@ export class OrdersService {
         });
         
         if (stampRecords.length > 0) {
-          // 使用平台订单ID或Etsy订单ID作为分组键
-          const groupKey = order.platformOrderId || order.etsyOrder.orderId || order.id.toString();
+          const groupKey =
+            order.etsyOrder.transactionId ||
+            order.platformOrderId ||
+            order.etsyOrder.orderId ||
+            order.id.toString();
           
           if (!orderGroups.has(groupKey)) {
             orderGroups.set(groupKey, []);

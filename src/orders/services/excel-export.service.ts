@@ -609,13 +609,16 @@ export class ExcelExportService {
   prepareOrdersExportData(orders: Order[]): any[] {
     const excelData = [];
     
-    // 按订单号(platformOrderId 或 orderId)对订单进行分组
+    // 优先按 transactionId 分组，避免同一个 Order ID 下的多件商品被错误合并
     const orderGroups = new Map<string, Array<{order: Order, stamps: string[]}>>(); 
     
     for (const order of orders) {
       if (order.orderType === 'etsy' && order.etsyOrder) {
-        // 使用平台订单ID或Etsy订单ID作为分组键
-        const groupKey = order.platformOrderId || order.etsyOrder.orderId || order.id.toString();
+        const groupKey =
+          order.etsyOrder.transactionId ||
+          order.platformOrderId ||
+          order.etsyOrder.orderId ||
+          order.id.toString();
         
         if (!orderGroups.has(groupKey)) {
           orderGroups.set(groupKey, []);
@@ -754,4 +757,3 @@ export class ExcelExportService {
     }
   }
 }
-
