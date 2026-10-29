@@ -17,10 +17,13 @@ import { StampGenerationRecord } from '../stamps/entities/stamp-generation-recor
 import { OrderUploadJob } from './entities/order-upload-job.entity';
 import { OrderUploadJobItem } from './entities/order-upload-job-item.entity';
 import { OrderUploadJobService } from './services/order-upload-job.service';
+import { OrderRematchService } from './services/order-rematch.service';
+import { OrderDesignBackup } from './entities/order-design-backup.entity';
+import { StampTemplate } from '../stamps/entities/stamp-template.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, EtsyOrder, StampGenerationRecord, OrderUploadJob, OrderUploadJobItem]),
+    TypeOrmModule.forFeature([Order, EtsyOrder, StampGenerationRecord, OrderUploadJob, OrderUploadJobItem, OrderDesignBackup, StampTemplate]),
     forwardRef(() => StampsModule),
     CommonModule,
     UsersModule
@@ -35,7 +38,8 @@ import { OrderUploadJobService } from './services/order-upload-job.service';
     VariationParsingService,
     RemoteAreaService,
     OrderUploadJobService,
+    OrderRematchService,
   ],
-  exports: [OrdersService, ExcelService, OrderUploadJobService]
+  exports: [OrdersService, ExcelService, OrderUploadJobService, OrderRematchService]
 })
 export class OrdersModule {} 

@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
-export type OrderUploadJobItemStatus = 'success' | 'skipped' | 'failed';
+// pending：已建订单但未匹配 / 冲突 / 解析失败，需在待处理清单中处理
+export type OrderUploadJobItemStatus = 'success' | 'skipped' | 'failed' | 'pending';
 
 @Entity('order_upload_job_items')
 export class OrderUploadJobItem {

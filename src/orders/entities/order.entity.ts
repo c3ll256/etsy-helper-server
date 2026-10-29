@@ -2,7 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 import { EtsyOrder } from './etsy-order.entity';
 import { ApiProperty } from '@nestjs/swagger';
 import { User } from '../../users/entities/user.entity';
-import { OrderStatus, OrderType } from '../enums/order.enum';
+import { OrderMatchStatus, OrderStatus, OrderType } from '../enums/order.enum';
 import { StampTemplate } from '../../stamps/entities/stamp-template.entity';
 
 @Entity('orders')
@@ -122,4 +122,40 @@ export class Order {
   })
   @ManyToOne(() => StampTemplate)
   template: StampTemplate;
-} 
+
+  @ApiProperty({ enum: OrderMatchStatus, description: '模板匹配状态', required: false })
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  matchStatus: OrderMatchStatus | null;
+
+  @ApiProperty({ description: '匹配明细：规则、命中的 SKU、候选模板', required: false })
+  @Column({ type: 'jsonb', nullable: true })
+  matchDetail: OrderMatchDetail | null;
+
+  @ApiProperty({ description: '人工调整设计的时间', required: false })
+  @Column({ type: 'timestamptz', nullable: true })
+  designAdjustedAt: Date | null;
+
+  @ApiProperty({ description: '处理异常（如解析失败）', required: false })
+  @Column({ type: 'text', nullable: true })
+  processingError: string | null;
+}
+
+export interface OrderMatchCandidate {
+  templateId: number;
+  templateName: string;
+  matchedSku: string;
+}
+
+export interface OrderMatchDetail {
+  rule: string;
+  orderSku: string;
+  matchedSku?: string;
+  candidates?: OrderMatchCandidate[];
+  reason?: string;
+  previousTemplateId?: number | null;
+  suggestedTemplateId?: number | null;
+  matchedAt: string;
+  matchedBy?: string;
+  /** 从印章还是摇铃上传入口导入，未匹配时用来区分归属页面 */
+  source?: 'stamp' | 'rattle';
+}

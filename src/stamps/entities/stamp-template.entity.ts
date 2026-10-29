@@ -59,6 +59,10 @@ export class StampTemplate {
   @Column({ default: true })
   isActive: boolean;
 
+  /** 摇铃：允许同一 SKU 绑定多个模板（多模板模式），匹配时进入"多模板待选择" */
+  @Column({ default: false })
+  allowMultipleForSku: boolean;
+
   @DeleteDateColumn({ type: 'timestamptz', nullable: true })
   deletedAt?: Date | null;
 

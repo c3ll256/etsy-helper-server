@@ -14,7 +14,7 @@ import { OrderStampService } from '../stamps/services/order-stamp.service';
 import { ExcelService } from './services/excel.service';
 import { UpdateStampDto } from './dto/update-stamp.dto';
 import { User } from '../users/entities/user.entity';
-import { OrderStatus } from './enums/order.enum';
+import { OrderMatchStatus, OrderStatus, UNRESOLVED_MATCH_STATUSES } from './enums/order.enum';
 import { StampType } from '../stamps/entities/stamp-template.entity';
 import { Inject, forwardRef } from '@nestjs/common';
 import { OrderType } from './enums/order.enum';
@@ -57,6 +57,38 @@ export class OrdersService {
    */
   private resolveStampFilePath(stampUrl: string): string {
     return path.join(process.cwd(), this.stampsOutputDir, path.basename(stampUrl));
+  }
+
+  /** 未解决的匹配状态（未匹配 / 冲突 / 待复核）不能制单、审核通过或导出 */
+  private isUnresolved(order: Pick<Order, 'matchStatus'>): boolean {
+    return UNRESOLVED_MATCH_STATUSES.includes(order.matchStatus as OrderMatchStatus);
+  }
+
+  private applyResolvedOnlyFilter(queryBuilder: any): void {
+    queryBuilder.andWhere('("order"."matchStatus" IS NULL OR "order"."matchStatus" NOT IN (:...unresolvedMatchStatuses))', {
+      unresolvedMatchStatuses: UNRESOLVED_MATCH_STATUSES,
+    });
+  }
+
+  private applyMatchStatusFilter(queryBuilder: any, matchStatus?: string): void {
+    if (!matchStatus) return;
+    const values = matchStatus.split(',').map(v => v.trim()).filter(Boolean);
+    if (values.includes('pending')) {
+      queryBuilder.andWhere(
+        '("order"."matchStatus" IN (:...pendingMatchStatuses) OR ("order"."processingError" IS NOT NULL AND "order"."status" = :notGenerated))',
+        { pendingMatchStatuses: UNRESOLVED_MATCH_STATUSES, notGenerated: OrderStatus.STAMP_NOT_GENERATED },
+      );
+      return;
+    }
+    const includeUnchecked = values.includes('unchecked');
+    const statuses = values.filter(v => v !== 'unchecked');
+    if (includeUnchecked && statuses.length) {
+      queryBuilder.andWhere('("order"."matchStatus" IS NULL OR "order"."matchStatus" IN (:...matchStatuses))', { matchStatuses: statuses });
+    } else if (includeUnchecked) {
+      queryBuilder.andWhere('"order"."matchStatus" IS NULL');
+    } else if (statuses.length) {
+      queryBuilder.andWhere('"order"."matchStatus" IN (:...matchStatuses)', { matchStatuses: statuses });
+    }
   }
 
   async create(createOrderDto: CreateOrderDto, user?: User): Promise<Order> {
@@ -119,12 +151,15 @@ export class OrdersService {
   }
 
   async findAll(paginationDto: PaginationDto, currentUser?: User): Promise<PaginatedResponse<Order>> {
-    const { page = 1, limit = 10, search, status, startDate, endDate, userId, templateIds, stampType } = paginationDto;
+    const { page = 1, limit = 10, search, status, startDate, endDate, userId, templateIds, stampType, matchStatus } = paginationDto;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
       .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
       .leftJoinAndSelect('order.user', 'user')
+      .leftJoin('order.template', 'template')
+      .addSelect(['template.id', 'template.name', 'template.skus', 'template.type', 'template.deletedAt'])
+      .withDeleted()
       .orderBy('order.createdAt', 'DESC')
       .skip(skip)
       .take(limit);
@@ -138,33 +173,22 @@ export class OrdersService {
     if (templateIds && templateIds.length > 0) {
       queryBuilder.andWhere('order.templateId IN (:...templateIds)', { templateIds });
     } else if (stampType) {
-      // Find templates with the specified stampType
-      const templatesWithType = await this.stampsService.getTemplatesByStampType(stampType, currentUser);
-      
-      if (templatesWithType && templatesWithType.length > 0) {
-        const stampTypeTemplateIds = templatesWithType.map(template => template.id);
-        queryBuilder.andWhere('order.templateId IN (:...stampTypeTemplateIds)', { stampTypeTemplateIds });
+      // 还没有模板的订单（未匹配 / 冲突）按上传入口归属：摇铃入口导入的显示在摇铃页
+      if (stampType === 'rattle') {
+        queryBuilder.andWhere(`(template.type = :stampType OR ("order"."templateId" IS NULL AND "order"."matchDetail"->>'source' = 'rattle'))`, { stampType });
       } else {
-        // If no templates found with this stampType, return empty result
-        return {
-          items: [],
-          meta: {
-            total: 0,
-            page,
-            limit,
-            totalPages: 0
-          }
-        };
+        queryBuilder.andWhere('template.type = :stampType', { stampType });
       }
     }
 
     // Apply date filters
     this.applyDateFilters(queryBuilder, startDate, endDate);
+    this.applyMatchStatusFilter(queryBuilder, matchStatus);
 
-    // Apply search filter if provided
+    // Apply search filter if provided（含 SKU）
     if (search) {
       queryBuilder.andWhere(
-        '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search)',
+        '(etsyOrder.orderId LIKE :search OR CAST(order.id as TEXT) LIKE :search OR order.platformOrderId LIKE :search OR order.searchKey ILIKE :search OR etsyOrder.sku ILIKE :search)',
         { search: `%${search}%` }
       );
     }
@@ -196,10 +220,54 @@ export class OrdersService {
     };
   }
 
+  async getMatchSummary(currentUser: User, stampType?: string) {
+    const qb = this.ordersRepository.createQueryBuilder('order')
+      .leftJoin('order.template', 'template')
+      .withDeleted()
+      .select('COALESCE("order"."matchStatus", \'unchecked\')', 'matchStatus')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('1');
+    if (!currentUser.isAdmin) {
+      qb.where('order.userId = :userId', { userId: currentUser.id });
+    }
+    const applySource = (builder: any) => {
+      if (stampType === 'rattle') {
+        builder.andWhere(`(template.type = 'rattle' OR ("order"."templateId" IS NULL AND "order"."matchDetail"->>'source' = 'rattle'))`);
+      } else if (stampType === 'stamp') {
+        builder.andWhere(`NOT (COALESCE(template.type, '') = 'rattle' OR ("order"."templateId" IS NULL AND "order"."matchDetail"->>'source' = 'rattle'))`);
+      }
+    };
+    applySource(qb);
+    const rows = await qb.getRawMany();
+    const counts: Record<string, number> = {};
+    for (const row of rows) counts[row.matchStatus] = Number(row.count);
+
+    const pendingQb = this.ordersRepository.createQueryBuilder('order')
+      .leftJoin('order.template', 'template')
+      .withDeleted();
+    if (!currentUser.isAdmin) pendingQb.where('order.userId = :userId', { userId: currentUser.id });
+    applySource(pendingQb);
+    this.applyMatchStatusFilter(pendingQb, 'pending');
+    const pending = await pendingQb.getCount();
+
+    return {
+      counts,
+      pending,
+      rule: process.env.SKU_MATCH_MODE === 'exact' ? 'exact' : 'exact_or_suffix',
+      ruleDescription: process.env.SKU_MATCH_MODE === 'exact'
+        ? '订单 SKU 与模板 SKU 完全相同'
+        : '订单 SKU 与模板 SKU 完全相同，或以「模板 SKU + -」开头（取最长的模板 SKU）',
+      caseSensitive: process.env.SKU_MATCH_CASE_SENSITIVE === 'true',
+    };
+  }
+
   async findOne(id: string, currentUser?: User): Promise<Order> {
     const queryBuilder = this.ordersRepository.createQueryBuilder('order')
       .leftJoinAndSelect('order.etsyOrder', 'etsyOrder')
       .leftJoinAndSelect('order.user', 'user')
+      .leftJoin('order.template', 'template')
+      .addSelect(['template.id', 'template.name', 'template.skus', 'template.type', 'template.deletedAt'])
+      .withDeleted()
       .where('order.id = :id', { id });
 
     // If user is not admin, restrict to only their orders
@@ -219,7 +287,20 @@ export class OrdersService {
 
   async update(id: string, updateOrderDto: Partial<CreateOrderDto>, currentUser?: User): Promise<Order> {
     const order = await this.findOne(id, currentUser);
-    Object.assign(order, updateOrderDto);
+    if (updateOrderDto.status === OrderStatus.STAMP_GENERATED_REVIEWED) {
+      if (this.isUnresolved(order)) {
+        throw new BadRequestException('订单模板未匹配、匹配冲突或待复核，处理前不能审核通过');
+      }
+      if (!order.etsyOrder?.stampImageUrls?.length) {
+        throw new BadRequestException('订单还没有生成设计，不能审核通过');
+      }
+    }
+    const { status, orderType } = updateOrderDto as any;
+    if (status !== undefined) order.status = status;
+    if (orderType !== undefined) order.orderType = orderType;
+    // findOne 带出的 template 只选了部分字段，不能整体保存回去
+    delete (order as any).template;
+    delete (order as any).orderDetails;
     return await this.ordersRepository.save(order);
   }
 
@@ -281,13 +362,25 @@ export class OrdersService {
    * @param currentUser 当前用户
    * @returns 包含成功状态、路径和记录ID的结果
    */
-  async updateOrderStamp(id: string, updateStampDto: UpdateStampDto, currentUser?: User): Promise<{ success: boolean; path?: string; error?: string; recordId?: number }> {
+  async updateOrderStamp(
+    id: string,
+    updateStampDto: UpdateStampDto,
+    currentUser?: User,
+    options: { markAdjusted?: boolean } = { markAdjusted: true },
+  ): Promise<{ success: boolean; path?: string; error?: string; recordId?: number }> {
     try {
       // 查找订单
       const order = await this.findOne(id, currentUser);
 
       if (!order) {
         throw new NotFoundException(`Order with ID ${id} not found or you don't have permission to access it`);
+      }
+
+      if (this.isUnresolved(order)) {
+        return { success: false, error: '订单模板未匹配、匹配冲突或待复核，请先重新匹配或手动指定模板' };
+      }
+      if (updateStampDto.templateId && order.templateId && updateStampDto.templateId !== order.templateId) {
+        return { success: false, error: '编辑器里的模板和订单当前模板不一致，换模板请用"手动指定模板"' };
       }
 
       // 创建适合印章生成的临时订单对象
@@ -381,10 +474,13 @@ export class OrdersService {
         );
       }
       
-      // 更新订单状态为已生成印章待审核
+      // 更新订单状态为已生成印章待审核；人工改过文字的记下调整时间，之后重匹配 / 模板重生成前会要求确认
       await this.ordersRepository.update(
         { id: order.id },
-        { status: OrderStatus.STAMP_GENERATED_PENDING_REVIEW }
+        {
+          status: OrderStatus.STAMP_GENERATED_PENDING_REVIEW,
+          ...(options.markAdjusted !== false && updateStampDto.textElements?.length ? { designAdjustedAt: new Date() } : {}),
+        }
       );
 
       return {
@@ -474,6 +570,9 @@ export class OrdersService {
         );
       }
     }
+
+    // 未匹配 / 冲突 / 待复核的订单不导出（指定订单 ID 时也不导出）
+    this.applyResolvedOnlyFilter(queryBuilder);
 
     // Apply user filter based on role - this filter is always applied
     if (currentUser && !currentUser.isAdmin) {
@@ -765,6 +864,9 @@ export class OrdersService {
       }
     }
     
+    // 未匹配 / 冲突 / 待复核的订单不导出（指定订单 ID 时也不导出）
+    this.applyResolvedOnlyFilter(queryBuilder);
+
     // Apply user filter based on role - this filter is always applied
     if (user && !user.isAdmin) {
       queryBuilder.andWhere('order.userId = :userId', { userId: user.id });

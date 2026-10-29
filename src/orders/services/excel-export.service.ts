@@ -14,11 +14,12 @@ export type ProcessingResult = {
   skipped: number;
   skippedReasons: { orderId: string; transactionId: string; reason: string }[];
   failed: number;
+  pending?: number;
   stamps: { orderId: string; transactionId: string; stampPath: string }[];
   orderDetails: Array<{
     orderId: string;
     transactionId: string;
-    status: 'success' | 'skipped' | 'failed';
+    status: 'success' | 'skipped' | 'failed' | 'pending';
     reason?: string;
     stampCount?: number;
     originalData: any;

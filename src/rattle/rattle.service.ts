@@ -38,7 +38,7 @@ export class RattleService {
 
     try {
       // 使用与印章订单相同的处理逻辑，但指定为摇铃类型
-      const jobId = await this.excelService.processExcelFileAsync(file, user);
+      const jobId = await this.excelService.processExcelFileAsync(file, user, 'rattle');
 
       // 更新任务类型为摇铃
       await this.orderUploadJobRepository.update({ jobId }, { orderType: 'rattle' });

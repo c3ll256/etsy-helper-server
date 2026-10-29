@@ -31,7 +31,8 @@ export class ExcelProcessingService {
   async readAndProcessExcelData(
     file: Express.Multer.File,
     jobId?: string,
-    user?: User
+    user?: User,
+    source: 'stamp' | 'rattle' = 'stamp',
   ): Promise<{
     data: any[];
     result: ProcessingResult;
@@ -75,12 +76,13 @@ export class ExcelProcessingService {
     let created = 0;
     let skipped = 0;
     let failed = 0;
+    let pending = 0;
     const stamps: { orderId: string; transactionId: string; stampPath: string }[] = [];
     const skippedReasons: { orderId: string; transactionId: string; reason: string }[] = [];
     const orderDetails: Array<{
       orderId: string;
       transactionId: string;
-      status: 'success' | 'skipped' | 'failed';
+      status: 'success' | 'skipped' | 'failed' | 'pending';
       reason?: string;
       stampCount?: number;
       originalData: any;
@@ -144,7 +146,8 @@ export class ExcelProcessingService {
           user, 
           undefined, 
           jobId,
-          this.variationParsingService
+          this.variationParsingService,
+          { source }
         );
         
         if (orderResult.success && orderResult.stamps && orderResult.stamps.length > 0) {
@@ -168,6 +171,22 @@ export class ExcelProcessingService {
             });
           }
           this.logger.log(`Successfully processed order ${orderId} with ${orderResult.stamps.length} personalizations`);
+        } else if (orderResult.pending) {
+          // 已建订单，但未匹配 / 冲突 / 解析失败，进入待处理清单
+          pending++;
+          const reason = orderResult.error || '待处理';
+          skippedReasons.push({ orderId, transactionId, reason });
+          orderDetails.push({ orderId, transactionId, status: 'pending', reason, originalData: item });
+          if (jobId) {
+            await this.orderUploadJobService.addItem(jobId, {
+              orderId,
+              transactionId,
+              sku: item['SKU']?.toString() || null,
+              status: 'pending',
+              reason,
+              detailJson: { originalData: item, orderUuid: orderResult.orderId },
+            });
+          }
         } else {
           skipped++;
           const errorReason = orderResult.error || 'Unknown error during order processing';
@@ -237,6 +256,7 @@ export class ExcelProcessingService {
         skipped,
         skippedReasons,
         failed,
+        pending,
         stamps,
         orderDetails
       }

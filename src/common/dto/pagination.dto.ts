@@ -97,9 +97,16 @@ export class PaginationDto {
     enum: StampType,
     example: StampType.RUBBER,
   })
-  @IsEnum(StampType, { 
-    message: '印章类型必须是有效的类型' 
-  })
+  // 分类可在后台自行增删（S4），不再限制为固定枚举
+  @IsString()
   @IsOptional()
   stampType?: StampType;
+
+  @ApiPropertyOptional({
+    description: '匹配状态筛选：exact / unmatched / conflict / manual / mismatch / legacy，逗号分隔；pending 表示全部待处理（未匹配、冲突、待复核、处理异常）',
+    example: 'pending',
+  })
+  @IsString()
+  @IsOptional()
+  matchStatus?: string;
 } 

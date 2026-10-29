@@ -15,6 +15,9 @@ import { CommonModule } from '../common/common.module';
 import { Font } from '../fonts/entities/font.entity';
 import { OrdersModule } from 'src/orders/orders.module';
 import { Order } from '../orders/entities/order.entity';
+import { StampTemplateShare } from './entities/stamp-template-share.entity';
+import { OrderDesignBackup } from '../orders/entities/order-design-backup.entity';
+import { TemplateMatchService } from './services/template-match.service';
 
 // Ensure uploads directory exists
 const UPLOADS_DIR = 'uploads';
@@ -24,7 +27,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StampTemplate, StampGenerationRecord, Font, Order]),
+    TypeOrmModule.forFeature([StampTemplate, StampGenerationRecord, StampTemplateShare, Font, Order, OrderDesignBackup]),
     CommonModule,
     forwardRef(() => OrdersModule),
     MulterModule.register({
@@ -41,7 +44,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
     }),
   ],
   controllers: [StampsController],
-  providers: [StampsService, OrderStampService, PythonStampService],
-  exports: [StampsService, OrderStampService, PythonStampService, TypeOrmModule.forFeature([StampGenerationRecord])],
+  providers: [StampsService, OrderStampService, PythonStampService, TemplateMatchService],
+  exports: [StampsService, OrderStampService, PythonStampService, TemplateMatchService, TypeOrmModule.forFeature([StampGenerationRecord])],
 })
 export class StampsModule {} 

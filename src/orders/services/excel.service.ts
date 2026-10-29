@@ -37,13 +37,13 @@ export class ExcelService {
   /**
    * Process Excel file asynchronously with progress tracking
    */
-  async processExcelFileAsync(file: Express.Multer.File, user?: User): Promise<string> {
+  async processExcelFileAsync(file: Express.Multer.File, user?: User, source: 'stamp' | 'rattle' = 'stamp'): Promise<string> {
     const jobId = this.jobQueueService.createJob(user?.id);
     if (user) {
-      await this.orderUploadJobService.createJob(jobId, file.originalname, user, 'stamp');
+      await this.orderUploadJobService.createJob(jobId, file.originalname, user, source);
     }
     
-    this.processExcelFileWithProgress(file, jobId, user).catch(error => {
+    this.processExcelFileWithProgress(file, jobId, user, source).catch(error => {
       this.logger.error(`Error in background processing: ${error.message}`, error.stack);
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'failed',
@@ -60,7 +60,7 @@ export class ExcelService {
   /**
    * Process Excel file with progress tracking
    */
-  private async processExcelFileWithProgress(file: Express.Multer.File, jobId: string, user?: User): Promise<void> {
+  private async processExcelFileWithProgress(file: Express.Multer.File, jobId: string, user?: User, source: 'stamp' | 'rattle' = 'stamp'): Promise<void> {
     try {
       // Initial progress update
       this.jobQueueService.updateJobProgress(jobId, {
@@ -72,7 +72,7 @@ export class ExcelService {
       await this.orderUploadJobService.updateProgress(jobId, 5);
 
       // Read and process the data
-      const { data, result } = await this.excelProcessingService.readAndProcessExcelData(file, jobId, user);
+      const { data, result } = await this.excelProcessingService.readAndProcessExcelData(file, jobId, user, source);
 
       // Generate processing report Excel
       let reportPath: string | null = null;

@@ -25,6 +25,11 @@ export class VariationParsingService {
       };
     }
     
+    // 仅本地测试用：没有 LLM key 时用简单规则模拟解析结果，生产环境不要开启
+    if (process.env.VARIATION_PARSER_MOCK === 'true') {
+      return this.mockParse(variationsString, templateDescription);
+    }
+
     try {
       const prompt = this.buildParsingPrompt();
       const userPrompt = this.buildUserPrompt(variationsString, templateDescription);
@@ -44,6 +49,48 @@ export class VariationParsingService {
       this.logger.error(`Error parsing variations using LLM: ${error.message}`, error);
       throw error;
     }
+  }
+
+  /**
+   * 本地测试用的规则解析：Personalization 之后的内容按行依次填入模板字段，多出的行并入最后一个字段
+   */
+  private mockParse(variationsString: string, templateDescription?: string) {
+    const text = variationsString.replace(/\r\n?/g, '\n');
+    const variations: { [key: string]: string } = {};
+    let personalization = '';
+    const marker = text.search(/Personali[sz]ation\s*:?/i);
+    const head = marker >= 0 ? text.slice(0, marker) : text;
+    if (marker >= 0) {
+      personalization = text.slice(marker).replace(/^Personali[sz]ation\s*:?/i, '').trim();
+    }
+    for (const part of head.split(/[,\n]/)) {
+      const idx = part.indexOf(':');
+      if (idx > 0) variations[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+    }
+
+    let fieldIds: string[] = [];
+    try {
+      const json = (templateDescription || '').split('\n').find(line => line.trim().startsWith('['));
+      fieldIds = (JSON.parse(json || '[]') as Array<{ id: string }>).map(f => f.id).filter(Boolean);
+    } catch {
+      fieldIds = [];
+    }
+    const lines = personalization.split('\n').map(line => line.trim()).filter(Boolean);
+    const group: Array<{ id: string; value: string }> = [];
+    fieldIds.forEach((id, index) => {
+      if (index < fieldIds.length - 1) {
+        group.push({ id, value: lines[index] ?? '' });
+      } else {
+        group.push({ id, value: lines.slice(index).join(' ') });
+      }
+    });
+
+    return {
+      variations,
+      hasMultiple: false,
+      personalizations: group.length ? [group] : [],
+      originalVariations: variationsString,
+    };
   }
 
   /**

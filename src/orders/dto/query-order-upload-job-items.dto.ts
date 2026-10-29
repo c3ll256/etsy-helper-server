@@ -7,6 +7,7 @@ const ORDER_UPLOAD_JOB_ITEM_STATUS = {
   success: 'success',
   skipped: 'skipped',
   failed: 'failed',
+  pending: 'pending',
 } as const;
 
 export class QueryOrderUploadJobItemsDto {

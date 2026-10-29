@@ -32,6 +32,14 @@ export class EtsyOrder {
   @Column({ name: 'buyer_note_raw', type: 'text', nullable: true })
   buyerNoteRaw: string;
 
+  @ApiProperty({ description: '备注来源：import 导入 / backfill 历史补回 / manual 人工补录', required: false })
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  buyerNoteSource: 'import' | 'backfill' | 'manual' | null;
+
+  @ApiProperty({ description: '导入时的原始整行', required: false })
+  @Column({ type: 'jsonb', nullable: true, select: false })
+  rawRow: Record<string, any> | null;
+
   @ApiProperty({ description: 'Quantity ordered', example: 1, required: false })
   @Column({ nullable: true })
   quantity: number;

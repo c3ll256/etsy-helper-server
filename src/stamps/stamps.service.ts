@@ -16,7 +16,8 @@ import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { JobQueueService } from '../common/services/job-queue.service';
 import { OrdersService } from '../orders/orders.service';
 import { Order } from '../orders/entities/order.entity';
-import { OrderStatus } from '../orders/enums/order.enum';
+import { OrderMatchStatus, OrderStatus, UNRESOLVED_MATCH_STATUSES } from '../orders/enums/order.enum';
+import { OrderDesignBackup } from '../orders/entities/order-design-backup.entity';
 
 @Injectable()
 export class StampsService {
@@ -27,6 +28,8 @@ export class StampsService {
     private stampGenerationRecordRepository: Repository<StampGenerationRecord>,
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
+    @InjectRepository(OrderDesignBackup)
+    private orderDesignBackupRepository: Repository<OrderDesignBackup>,
     private readonly pythonStampService: PythonStampService,
     private readonly jobQueueService: JobQueueService,
     @Inject(forwardRef(() => OrdersService))
@@ -405,9 +408,14 @@ export class StampsService {
         relations: ['etsyOrder']
       });
 
-      // 已审核通过的设计不随模板更新自动覆盖，需在订单内单独处理
-      const orders = allOrders.filter(order => order.status !== OrderStatus.STAMP_GENERATED_REVIEWED);
-      const skippedReviewedCount = allOrders.length - orders.length;
+      // 已审核通过、人工调整过的设计不随模板更新自动覆盖，需在订单内单独处理（重新处理时确认）
+      const orders = allOrders.filter(order =>
+        order.status !== OrderStatus.STAMP_GENERATED_REVIEWED
+        && !order.designAdjustedAt
+        && !UNRESOLVED_MATCH_STATUSES.includes(order.matchStatus as OrderMatchStatus));
+      const skippedReviewedCount = allOrders.filter(order => order.status === OrderStatus.STAMP_GENERATED_REVIEWED).length;
+      const skippedAdjustedCount = allOrders.filter(order =>
+        order.status !== OrderStatus.STAMP_GENERATED_REVIEWED && !!order.designAdjustedAt).length;
 
       const totalOrders = orders.length;
       
@@ -426,6 +434,17 @@ export class StampsService {
         
         try {
           if (order.etsyOrder?.stampGenerationRecordIds?.length > 0) {
+            // 覆盖前备份当前设计（旧记录和图片文件保留）
+            await this.orderDesignBackupRepository.save(this.orderDesignBackupRepository.create({
+              orderId: order.id,
+              templateId: order.templateId,
+              status: order.status,
+              matchStatus: order.matchStatus,
+              stampImageUrls: order.etsyOrder.stampImageUrls || [],
+              stampGenerationRecordIds: order.etsyOrder.stampGenerationRecordIds || [],
+              variations: order.etsyOrder.variations ?? null,
+              reason: 'template_update',
+            }));
             // 对每个生成记录重新生成印章
             for (const recordId of order.etsyOrder.stampGenerationRecordIds) {
               // 获取原始生成记录
@@ -465,7 +484,7 @@ export class StampsService {
                   textElements: formattedTextElements as any[],
                   oldRecordId: recordId,
                   convertTextToPaths: true
-                });
+                }, undefined, { markAdjusted: false });
 
                 if (result.success) {
                   successCount++;
@@ -494,12 +513,13 @@ export class StampsService {
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'completed',
         progress: 100,
-        message: `Completed regenerating stamps for ${totalOrders} orders. Success: ${successCount}, Failed: ${failedCount}, Skipped reviewed: ${skippedReviewedCount}`,
+        message: `Completed regenerating stamps for ${totalOrders} orders. Success: ${successCount}, Failed: ${failedCount}, Skipped reviewed: ${skippedReviewedCount}, Skipped adjusted: ${skippedAdjustedCount}`,
         result: {
           totalOrders,
           successCount,
           failedCount,
-          skippedReviewedCount
+          skippedReviewedCount,
+          skippedAdjustedCount
         }
       });
 

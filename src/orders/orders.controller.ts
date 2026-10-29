@@ -24,6 +24,9 @@ import { StampType } from 'src/stamps/entities/stamp-template.entity';
 import { OrderUploadJobService } from './services/order-upload-job.service';
 import { QueryOrderUploadJobsDto } from './dto/query-order-upload-jobs.dto';
 import { QueryOrderUploadJobItemsDto } from './dto/query-order-upload-job-items.dto';
+import { OrderRematchService } from './services/order-rematch.service';
+import { AssignTemplateDto, BuyerNoteDto, DryRunDto, MatchAuditDto, ReprocessOrdersDto } from './dto/order-match.dto';
+import { TemplateMatchService } from '../stamps/services/template-match.service';
 
 @ApiTags('orders')
 @Controller('orders')
@@ -35,6 +38,8 @@ export class OrdersController {
     private readonly excelService: ExcelService,
     private readonly jobQueueService: JobQueueService,
     private readonly orderUploadJobService: OrderUploadJobService,
+    private readonly orderRematchService: OrderRematchService,
+    private readonly templateMatchService: TemplateMatchService,
     @InjectRepository(StampGenerationRecord)
     private readonly stampGenerationRecordRepository: Repository<StampGenerationRecord>,
   ) {}
@@ -398,6 +403,70 @@ export class OrdersController {
       }
       throw new BadRequestException(error.message);
     }
+  }
+
+  @Get('match-summary')
+  @ApiOperation({ summary: '各匹配状态的订单数和当前匹配规则' })
+  async getMatchSummary(@CurrentUser() user: User, @Query('stampType') stampType?: string) {
+    return this.ordersService.getMatchSummary(user, stampType);
+  }
+
+  @Get('assignable-templates')
+  @ApiOperation({ summary: '手动指定模板时可选的模板（自己的 + 被授权的；管理员为全部）' })
+  async getAssignableTemplates(
+    @CurrentUser() user: User,
+    @Query('search') search?: string,
+    @Query('type') type?: string,
+  ) {
+    return this.orderRematchService.listAssignableTemplates(user, search, type);
+  }
+
+  @Post('reprocess')
+  @ApiOperation({ summary: '单个 / 批量重新匹配或重新处理；已审核或人工调整的设计需 confirmOverwrite' })
+  async reprocessOrders(@Body() dto: ReprocessOrdersDto, @CurrentUser() user: User) {
+    return this.orderRematchService.reprocess(dto.orderIds, user, {
+      mode: dto.mode,
+      confirmOverwrite: dto.confirmOverwrite,
+      dryRun: dto.dryRun,
+    });
+  }
+
+  @Post('match-audit')
+  @ApiOperation({ summary: '（管理员）按当前规则给历史订单补匹配状态，找出错配订单；不改模板和设计' })
+  async auditMatches(@Body() dto: MatchAuditDto, @CurrentUser() user: User) {
+    return this.orderRematchService.auditHistoricalMatches(user, dto);
+  }
+
+  @Post('buyer-notes/backfill')
+  @ApiOperation({ summary: '（管理员）从上传任务明细的原始行补回历史订单备注，只补空备注' })
+  async backfillBuyerNotes(@Body() dto: DryRunDto, @CurrentUser() user: User) {
+    return this.orderRematchService.backfillBuyerNotes(user, dto);
+  }
+
+  @Patch(':id/template')
+  @ApiOperation({ summary: '手动指定模板：仅本订单，或同时更新该 SKU 后续关联' })
+  async assignTemplate(@Param('id') id: string, @Body() dto: AssignTemplateDto, @CurrentUser() user: User) {
+    return this.orderRematchService.assignTemplate(id, dto.templateId, dto.scope, user, {
+      confirmOverwrite: dto.confirmOverwrite,
+    });
+  }
+
+  @Patch(':id/buyer-note')
+  @ApiOperation({ summary: '按订单补录备注（标记为人工补录）' })
+  async updateBuyerNote(@Param('id') id: string, @Body() dto: BuyerNoteDto, @CurrentUser() user: User) {
+    return this.orderRematchService.updateBuyerNote(id, dto.note, user);
+  }
+
+  @Get(':id/backups')
+  @ApiOperation({ summary: '订单设计的覆盖前备份' })
+  async listBackups(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.orderRematchService.listBackups(id, user);
+  }
+
+  @Post(':id/backups/:backupId/restore')
+  @ApiOperation({ summary: '从备份恢复订单设计' })
+  async restoreBackup(@Param('id') id: string, @Param('backupId') backupId: string, @CurrentUser() user: User) {
+    return this.orderRematchService.restoreBackup(id, Number(backupId), user);
   }
 
   @Get(':id')
