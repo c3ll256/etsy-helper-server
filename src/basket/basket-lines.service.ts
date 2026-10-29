@@ -256,7 +256,8 @@ export class BasketLinesService {
   }
 
   async persistLines(recordId: number, userId: string | null, lines: LineDraft[]) {
-    await this.lineRepo.delete({ recordId });
+    // 已被补处理记录取代的明细保留原样（它们的订单已经在新记录里生成），不删除、不重做
+    await this.lineRepo.createQueryBuilder().delete().where('record_id = :recordId', { recordId }).andWhere('superseded_by_record_id IS NULL').execute();
     const idByRow = new Map<number, number>();
     const entities = lines.map((l) =>
       this.lineRepo.create({
@@ -624,11 +625,17 @@ export class BasketLinesService {
     const record = await this.recordRepo.findOne({ where: { id: recordId }, relations: ['user'] });
     if (!record) throw new NotFoundException(`记录 ${recordId} 不存在`);
     if (!user.isAdmin && record.userId !== user.id) throw new ForbiddenException('无权访问该记录');
-    const entities = await this.lineRepo.find({ where: { recordId }, order: { rowIndex: 'ASC' } });
-    if (!entities.length) throw new BadRequestException('该记录没有保存明细（v2 之前的历史记录），请用"从原始文件补建明细"或重新上传');
+    const all = await this.lineRepo.find({ where: { recordId }, order: { rowIndex: 'ASC' } });
+    if (!all.length) throw new BadRequestException('该记录没有保存明细（v2 之前的历史记录），请用"从原始文件补建明细"或重新上传');
+    // 已补处理到新记录的订单不再在原记录里重复生成
+    const entities = all.filter((e) => !e.supersededByRecordId);
+    const resolutions = new Map(entities.filter((e) => e.resolution).map((e) => [e.rowIndex, { resolution: e.resolution, resolutionNote: e.resolutionNote, resolvedAt: e.resolvedAt }]));
     const drafts = this.draftsWithDuplicates(entities);
     const owner = record.user || user;
     const { output, webPath } = await this.generateFromLines(record, drafts, { ...owner, isAdmin: user.isAdmin } as User, record.orderType === 'basket' ? 'all' : record.orderType || 'all', undefined, record.userId || undefined);
+    for (const [rowIndex, r] of resolutions) {
+      await this.lineRepo.update({ recordId, rowIndex, supersededByRecordId: null as any }, r as any);
+    }
     const previous = [...(record.previousOutputs || [])];
     if (record.outputFilePath) previous.push({ outputFilePath: record.outputFilePath, replacedAt: new Date().toISOString() });
     await this.recordRepo.update(recordId, {

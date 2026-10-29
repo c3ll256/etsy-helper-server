@@ -461,7 +461,10 @@ export async function analyzeLine(line: LineDraft, ctx: PipelineContext, indexCa
       itemIndex: ui.itemIndex,
       component: ui.component,
       name,
-      icons: ((ui as any).slots as any[] | undefined)?.map((a) => ({ ...a.icon, position: a.icon.position, slot: a.slot })) || icons,
+      // 布局没有排成功时保留全部图标（不丢图），这一件进入待核对
+      icons: (ui as any).slots && (ui as any).slots.length === icons.length
+        ? ((ui as any).slots as any[]).map((a) => ({ ...a.icon, position: a.icon.position, slot: a.slot }))
+        : icons,
       colorRaw: parse.colorRaw,
       colorMapped: color.mapped,
       iconGroupId: groupId,
