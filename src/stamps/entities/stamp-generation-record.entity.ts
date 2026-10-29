@@ -77,6 +77,14 @@ export class StampGenerationRecord {
   @Column({ default: 'png' })
   format: string;
 
+  @ApiProperty({ description: '清理时间（文件已移到回收目录）', required: false })
+  @Column({ type: 'timestamptz', nullable: true })
+  cleanedAt?: Date | null;
+
+  @ApiProperty({ description: '清理后文件在回收目录中的路径', required: false })
+  @Column({ type: 'varchar', nullable: true })
+  trashPath?: string | null;
+
   @ApiProperty({ description: '创建时间' })
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

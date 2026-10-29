@@ -6,6 +6,7 @@ import { EtsyOrder } from '../entities/etsy-order.entity';
 import { OrderStampService } from '../../stamps/services/order-stamp.service';
 import { TemplateMatchService } from '../../stamps/services/template-match.service';
 import { StampTemplate } from '../../stamps/entities/stamp-template.entity';
+import { ICON_CODE_FIELD_ID } from '../../stamps/services/order-stamp.service';
 import { VariationParsingService } from './variation-parsing.service';
 import { JobQueueService } from '../../common/services/job-queue.service';
 import { RemoteAreaService } from 'src/common/services/remote-area.service';
@@ -134,6 +135,14 @@ export class OrderProcessingService {
       description: element.description,
       defaultValue: element.defaultValue,
     }));
+    // 模板有"按编号取图标"的文字时，让解析结果单独给出顾客写的图标编号（R3）
+    if ((template.textElements || []).some(element => element.icon?.mode === 'byCode')) {
+      descriptionParts.push({
+        id: ICON_CODE_FIELD_ID,
+        description: '顾客指定的图标编号，原样保留完整编号（如 A1、C10），不要拆开字母；多个用逗号分隔；没有写图标就留空',
+        defaultValue: '',
+      });
+    }
 
     const sections: string[] = [
       '字段定义(JSON 数组):',

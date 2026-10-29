@@ -10,6 +10,9 @@ import { ExcelService } from '../orders/services/excel.service';
 import { Order } from '../orders/entities/order.entity';
 import { EtsyOrder } from '../orders/entities/etsy-order.entity';
 import { OrdersModule } from '../orders/orders.module';
+import { StampGenerationRecord } from '../stamps/entities/stamp-generation-record.entity';
+import { AppSetting } from '../common/entities/app-setting.entity';
+import { RattleReviewService } from './rattle-review.service';
 
 @Module({
   imports: [
@@ -18,6 +21,8 @@ import { OrdersModule } from '../orders/orders.module';
       OrderUploadJobItem,
       Order,
       EtsyOrder,
+      StampGenerationRecord,
+      AppSetting,
     ]),
     MulterModule.register({
       storage: require('multer').memoryStorage(), // 使用内存存储而不是磁盘存储
@@ -39,6 +44,7 @@ import { OrdersModule } from '../orders/orders.module';
   controllers: [RattleController],
   providers: [
     RattleService,
+    RattleReviewService,
     OrderUploadJobService,
   ],
   exports: [RattleService],

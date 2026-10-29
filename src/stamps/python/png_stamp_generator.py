@@ -487,12 +487,11 @@ class PNGStampGenerator:
             allowed_icon_dir = os.path.join(os.getcwd(), 'uploads', 'icons')
             icon_path = validate_path(image_path, allowed_icon_dir)
         except ValueError as e:
-            logger.warning(f"Invalid icon path: {image_path} - {e}")
-            return None, 0, 0, 0, 'before', None
+            # 配了图标但路径不合法 / 文件丢失：整张图失败并提示，不输出缺图的结果（C6）
+            raise RuntimeError(f"图标路径无效：{image_path}")
 
         if not os.path.exists(icon_path):
-            logger.warning(f"Icon image not found at path: {icon_path}")
-            return None, 0, 0, 0, 'before', None
+            raise RuntimeError(f"图标文件缺失：{image_path}")
 
         try:
             icon_image = Image.open(icon_path).convert('RGBA')
@@ -524,7 +523,7 @@ class PNGStampGenerator:
             return icon_image, scaled_width, scaled_height, spacing, placement, rotation_override
         except Exception as error:
             logger.error(f"Failed to load icon image {icon_path}: {error}")
-            return None, 0, 0, 0, 'before', None
+            raise RuntimeError(f"图标文件无法读取：{image_path}（{error}）")
             
     def _register_temp_font(self, font_path):
         """
@@ -1058,6 +1057,26 @@ class PNGStampGenerator:
                     # 增加垂直偏移比例以避免底部切割
                     vertical_offset = max(4, int(scaled_font_size * 0.08))  # 增加从0.05到0.08
                     place_y -= vertical_offset
+
+                    # 水平文字带图标（R2）：图标和文字作为一组对齐，图标画在文字前或后，垂直居中
+                    if icon_image is not None and icon_width > 0:
+                        group_shift = icon_width + icon_spacing
+                        if text_align == 'center':
+                            place_x += group_shift / 2 if icon_placement != 'after' else -group_shift / 2
+                        elif text_align == 'right' and icon_placement == 'after':
+                            place_x -= group_shift
+                        elif text_align != 'right' and icon_placement != 'after':
+                            place_x += group_shift
+                        text_top, text_bottom = draw.textbbox((place_x, place_y), text, font=font)[1::2]
+                        icon_img = icon_image
+                        if icon_rotation is not None:
+                            icon_img = icon_image.rotate(-icon_rotation, expand=True, resample=Image.BICUBIC)
+                        if icon_placement == 'after':
+                            icon_x = place_x + text_width + icon_spacing
+                        else:
+                            icon_x = place_x - icon_spacing - icon_img.width
+                        icon_y = (text_top + text_bottom) / 2 - icon_img.height / 2
+                        img.paste(icon_img, (int(icon_x), int(icon_y)), icon_img)
                     
                     # 增加额外的垂直空间，特别是对于大字体
                     if scaled_font_size > 60:
@@ -1104,14 +1123,9 @@ class PNGStampGenerator:
                         self._draw_text_with_letter_spacing(draw, text, font, place_x, place_y, rgb_color, letter_spacing, stroke_width=stroke_width)
                 
         except Exception as e:
+            # 不再退回 Arial 静默出图（C7），交给上层报错
             logger.error(f"Error drawing text with PIL: {e}")
-            # Fallback to simple text rendering
-            try:
-                draw = ImageDraw.Draw(img)
-                default_font = self._get_pil_font('Arial', scaled_font_size)
-                draw.text((scaled_x, scaled_y), text, font=default_font, fill=rgb_color)
-            except Exception as fallback_error:
-                logger.error(f"Fallback text rendering failed: {fallback_error}")
+            raise
 
     def _draw_text_with_letter_spacing(self, draw, text, font, x, y, color, spacing, stroke_width=0):
         """Draw text with custom letter spacing"""
@@ -1922,7 +1936,9 @@ class PNGStampGenerator:
                     self._draw_text_with_pil(img, text, font_family, font_size, x, y, color_str, rotation, text_align, vert_align, original_text)
                     
                 except Exception as e:
+                    # 某个文字绘制失败时整张图失败并返回原因，不输出缺字的图
                     logger.error(f"Error drawing text element: {e}")
+                    raise RuntimeError(f"文字「{element.get('value', '')}」绘制失败：{e}")
             
             # 如果应用了缩放，考虑添加锐化处理以提高图像质量
             if self.scale_factor > 1.0:

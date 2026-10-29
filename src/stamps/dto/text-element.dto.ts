@@ -81,9 +81,20 @@ class PositionDto implements Position {
 }
 
 export class StampIconConfigDto implements StampIconConfig {
-  @ApiProperty({ description: 'Relative path to the icon image' })
+  @ApiProperty({ description: 'fixed：固定图标；byCode：按订单里的图标编号在图标组内取图', enum: ['fixed', 'byCode'], required: false })
+  @IsOptional()
+  @IsIn(['fixed', 'byCode'])
+  mode?: 'fixed' | 'byCode';
+
+  @ApiProperty({ description: 'byCode 模式使用的图标组（如 A、C）', required: false })
+  @IsOptional()
   @IsString()
-  imagePath: string;
+  groupCode?: string;
+
+  @ApiProperty({ description: 'Relative path to the icon image（fixed 模式必填）', required: false })
+  @IsString()
+  @IsOptional()
+  imagePath?: string;
 
   @ApiProperty({ description: 'Placement of the icon relative to the text', enum: ['before', 'after'], required: false, default: 'before' })
   @IsString()

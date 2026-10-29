@@ -69,8 +69,12 @@ export class RattleIconLibraryController {
     @Query('page') pageRaw?: string,
     @Query('limit') limitRaw?: string,
     @Query('search') search?: string,
+    @Query('groupCode') groupCode?: string,
   ) {
     const query: QueryRattleIconsDto = {};
+    if (groupCode) {
+      query.groupCode = groupCode;
+    }
 
     if (pageRaw !== undefined) {
       const page = Number(pageRaw);
@@ -293,6 +297,32 @@ export class RattleIconLibraryController {
       items: results,
       total: results.length,
     };
+  }
+
+  @Get('groups/:groupCode/check')
+  @ApiOperation({ summary: '核对图标组素材：按编号区间列出缺失、重复和区间外的编号' })
+  async checkGroup(
+    @Param('groupCode') groupCode: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.rattleIconLibraryService.checkGroup(groupCode, Number(from) || 1, Number(to) || 30);
+  }
+
+  @Post('assign-group')
+  @ApiOperation({ summary: '批量归入图标组；名称是数字的自动编号为 组+数字' })
+  async assignGroup(@Body() body: { ids: number[]; groupCode: string }, @CurrentUser() user: User) {
+    return this.rattleIconLibraryService.assignGroup(body?.ids || [], body?.groupCode, user);
+  }
+
+  @Patch(':id/code')
+  @ApiOperation({ summary: '设置图标的分组和完整编号' })
+  async setCode(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { groupCode?: string | null; code?: string | null },
+    @CurrentUser() user: User,
+  ) {
+    return this.rattleIconLibraryService.setCode(id, body || {}, user);
   }
 
   @Delete(':id')

@@ -92,7 +92,11 @@ export interface Position {
 }
 
 export interface StampIconConfig {
-  imagePath: string;
+  /** fixed：固定图标（imagePath）；byCode：按订单里的图标编号在图标组内取图（R3） */
+  mode?: 'fixed' | 'byCode';
+  /** byCode 时使用的图标组，如 A、C */
+  groupCode?: string;
+  imagePath?: string;
   placement?: 'before' | 'after';
   height?: number;
   spacing?: number;

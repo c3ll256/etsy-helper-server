@@ -75,8 +75,13 @@ export class VariationParsingService {
     } catch {
       fieldIds = [];
     }
+    const iconCodes = (personalization.match(/\b[A-Za-z]{1,2}\s*-?\s*\d{1,2}\b/g) || []).join(', ');
+    fieldIds = fieldIds.filter(id => id !== '__icon_code');
     const lines = personalization.split('\n').map(line => line.trim()).filter(Boolean);
     const group: Array<{ id: string; value: string }> = [];
+    if ((templateDescription || '').includes('__icon_code')) {
+      group.push({ id: '__icon_code', value: iconCodes });
+    }
     fieldIds.forEach((id, index) => {
       if (index < fieldIds.length - 1) {
         group.push({ id, value: lines[index] ?? '' });

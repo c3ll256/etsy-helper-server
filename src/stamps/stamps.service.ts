@@ -603,7 +603,10 @@ export class StampsService {
                     position: {
                       ...templateElement.position,
                     },
-                    icon: templateElement.icon ? { ...templateElement.icon } : undefined,
+                    // 按编号取图的图标沿用原记录里已解析出的素材
+                    icon: templateElement.icon?.mode === 'byCode'
+                      ? ((originalElement as any)?.icon?.imagePath ? { ...templateElement.icon, imagePath: (originalElement as any).icon.imagePath } : undefined)
+                      : (templateElement.icon ? { ...templateElement.icon } : undefined),
                   };
                 });
 

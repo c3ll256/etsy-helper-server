@@ -28,6 +28,14 @@ export class RattleIconAsset {
   @Column({ type: 'int', nullable: true, name: 'height' })
   height: number | null;
 
+  /** 图标组，如 A、C */
+  @Column({ type: 'varchar', length: 16, nullable: true, name: 'group_code' })
+  groupCode: string | null;
+
+  /** 完整编号，如 A1、C10；订单里写的就是这个编号 */
+  @Column({ type: 'varchar', length: 32, nullable: true, name: 'code' })
+  code: string | null;
+
   @Column({ type: 'boolean', default: true, name: 'is_active' })
   isActive: boolean;
 

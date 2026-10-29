@@ -18,4 +18,5 @@ export class QueryRattleIconsDto {
   @IsOptional()
   @IsString()
   search?: string;
+  groupCode?: string;
 }

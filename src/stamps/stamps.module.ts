@@ -18,6 +18,7 @@ import { Order } from '../orders/entities/order.entity';
 import { StampTemplateShare } from './entities/stamp-template-share.entity';
 import { OrderDesignBackup } from '../orders/entities/order-design-backup.entity';
 import { User } from '../users/entities/user.entity';
+import { RattleIconAsset } from '../rattle-icon-library/entities/rattle-icon-asset.entity';
 import { StampCategoriesModule } from '../stamp-categories/stamp-categories.module';
 import { TemplateMatchService } from './services/template-match.service';
 
@@ -29,7 +30,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StampTemplate, StampGenerationRecord, StampTemplateShare, Font, Order, OrderDesignBackup, User]),
+    TypeOrmModule.forFeature([StampTemplate, StampGenerationRecord, StampTemplateShare, Font, Order, OrderDesignBackup, User, RattleIconAsset]),
     CommonModule,
     StampCategoriesModule,
     forwardRef(() => OrdersModule),

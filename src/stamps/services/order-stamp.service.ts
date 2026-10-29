@@ -7,6 +7,16 @@ import { PythonStampService } from './python-stamp.service';
 import { StampTemplate, TextElement } from '../entities/stamp-template.entity';
 import { StampGenerationRecord } from '../entities/stamp-generation-record.entity';
 import { JobQueueService } from '../../common/services/job-queue.service';
+import { RattleIconAsset } from '../../rattle-icon-library/entities/rattle-icon-asset.entity';
+
+/** 解析结果里存放顾客图标编号的伪字段 */
+export const ICON_CODE_FIELD_ID = '__icon_code';
+
+/** 从顾客写的内容里取出完整图标编号：A1、C10、a-3 → A3；不拆字母 */
+export function extractIconCodes(raw: string | null | undefined): string[] {
+  const matches = String(raw ?? '').match(/\b[A-Za-z]{1,3}\s*-?\s*\d{1,3}\b/g) || [];
+  return matches.map(code => code.replace(/[\s-]/g, '').toUpperCase());
+}
 
 @Injectable()
 export class OrderStampService {
@@ -19,6 +29,8 @@ export class OrderStampService {
     private readonly stampTemplateRepository: Repository<StampTemplate>,
     @InjectRepository(StampGenerationRecord)
     private readonly stampGenerationRecordRepository: Repository<StampGenerationRecord>,
+    @InjectRepository(RattleIconAsset)
+    private readonly rattleIconRepository: Repository<RattleIconAsset>,
     private readonly jobQueueService: JobQueueService,
   ) {
     // 确保输出目录存在
@@ -43,6 +55,37 @@ export class OrderStampService {
 
   async findRecordById(recordId: number): Promise<StampGenerationRecord | null> {
     return this.stampGenerationRecordRepository.findOne({ where: { id: recordId } });
+  }
+
+  /**
+   * 按图标编号取图（R3 / C6）：只在模板指定的图标组内按完整编号查找。
+   * 编号无效、跨组、缺素材、一个位置写了多个编号时返回错误，不猜测、不静默跳过。
+   */
+  async resolveIconByCode(groupCode: string | undefined, rawCodes: string): Promise<{ imagePath?: string; code?: string; error?: string }> {
+    const codes = extractIconCodes(rawCodes);
+    if (codes.length === 0) {
+      return {};
+    }
+    if (codes.length > 1) {
+      return { error: `订单写了多个图标编号（${codes.join('、')}），模板这个位置只能放一个图标，请人工核对` };
+    }
+    const code = codes[0];
+    const group = (groupCode || '').trim().toUpperCase();
+    if (group && !code.startsWith(group)) {
+      return { error: `图标编号 ${code} 不属于模板绑定的图标组 ${group}，请核对` };
+    }
+    const asset = await this.rattleIconRepository
+      .createQueryBuilder('asset')
+      .where('UPPER(asset.code) = :code', { code })
+      .andWhere('asset.isActive = true')
+      .getOne();
+    if (!asset) {
+      return { error: `图标组 ${group || code.replace(/\d+$/, '')} 中没有编号 ${code} 的素材，请先在图标库补充或核对编号` };
+    }
+    if (group && (asset.groupCode || '').toUpperCase() !== group) {
+      return { error: `编号 ${code} 的素材属于图标组 ${asset.groupCode || '未分组'}，不是模板绑定的 ${group}` };
+    }
+    return { imagePath: asset.filePath, code };
   }
 
   /**
@@ -218,6 +261,18 @@ export class OrderStampService {
 
         this.logger.log(`Processing personalization object: ${JSON.stringify(personalizationObj)}`);
 
+        // 按编号取图标的文字元素，先把图标解析出来；有问题整单失败并说明原因
+        const resolvedIcons = new Map<string, string | undefined>();
+        for (const element of (template.textElements || []) as TextElement[]) {
+          if (element.id && element.icon?.mode === 'byCode') {
+            const resolved = await this.resolveIconByCode(element.icon.groupCode, personalizationObj[ICON_CODE_FIELD_ID] || '');
+            if (resolved.error) {
+              return { success: false, error: resolved.error };
+            }
+            resolvedIcons.set(element.id, resolved.imagePath);
+          }
+        }
+
         // 根据模板中的文本元素和个性化信息对象创建文本元素
         if (template.textElements && Array.isArray(template.textElements)) {
           textElements = template.textElements.map((element: TextElement) => {
@@ -256,8 +311,10 @@ export class OrderStampService {
               lastVariant: element.lastVariant,
               strokeWidth: element.strokeWidth,
               description: element.description,
-              // 模板上挂的图标（摇铃等）也要带上，否则批量生成的图会缺图标
-              icon: element.icon ? { ...element.icon } : undefined,
+              // 模板上挂的图标（摇铃等）也要带上，否则批量生成的图会缺图标；按编号取图的用解析出的素材
+              icon: element.icon?.mode === 'byCode'
+                ? (resolvedIcons.get(element.id) ? { ...element.icon, imagePath: resolvedIcons.get(element.id) } : undefined)
+                : (element.icon ? { ...element.icon } : undefined),
             };
           }).filter(Boolean);
         }
