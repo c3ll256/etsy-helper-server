@@ -258,7 +258,13 @@ function repeat(entry: any, raw: string, n: number): ParsedIcon[] {
 /** 一段文字可能是几个图标：13 and 23、1 & 7、F2 and Bow、strawberry and rabbit */
 function parseIconList(text: string, index: IconIndex): { icons: ParsedIcon[]; reasons: Reason[] } | null {
   const whole = parseIconToken(text, index);
-  if (whole) return whole;
+  if (whole && !whole.reasons.some((r) => r.code === 'icon_desc_mismatch')) return whole;
+  const split = parseIconPieces(text, index);
+  if (split) return split;
+  return whole;
+}
+
+function parseIconPieces(text: string, index: IconIndex): { icons: ParsedIcon[]; reasons: Reason[] } | null {
   const pieces = text.split(/\s+(?:and|und|et|y|e|plus)\s+|\s*[&+\/]\s*/i).map((p) => p.trim()).filter(Boolean);
   const spaced = pieces.length === 1 ? text.trim().split(/\s+/) : null;
   const candidates = pieces.length > 1 ? pieces : spaced && spaced.length > 1 ? spaced : null;
@@ -308,14 +314,19 @@ function classifyPart(partRaw: string, index: IconIndex, roleHint: 'name' | 'ico
   }
   if (NO_ICON.test(stripped.replace(/[!.,]+$/, '').trim())) return { kind: 'no_icon', text };
 
-  const roleName = /^(name|names|nom|vorname|nombre)\s*[:\-]\s*/i;
-  const roleIcon = /^(icons?|symbols?|designs?|design choices?|icon choices?)\s*[:\-#]?\s*/i;
+  const roleName = /^(name|names|nom|prénom|prenom|vorname|nombre|name on bag)\s*[:\-–]\s*/i;
+  const roleIcon = /^(icons?|symbols?|designs?|design choices?|icon choices?|flowers?)\s*[:\-#]\s*|^(icons?|symbols?)\s+/i;
+  // "Yarn: Cream" / "Color: pink"：颜色说明，记入备注，不当名字
+  if (/^(yarn|yarn colou?r|colou?r|couleur|farbe)\s*:/i.test(stripped)) {
+    return { kind: 'filler', text, reasons: [warning('color_note_in_personalization', `个性化里写了颜色说明 "${stripped}"，已保留原文，请核对`)] };
+  }
   let hint = roleHint;
   if (roleName.test(stripped)) {
     stripped = stripped.replace(roleName, '').trim();
     hint = 'name';
   } else if (roleIcon.test(stripped) && !/^(icons?|symbols?|designs?)\s*$/i.test(stripped)) {
     hint = 'icon';
+    if (/^flowers?\s*:/i.test(stripped)) stripped = stripped.replace(/^flowers?\s*:\s*/i, '');
   }
 
   if (hint !== 'name') {
@@ -334,7 +345,7 @@ function classifyPart(partRaw: string, index: IconIndex, roleHint: 'name' | 'ico
       return {
         kind: 'unknown',
         text,
-        reasons: [...reasons, blocking('icon_not_found', index.size ? `图标 "${cleaned}" 不在该 SKU 的图标组内` : `SKU 没有关联图标组，无法识别图标 "${cleaned}"`)],
+        reasons: [...reasons, index.size ? blocking('icon_not_found', `图标 "${cleaned}" 不在该 SKU 的图标组内`) : blocking('icon_group_missing', `SKU 没有关联图标组，无法识别图标 "${cleaned}"（配置问题）`, true)],
       };
     }
   }
@@ -344,7 +355,7 @@ function classifyPart(partRaw: string, index: IconIndex, roleHint: 'name' | 'ico
     return {
       kind: 'unknown',
       text,
-      reasons: [...reasons, blocking(index.size ? 'icon_not_found' : 'icon_group_missing', index.size ? `"${stripped}" 像图标编号，但不在该 SKU 的图标组内（不会拆成单个字母）` : `"${stripped}" 像图标编号，但 SKU 没有关联图标组`)],
+      reasons: [...reasons, index.size ? blocking('icon_not_found', `"${stripped}" 像图标编号，但不在该 SKU 的图标组内（不会拆成单个字母）`) : blocking('icon_group_missing', `"${stripped}" 像图标编号，但 SKU 没有关联图标组（配置问题）`, true)],
     };
   }
   // 名字：必须含字母；不能是纯数字
@@ -352,7 +363,7 @@ function classifyPart(partRaw: string, index: IconIndex, roleHint: 'name' | 'ico
     return {
       kind: 'unknown',
       text,
-      reasons: [...reasons, blocking(index.size ? 'icon_not_found' : 'icon_group_missing', index.size ? `"${stripped}" 不是名字，也不在图标组内` : `"${stripped}" 像是图标编号，但 SKU 没有关联图标组`)],
+      reasons: [...reasons, index.size ? blocking('icon_not_found', `"${stripped}" 不是名字，也不在图标组内`) : blocking('icon_group_missing', `"${stripped}" 像是图标编号，但 SKU 没有关联图标组（配置问题）`, true)],
     };
   }
   if (positionKey) {
@@ -365,12 +376,30 @@ function classifyPart(partRaw: string, index: IconIndex, roleHint: 'name' | 'ico
   if (POSITION_WORDS.test(stripped) && hint !== 'name') {
     return { kind: 'unknown', text, reasons: [...reasons, blocking('position_unknown', `"${stripped}" 含位置描述，无法自动识别`)] };
   }
+  // 名字后面直接跟带数字的完整编号（"Talia 22"、"Geordi D7"、"Andi F1 and K1"）：带数字的编号不可能是名字的一部分，拆开
+  if (words.length >= 2) {
+    for (let cut = 1; cut < words.length; cut++) {
+      const head = words.slice(0, cut).join(' ');
+      const tail = words.slice(cut).join(' ');
+      if (!/^[\p{L}][\p{L}.'’\- ]*$/u.test(head)) break;
+      const tailTokens = tail.split(/\s*(?:\band\b|&|,|\s)\s*/i).filter(Boolean);
+      if (!tailTokens.length || !tailTokens.every((t) => /\d/.test(t))) continue;
+      const parsed = parseIconPieces(tail, index) || parseIconToken(tail, index);
+      if (parsed && parsed.icons.length && !parsed.reasons.length) {
+        return { kind: 'name', text: trimNamePunct(head), icons: parsed.icons, reasons };
+      }
+    }
+  }
   // 名字末尾是单个字符的有效图标编号（例如 "Anayah K"）：可能是名字缩写，也可能是图标
   if (words.length >= 2) {
     const last = words[words.length - 1];
     if (last.length <= 2 && index.lookup(last).status === 'ok') {
       reasons.push(blocking('name_or_icon', `"${stripped}" 末尾的 "${last}" 可能是图标编号，也可能是名字的一部分，请核对`));
     }
+  }
+  // 名字里夹着数字（"Kaysan 22 lion"）：可能混入了图标编号，不当成名字直接做
+  if (/\d/.test(stripped)) {
+    reasons.push(blocking('name_has_digits', `"${stripped}" 含数字，可能混入了图标编号或说明，请核对`));
   }
   // 原文子串（去掉首尾标点）
   const name = trimNamePunct(stripped);
@@ -408,7 +437,17 @@ function splitSections(text: string): Segment[] {
 /** 单行里的编号分隔："1. Rayla, 1 2. Jack, 3" / "1st Annie C 2nd Tabitha C" */
 function splitEnumerated(line: string): string[] {
   const parts = line.split(/(?:^|\s+)(?=(?:\d{1,2}\s*[.)]|\d(?:st|nd|rd|th))\s+\S)/i).map((p) => p.trim()).filter(Boolean);
-  return parts.map((p) => p.replace(/^(?:\d{1,2}\s*[.)]|\d(?:st|nd|rd|th))\s*/i, '').trim()).filter(Boolean);
+  return parts
+    .map((p) => p.replace(/^(?:\d{1,2}\s*[.)]|\d(?:st|nd|rd|th)|\d{1,2}\s*[-–](?=\s*\S))\s*/i, '').trim())
+    .filter(Boolean)
+    .map(splitInlineIconMarker);
+}
+
+/** "Harper - icon A" / "Selah & icon A" / "Riley Icon- X" → "Harper, icon A"（"No icons" 不拆） */
+function splitInlineIconMarker(chunk: string): string {
+  return chunk.replace(/([\p{L}.'’-]+)\s*(?:[-–&+]|\band\b)?\s+(icons?|symbols?)\b\s*[:\-–]?\s*(?=\S)/giu, (m, word: string, marker: string) =>
+    /^(no|without|sans|ohne|kein|keine|just|only)$/i.test(word) ? m : `${word}, ${marker} `,
+  );
 }
 
 export interface FreeTextResult {
@@ -447,7 +486,7 @@ export function parseFreeText(text: string, index: IconIndex, roleHint: 'name' |
           switch (cls.kind) {
             case 'name': {
               namesInChunk++;
-              lineItem = { name: cls.text, icons: [], component: segment.header };
+              lineItem = { name: cls.text, icons: [...(cls.icons || [])], component: segment.header };
               items.push(lineItem);
               if (pendingIcons.length && items.length === 1) {
                 lineItem.icons.push(...pendingIcons);

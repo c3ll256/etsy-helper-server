@@ -246,6 +246,7 @@ export function categorize(reasons: Reason[]): string | null {
     position_not_in_template: 'icon_layout',
     position_name_after: 'icon_layout',
     icon_over_limit: 'icon_limit',
+    icon_group_missing: 'icon_config',
     generation_failed: 'generation_failed',
   };
   return map[b.code] || 'parse_review';
@@ -346,7 +347,10 @@ export async function analyzeLine(line: LineDraft, ctx: PipelineContext, indexCa
       if (items.length === 1 && q > 1) {
         mappingReasons.push(blocking('qty_name_mismatch', `Quantity=${q}，但只有 1 个名字 "${items[0].name ?? ''}"：不确定每件是否同名，不自动复制，请核对`));
       } else if (items.length > 0) {
-        mappingReasons.push(blocking('qty_name_mismatch', `Quantity=${q}，识别出 ${items.length} 组名字 / 图标（${items.map((i) => i.name ?? '(无名字)').join('、')}），无法逐件对应，请核对`));
+        const extra = q === 1 ? items.slice(1).filter((i) => i.name && !i.icons.length && !/\s/.test(i.name)) : [];
+        mappingReasons.push(blocking('qty_name_mismatch', extra.length === items.length - 1 && extra.length
+          ? `Quantity=1，"${items[0].name}" 后面的 ${extra.map((i) => `"${i.name}"`).join('、')} 不在该 SKU 的图标组里，也不能确定是名字，请核对（可在图标组补充别名）`
+          : `Quantity=${q}，识别出 ${items.length} 组名字 / 图标（${items.map((i) => i.name ?? '(无名字)').join('、')}），无法逐件对应，请核对`));
       }
     }
     for (let i = 0; i < q; i++) unitItems.push({ itemIndex: i + 1, component: null, item: mapped[i] });
@@ -449,7 +453,7 @@ export async function analyzeLine(line: LineDraft, ctx: PipelineContext, indexCa
     if (!nameLayout?.area) {
       unitWarnings.push(warning('area_unconfirmed', '该 SKU 的名字安全区域未配置（区域未确认），按默认区域测量'));
     } else if (!nameLayout.confirmed) {
-      unitWarnings.push(warning('area_unconfirmed', `名字区域来自${nameLayout.presetKey ? '附表预设 ' + nameLayout.presetKey : '手工配置'}，尚未标记为已确认`));
+      unitWarnings.push(warning('area_preset_unverified', `名字区域来自${nameLayout.presetKey ? '附表预设 ' + nameLayout.presetKey : '手工配置'}，SKU 与预设的对应尚未标记为已确认`));
     }
 
     const unit: ProductionUnit = {

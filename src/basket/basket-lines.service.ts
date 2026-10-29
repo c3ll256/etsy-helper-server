@@ -34,6 +34,7 @@ export const EXCEPTION_CATEGORY_LABELS: Record<string, string> = {
   icon_insert_failed: '图标插入失败（系统）',
   icon_layout: '图标位置待核对',
   icon_limit: '图标超过上限',
+  icon_config: 'SKU 未关联图标组（配置）',
   name_layout: '名字排版待核对',
   font_error: '字体异常（系统）',
   generation_failed: '生成失败（系统）',
