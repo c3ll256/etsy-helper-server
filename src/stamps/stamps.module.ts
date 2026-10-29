@@ -17,6 +17,8 @@ import { OrdersModule } from 'src/orders/orders.module';
 import { Order } from '../orders/entities/order.entity';
 import { StampTemplateShare } from './entities/stamp-template-share.entity';
 import { OrderDesignBackup } from '../orders/entities/order-design-backup.entity';
+import { User } from '../users/entities/user.entity';
+import { StampCategoriesModule } from '../stamp-categories/stamp-categories.module';
 import { TemplateMatchService } from './services/template-match.service';
 
 // Ensure uploads directory exists
@@ -27,8 +29,9 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StampTemplate, StampGenerationRecord, StampTemplateShare, Font, Order, OrderDesignBackup]),
+    TypeOrmModule.forFeature([StampTemplate, StampGenerationRecord, StampTemplateShare, Font, Order, OrderDesignBackup, User]),
     CommonModule,
+    StampCategoriesModule,
     forwardRef(() => OrdersModule),
     MulterModule.register({
       storage: diskStorage({

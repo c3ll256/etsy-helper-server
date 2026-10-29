@@ -11,6 +11,7 @@ import { BasketModule } from './basket/basket.module';
 import { RattleModule } from './rattle/rattle.module';
 import { RattleIconLibraryModule } from './rattle-icon-library/rattle-icon-library.module';
 import { SweaterModule } from './sweater/sweater.module';
+import { StampCategoriesModule } from './stamp-categories/stamp-categories.module';
 import * as dotenv from 'dotenv';
 dotenv.config({ override: true });
 
@@ -48,6 +49,7 @@ dotenv.config({ override: true });
     RattleModule,
     SweaterModule,
     RattleIconLibraryModule,
+    StampCategoriesModule,
   ],
 })
 export class AppModule {}

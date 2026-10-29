@@ -18,6 +18,9 @@ import { OrdersService } from '../orders/orders.service';
 import { Order } from '../orders/entities/order.entity';
 import { OrderMatchStatus, OrderStatus, UNRESOLVED_MATCH_STATUSES } from '../orders/enums/order.enum';
 import { OrderDesignBackup } from '../orders/entities/order-design-backup.entity';
+import { StampTemplateShare } from './entities/stamp-template-share.entity';
+import { StampCategoriesService } from '../stamp-categories/stamp-categories.service';
+import { User as UserEntity } from '../users/entities/user.entity';
 
 @Injectable()
 export class StampsService {
@@ -30,10 +33,15 @@ export class StampsService {
     private orderRepository: Repository<Order>,
     @InjectRepository(OrderDesignBackup)
     private orderDesignBackupRepository: Repository<OrderDesignBackup>,
+    @InjectRepository(StampTemplateShare)
+    private shareRepository: Repository<StampTemplateShare>,
+    @InjectRepository(UserEntity)
+    private userRepository: Repository<UserEntity>,
     private readonly pythonStampService: PythonStampService,
     private readonly jobQueueService: JobQueueService,
     @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
+    private readonly stampCategoriesService: StampCategoriesService,
   ) {
   }
 
@@ -45,7 +53,7 @@ export class StampsService {
   private async resolveTemplateSkus(
     skus: string[] | undefined,
     userId: string,
-    options?: { autoResolveConflicts?: boolean; excludeTemplateId?: number }
+    options?: { autoResolveConflicts?: boolean; excludeTemplateId?: number; allowMultipleRattle?: boolean }
   ): Promise<string[]> {
     const requestedSkus = (skus || []).map((sku) => sku?.trim()).filter(Boolean) as string[];
     const uniqueRequestedSkus = Array.from(new Set(requestedSkus));
@@ -54,9 +62,11 @@ export class StampsService {
       where: { userId }
     });
 
+    // 摇铃多模板模式（R1）：多模板模式的摇铃模板之间允许共用 SKU
     const occupiedSkus = new Set(
       templates
         .filter((template) => template.id !== options?.excludeTemplateId)
+        .filter((template) => !(options?.allowMultipleRattle && template.type === StampType.RATTLE && template.allowMultipleForSku))
         .flatMap((template) => Array.isArray(template.skus) ? template.skus : [])
         .filter(Boolean)
     );
@@ -118,8 +128,10 @@ export class StampsService {
     createStampTemplateDto: CreateStampTemplateDto,
     user: User
   ): Promise<StampTemplate> {
+    await this.stampCategoriesService.assertCodeExists(createStampTemplateDto.type);
     const resolvedSkus = await this.resolveTemplateSkus(createStampTemplateDto.skus, user.id as string, {
       autoResolveConflicts: createStampTemplateDto.autoResolveSkuConflicts,
+      allowMultipleRattle: createStampTemplateDto.type === StampType.RATTLE && !!createStampTemplateDto.allowMultipleForSku,
     });
 
     const templateData: Partial<StampTemplate> = {
@@ -154,7 +166,11 @@ export class StampsService {
     const queryBuilder = this.stampTemplateRepository.createQueryBuilder('template');
 
     if (!user.isAdmin) {
-      queryBuilder.andWhere('template.userId = :userId', { userId: user.id as string });
+      // 自己的模板 + 被授权使用的模板
+      queryBuilder.andWhere(
+        `(template.userId = :userId OR template.id IN (SELECT share."templateId" FROM stamp_template_shares share WHERE share."granteeUserId" = :userId))`,
+        { userId: user.id as string },
+      );
     }
 
     if (type) {
@@ -184,7 +200,7 @@ export class StampsService {
       .select([
           'template.id', 'template.name', 'template.skus', 'template.backgroundImagePath', 
           'template.width', 'template.height', 'template.textElements', 'template.description',
-          'template.type', 'template.previewImagePath', 'template.isActive', 'template.createdAt',
+          'template.type', 'template.previewImagePath', 'template.isActive', 'template.allowMultipleForSku', 'template.createdAt',
           'template.updatedAt', 'template.userId',
           'user.id', 'user.username'
       ]) 
@@ -217,14 +233,119 @@ export class StampsService {
     }
 
     if (!user.isAdmin && template.userId !== user.id) {
-      throw new ForbiddenException('You do not have permission to access this template');
+      const share = await this.shareRepository.findOne({ where: { templateId: id, granteeUserId: user.id as string } });
+      if (!share) {
+        throw new ForbiddenException('You do not have permission to access this template');
+      }
     }
     
     return template;
   }
 
+  /** 被授权账号只能查看和使用模板，不能修改、删除或管理授权 */
+  private assertCanEdit(template: StampTemplate, user: User): void {
+    if (!user.isAdmin && template.userId !== user.id) {
+      throw new ForbiddenException('这是其他账号授权给你使用的模板，只能查看和使用，不能修改；需要独立维护请先"复制模板"');
+    }
+  }
+
+  async listShares(templateId: number, user: User) {
+    const template = await this.findById(templateId, user);
+    this.assertCanEdit(template, user);
+    const shares = await this.shareRepository.find({ where: { templateId }, order: { createdAt: 'ASC' } });
+    const users = shares.length
+      ? await this.userRepository.find({ where: { id: In(shares.map(s => s.granteeUserId)) } })
+      : [];
+    return shares.map(share => ({
+      ...share,
+      granteeUsername: users.find(u => u.id === share.granteeUserId)?.username ?? null,
+    }));
+  }
+
+  /** 设置模板的被授权账号（整体替换） */
+  async setShares(templateId: number, granteeUserIds: string[], user: User) {
+    const template = await this.findById(templateId, user);
+    this.assertCanEdit(template, user);
+    const ids = Array.from(new Set((granteeUserIds || []).filter(id => id && id !== template.userId)));
+    await this.shareRepository.delete({ templateId });
+    if (ids.length) {
+      await this.shareRepository.save(ids.map(granteeUserId => this.shareRepository.create({
+        templateId,
+        granteeUserId,
+        permission: 'use',
+        createdBy: user.id as string,
+      })));
+    }
+    return this.listShares(templateId, user);
+  }
+
+  /**
+   * 批量授权：把某个账号的模板（可按类型筛选：stamp 印章 / rattle 摇铃）授权给其他账号使用。
+   * 普通账号只能授权自己的模板；管理员可以指定 ownerUserId。
+   * mode=grant 追加授权；mode=revoke 撤销这些模板对这些账号的授权。
+   */
+  async bulkShare(
+    params: { ownerUserId?: string; templateIds?: number[]; granteeUserIds: string[]; category?: 'stamp' | 'rattle' | 'all'; mode?: 'grant' | 'revoke' },
+    user: User,
+  ) {
+    const ownerUserId = user.isAdmin && params.ownerUserId ? params.ownerUserId : (user.id as string);
+    const qb = this.stampTemplateRepository.createQueryBuilder('template').where('template.userId = :ownerUserId', { ownerUserId });
+    if (params.templateIds?.length) {
+      qb.andWhere('template.id IN (:...templateIds)', { templateIds: params.templateIds });
+    }
+    if (params.category === 'rattle') {
+      qb.andWhere('template.type = :rattle', { rattle: StampType.RATTLE });
+    } else if (params.category === 'stamp') {
+      qb.andWhere('template.type != :rattle', { rattle: StampType.RATTLE });
+    }
+    const templates = await qb.getMany();
+    const granteeIds = Array.from(new Set((params.granteeUserIds || []).filter(id => id && id !== ownerUserId)));
+    if (!granteeIds.length) {
+      throw new BadRequestException('请选择被授权的账号');
+    }
+
+    let affected = 0;
+    for (const template of templates) {
+      for (const granteeUserId of granteeIds) {
+        if (params.mode === 'revoke') {
+          const result = await this.shareRepository.delete({ templateId: template.id, granteeUserId });
+          affected += result.affected || 0;
+        } else {
+          const exists = await this.shareRepository.findOne({ where: { templateId: template.id, granteeUserId } });
+          if (!exists) {
+            await this.shareRepository.save(this.shareRepository.create({
+              templateId: template.id,
+              granteeUserId,
+              permission: 'use',
+              createdBy: user.id as string,
+            }));
+            affected++;
+          }
+        }
+      }
+    }
+    return { templateCount: templates.length, granteeCount: granteeIds.length, affected, mode: params.mode || 'grant' };
+  }
+
+  /** 某账号被授权使用的模板数量（按授权来源账号汇总），用于账号管理页展示 */
+  async getShareSummaryForUser(granteeUserId: string) {
+    const rows = await this.shareRepository.createQueryBuilder('share')
+      .innerJoin('share.template', 'template')
+      .innerJoin('template.user', 'owner')
+      .select('owner.username', 'ownerUsername')
+      .addSelect('owner.id', 'ownerUserId')
+      .addSelect(`SUM(CASE WHEN template.type = 'rattle' THEN 1 ELSE 0 END)`, 'rattle')
+      .addSelect(`SUM(CASE WHEN template.type != 'rattle' THEN 1 ELSE 0 END)`, 'stamp')
+      .where('share.granteeUserId = :granteeUserId', { granteeUserId })
+      .groupBy('owner.id')
+      .addGroupBy('owner.username')
+      .getRawMany();
+    return rows.map(row => ({ ...row, rattle: Number(row.rattle), stamp: Number(row.stamp) }));
+  }
+
   async remove(id: number, user: User): Promise<void> {
     const template = await this.findById(id, user);
+    this.assertCanEdit(template, user);
     
     // 软删除：模板不再出现在列表和 SKU 匹配中，但历史订单的 templateId 和生成记录保持不变
     const deleteResult = await this.stampTemplateRepository.softDelete(template.id);
@@ -352,10 +473,18 @@ export class StampsService {
     user: User
   ): Promise<StampTemplate> {
     let template = await this.findById(id, user);
-    
+    this.assertCanEdit(template, user);
+    if (updateStampTemplateDto.type && updateStampTemplateDto.type !== template.type) {
+      await this.stampCategoriesService.assertCodeExists(updateStampTemplateDto.type);
+    }
+
     if (updateStampTemplateDto.skus) {
-      updateStampTemplateDto.skus = await this.resolveTemplateSkus(updateStampTemplateDto.skus, user.id as string, {
+      const nextType = updateStampTemplateDto.type ?? template.type;
+      const nextMulti = updateStampTemplateDto.allowMultipleForSku ?? template.allowMultipleForSku;
+      // SKU 唯一性按模板所有者检查（管理员改别人的模板时也一样）
+      updateStampTemplateDto.skus = await this.resolveTemplateSkus(updateStampTemplateDto.skus, template.userId, {
         excludeTemplateId: id,
+        allowMultipleRattle: nextType === StampType.RATTLE && !!nextMulti,
       });
     }
     

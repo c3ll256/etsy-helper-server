@@ -47,8 +47,9 @@ export class CreateStampTemplateDto {
   @IsOptional()
   description?: string;
 
-  @ApiProperty({ enum: StampType, description: 'Type of the stamp', default: StampType.RUBBER, required: false })
-  @IsEnum(StampType)
+  // 分类可在后台自行增删（S4），这里只要求是分类代码字符串，存在性在服务里校验
+  @ApiProperty({ description: 'Type (category code) of the stamp', default: StampType.RUBBER, required: false })
+  @IsString()
   @IsOptional()
   type?: StampType;
 
@@ -56,4 +57,9 @@ export class CreateStampTemplateDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @ApiProperty({ description: '摇铃多模板模式：允许同一 SKU 绑定多个摇铃模板，导入时由人工选择', required: false })
+  @IsBoolean()
+  @IsOptional()
+  allowMultipleForSku?: boolean;
 } 

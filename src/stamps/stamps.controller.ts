@@ -420,6 +420,40 @@ export class StampsController {
     }
   }
 
+  @Get('templates/:id/shares')
+  @ApiOperation({ summary: '模板的被授权账号' })
+  async listShares(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
+    return this.stampsService.listShares(id, user);
+  }
+
+  @Put('templates/:id/shares')
+  @ApiOperation({ summary: '设置模板的被授权账号（整体替换）；被授权账号可查看和使用，不能修改' })
+  async setShares(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { granteeUserIds: string[] },
+    @CurrentUser() user: User,
+  ) {
+    return this.stampsService.setShares(id, body?.granteeUserIds || [], user);
+  }
+
+  @Post('templates/shares/bulk')
+  @ApiOperation({ summary: '批量授权 / 撤销：把某账号的模板（可按印章 / 摇铃筛选）授权给其他账号' })
+  async bulkShare(
+    @Body() body: { ownerUserId?: string; templateIds?: number[]; granteeUserIds: string[]; category?: 'stamp' | 'rattle' | 'all'; mode?: 'grant' | 'revoke' },
+    @CurrentUser() user: User,
+  ) {
+    return this.stampsService.bulkShare(body, user);
+  }
+
+  @Get('shares/summary/:userId')
+  @ApiOperation({ summary: '（管理员）某账号被授权使用的模板数量' })
+  async shareSummary(@Param('userId') userId: string, @CurrentUser() user: User) {
+    if (!user.isAdmin && user.id !== userId) {
+      throw new ForbiddenException('无权查看');
+    }
+    return this.stampsService.getShareSummaryForUser(userId);
+  }
+
   @Post('templates/clone')
   @ApiOperation({ summary: '克隆现有印章模板' })
   @ApiResponse({ status: 201, description: '印章模板克隆成功' })
