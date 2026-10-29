@@ -703,6 +703,10 @@ export class OrdersController {
   ): Promise<any> {
     try {
       const result = await this.ordersService.updateOrderStamp(id, updateStampDto, user);
+      // 服务层拒绝（如模板未解决、字体缺失）时要把原因返回，不能报成功
+      if (!result.success) {
+        throw new Error(result.error || '生成失败');
+      }
       
       return {
         success: true,
