@@ -93,7 +93,7 @@ export async function validateImageFile(filePath: string): Promise<{ mime: strin
  * @param filePath 文件路径
  * @returns 文件类型信息
  */
-export async function validateFontFile(filePath: string): Promise<{ mime: string; ext: string }> {
+export async function validateFontFile(filePath: string, options: { allowCollection?: boolean } = {}): Promise<{ mime: string; ext: string }> {
   // 先看 sfnt 头：file-type 不认 Apple 的 'true' / 'typ1' 头，TTC 需要单独提示
   const header = Buffer.alloc(4);
   const fd = fs.openSync(filePath, 'r');
@@ -104,7 +104,10 @@ export async function validateFontFile(filePath: string): Promise<{ mime: string
   }
   const tag = header.toString('latin1');
   if (tag === 'ttcf') {
-    throw new BadRequestException('这是字体集合文件（TTC），暂不支持，请上传单个字体文件');
+    if (options.allowCollection) {
+      return { mime: 'font/collection', ext: 'ttc' };
+    }
+    throw new BadRequestException('这是字体集合文件（TTC），请以 .ttc 扩展名上传，系统会自动拆分为单个字体');
   }
   if (tag === 'true' || tag === 'typ1') {
     return { mime: 'font/ttf', ext: 'ttf' };

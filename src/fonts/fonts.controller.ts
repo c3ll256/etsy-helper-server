@@ -1,4 +1,5 @@
 import { 
+  Put,
   Controller, 
   Get, 
   Post, 
@@ -26,7 +27,8 @@ import { CreateFontDto } from './dto/create-font.dto';
 import { validateFontFile } from '../common/utils/file-validator.util';
 
 const UPLOADS_DIR = 'uploads/fonts';
-const ALLOWED_FONT_EXTENSIONS = ['.ttf', '.otf', '.woff', '.woff2'];
+// .ttc / .otc 字体集合上传后自动拆分为单个字体
+const ALLOWED_FONT_EXTENSIONS = ['.ttf', '.otf', '.woff', '.woff2', '.ttc', '.otc'];
 // 中文全字库通常超过 10MB，上限可通过 FONT_MAX_FILE_SIZE_MB 调整（反向代理的上传上限需同步放开）
 const FONT_MAX_FILE_SIZE_MB = Number(process.env.FONT_MAX_FILE_SIZE_MB) || 50;
 
@@ -127,11 +129,9 @@ export class FontsController {
         const ext = path.extname(file.originalname).toLowerCase();
         if (ALLOWED_FONT_EXTENSIONS.includes(ext)) {
           cb(null, true);
-        } else if (ext === '.ttc' || ext === '.otc') {
-          cb(new BadRequestException(`暂不支持字体集合文件（${ext}），请上传单个字体文件（.ttf / .otf / .woff / .woff2）`), false);
         } else {
           cb(new BadRequestException(
-            `文件扩展名 "${ext || '无'}" 不支持。只允许 .ttf / .otf / .woff / .woff2；` +
+            `文件扩展名 "${ext || '无'}" 不支持。只允许 .ttf / .otf / .woff / .woff2 / .ttc / .otc；` +
             `如果文件名里带版本号（如 KaiXinSong2.1），请确认文件名以字体扩展名结尾`
           ), false);
         }
@@ -154,8 +154,9 @@ export class FontsController {
     }
     
     // SECURITY: 验证文件的实际内容类型，只允许字体文件
+    let detected: { mime: string; ext: string };
     try {
-      await validateFontFile(file.path);
+      detected = await validateFontFile(file.path, { allowCollection: true });
     } catch (error) {
       // 删除已上传的文件
       if (fs.existsSync(file.path)) {
@@ -166,6 +167,13 @@ export class FontsController {
       );
     }
     
+    await this.fontsService.assertNameAvailable(name);
+
+    // 字体集合：拆成单个字体，第一个字体用填写的名称，其余加上字重 / 样式名
+    if (detected.ext === 'ttc') {
+      return this.fontsService.createFromCollection(file, name, description);
+    }
+
     // 创建 DTO 对象
     const createFontDto = new CreateFontDto();
     createFontDto.name = name;
@@ -174,6 +182,43 @@ export class FontsController {
     createFontDto.description = description;
     
     return this.fontsService.create(createFontDto, file);
+  }
+
+  @Put(':id/file')
+  @ApiOperation({ summary: '更换字体文件（名称不变，引用该字体名的模板自动使用新文件）' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: UPLOADS_DIR,
+        filename: (req, file, cb) => {
+          const sanitizedExt = sanitizeExtension(file.originalname);
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          cb(null, `font-${uniqueSuffix}.${sanitizedExt}`);
+        },
+      }),
+      limits: { fileSize: FONT_MAX_FILE_SIZE_MB * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (['.ttf', '.otf', '.woff', '.woff2'].includes(ext)) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException(`更换文件只支持单个字体（.ttf / .otf / .woff / .woff2），当前为 "${ext || '无'}"`), false);
+        }
+      },
+    }),
+  )
+  async replaceFontFile(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Font file is required');
+    }
+    try {
+      await validateFontFile(file.path);
+    } catch (error) {
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      throw new BadRequestException(error.message || '文件类型验证失败，只允许上传字体文件');
+    }
+    return this.fontsService.replaceFile(+id, file);
   }
 
   @Get()

@@ -1,3 +1,5 @@
+import * as path from 'path';
+import { FontToolsService } from './font-tools.service';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -26,6 +28,7 @@ export class FontsService {
     private fontRepository: Repository<Font>,
     @InjectRepository(StampTemplate)
     private stampTemplateRepository: Repository<StampTemplate>,
+    private readonly fontToolsService: FontToolsService,
   ) {}
 
   async create(createFontDto: CreateFontDto, file: Express.Multer.File): Promise<Font> {
@@ -49,12 +52,59 @@ export class FontsService {
     return this.fontRepository.save(font);
   }
 
-  async findAll(): Promise<Font[]> {
-    return this.fontRepository.find({
+  async findAll(): Promise<Array<Font & { fileMissing: boolean }>> {
+    const fonts = await this.fontRepository.find({
       order: {
         createdAt: 'DESC',
       },
     });
+    // 文件已丢失的字体单独标出：生成时会报"字体缺失"，需要用"更换文件"补上
+    return fonts.map(font => ({ ...font, fileMissing: !font.filePath || !fs.existsSync(font.filePath) }));
+  }
+
+  async assertNameAvailable(name: string): Promise<void> {
+    const existing = await this.fontRepository.findOne({ where: { name } });
+    if (existing) {
+      throw new BadRequestException(`字体名称「${name}」已存在。要替换它的文件请在字体列表里点"更换文件"，模板会自动使用新文件`);
+    }
+  }
+
+  /** TTC / OTC 字体集合：拆成单个字体分别建记录；第一个用填写的名称，其余为"名称-样式名" */
+  async createFromCollection(file: Express.Multer.File, name: string, description?: string): Promise<Font[]> {
+    const prefix = path.basename(file.filename, path.extname(file.filename));
+    let faces;
+    try {
+      faces = await this.fontToolsService.splitCollection(file.path, path.dirname(file.path), prefix);
+    } catch (error) {
+      throw new BadRequestException(`字体集合拆分失败：${error.message}`);
+    } finally {
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+    }
+
+    const created: Font[] = [];
+    for (const face of faces) {
+      const faceName = face.index === 0 ? name : `${name}-${face.subfamily || face.index}`;
+      const exists = await this.fontRepository.findOne({ where: { name: faceName } });
+      const finalName = exists ? `${faceName}-${face.index}` : faceName;
+      const font = new Font();
+      font.name = finalName;
+      font.filename = face.filename;
+      font.filePath = path.join(path.dirname(file.path), face.filename);
+      font.fontWeight = (face.subfamily || 'regular').toLowerCase();
+      font.description = [description, `来自字体集合 ${file.originalname} 第 ${(face.index ?? 0) + 1} 个字体（${face.fullName || face.family || ''}）`]
+        .filter(Boolean)
+        .join('；');
+      created.push(await this.fontRepository.save(font));
+    }
+    return created;
+  }
+
+  /** 更换字体文件，名称不变；旧文件保留在磁盘上不删除 */
+  async replaceFile(id: number, file: Express.Multer.File): Promise<Font> {
+    const font = await this.findOne(id);
+    font.filename = file.filename;
+    font.filePath = file.path;
+    return this.fontRepository.save(font);
   }
 
   async findAllByStatus(isActive: boolean): Promise<Font[]> {

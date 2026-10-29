@@ -132,7 +132,9 @@ export class PythonStampService {
         textElements,
         convertTextToPaths,
         debug,
-        fontMapping
+        fontMapping,
+        // 字体缺失 / 缺字时不出图并返回原因（C7）；FONT_CHECK_MODE=off 可临时关闭
+        fontCheckMode: process.env.FONT_CHECK_MODE || 'strict',
       };
 
       // Spawn Python process
@@ -221,7 +223,9 @@ export class PythonStampService {
         convertTextToPaths,
         filename,
         debug,
-        fontMapping
+        fontMapping,
+        // 字体缺失 / 缺字时不出图并返回原因（C7）；FONT_CHECK_MODE=off 可临时关闭
+        fontCheckMode: process.env.FONT_CHECK_MODE || 'strict',
       };
 
       // Spawn Python process

@@ -66,6 +66,15 @@ def validate_path(user_path, allowed_base_dir):
     
     return str(user_path_obj)
 
+def open_ttfont(font_path, **kwargs):
+    """打开字体文件；TTC 字体集合取第一个字体（否则 fontTools 会要求指定 fontNumber）"""
+    with open(font_path, 'rb') as f:
+        is_collection = f.read(4) == b'ttcf'
+    if is_collection:
+        kwargs.setdefault('fontNumber', 0)
+    return TTFont(font_path, **kwargs)
+
+
 class PNGStampGenerator:
     def __init__(self, data):
         self.data = data
@@ -230,10 +239,10 @@ class PNGStampGenerator:
 
             # 加载字体
             try:
-                font = TTFont(font_path, lazy=False)
+                font = open_ttfont(font_path, lazy=False)
             except Exception as e:
                 try:
-                    font = TTFont(font_path)
+                    font = open_ttfont(font_path)
                 except Exception as e:
                     logger.error(f"Error opening font: {e}")
                     return False, None
@@ -452,7 +461,7 @@ class PNGStampGenerator:
                 return output_path
                 
             # 使用fontTools创建指定实例
-            font = TTFont(font_path)
+            font = open_ttfont(font_path)
             instance_font = instancer.instantiateVariableFont(font, axis_values)
             instance_font.save(output_path)
             
@@ -1559,7 +1568,7 @@ class PNGStampGenerator:
         """分析字体的变体（字型）信息"""
         try:
             # 使用 fontTools 加载字体
-            tt = TTFont(font_path)
+            tt = open_ttfont(font_path)
             glyph_set = tt.getGlyphOrder()
             
             # 创建字形名称到索引的映射
@@ -1618,7 +1627,7 @@ class PNGStampGenerator:
             height = metrics.height / 64
             
             # 加载字体以获取字形映射
-            tt = TTFont(font_path)
+            tt = open_ttfont(font_path)
             glyph_set = tt.getGlyphOrder()
             glyph_name_to_index = {name: i for i, name in enumerate(glyph_set)}
             
@@ -1771,9 +1780,67 @@ class PNGStampGenerator:
             logger.error(f"Error rendering text with variants: {e}")
             return None
 
+    def _resolve_font_exact(self, font_family):
+        """只按字体名精确（不区分大小写）查找，不做任何替代"""
+        if not font_family:
+            return None
+        if font_family in self.font_map:
+            return self.font_map[font_family]
+        for name in self.font_map:
+            if name.lower() == font_family.lower():
+                return self.font_map[name]
+        return None
+
+    def check_fonts(self):
+        """
+        出图前检查字体（C7）：字体文件缺失、或字体里缺少要渲染的字符时返回问题列表。
+        生成时会被替换成默认字体或跳过缺字，这里提前发现，不静默替换。
+        """
+        problems = []
+        cmap_cache = {}
+        for element in self.text_elements:
+            text = element.get('value', '')
+            if not text:
+                continue
+            text = html.unescape(text)
+            if element.get('isUppercase', False):
+                text = text.upper()
+            template_element = next((t for t in self.template.get('textElements', [])
+                                     if t.get('id') == element.get('id')), {})
+            font_family = element.get('fontFamily') or template_element.get('fontFamily') or ''
+            info = self._resolve_font_exact(font_family)
+            if not info or not info.get('path') or not os.path.exists(info['path']):
+                problems.append(f"字体「{font_family or '未设置'}」缺失（未上传或字体文件已丢失），文字「{text}」无法按原字体输出")
+                continue
+            path = info['path']
+            if path not in cmap_cache:
+                try:
+                    cmap_cache[path] = set(open_ttfont(path, lazy=True).getBestCmap() or {})
+                except Exception as e:
+                    problems.append(f"字体「{font_family}」无法读取：{e}")
+                    cmap_cache[path] = None
+                    continue
+            cmap = cmap_cache[path]
+            if cmap is None:
+                continue
+            missing = []
+            for ch in text:
+                if ch.isspace() or ord(ch) in cmap or ch in missing:
+                    continue
+                missing.append(ch)
+            if missing:
+                problems.append(f"字体「{font_family}」缺少字符：{' '.join(missing)}（文字「{text}」）")
+        return problems
+
     def generate(self):
         """Generate the stamp in PNG format"""
         try:
+            # 字体缺失或缺字时不出图，返回具体原因（FONT_CHECK_MODE=off 时跳过检查）
+            if self.data.get('fontCheckMode', 'strict') != 'off':
+                font_problems = self.check_fonts()
+                if font_problems:
+                    return None, '字体检查未通过：' + '；'.join(font_problems), None
+
             # Create a transparent base image
             img = self._create_transparent_image()
             

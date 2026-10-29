@@ -7,6 +7,7 @@ import * as fs from 'fs';
 
 import { FontsController } from './fonts.controller';
 import { FontsService } from './fonts.service';
+import { FontToolsService } from './font-tools.service';
 import { Font } from './entities/font.entity';
 import { StampTemplate } from '../stamps/entities/stamp-template.entity';
 
@@ -33,7 +34,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
     }),
   ],
   controllers: [FontsController],
-  providers: [FontsService],
+  providers: [FontsService, FontToolsService],
   exports: [FontsService, TypeOrmModule.forFeature([Font])],
 })
 export class FontsModule {} 
