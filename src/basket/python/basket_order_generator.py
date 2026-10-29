@@ -266,31 +266,38 @@ def create_basket_order_slide(prs, order_data):
     value_text = value_box.text_frame
     value_text.word_wrap = True
     value_p = value_text.paragraphs[0]
-    value_p.text = order_data.get('customName', '')
     value_p.alignment = PP_ALIGN.CENTER
-    value_p.font.color.rgb = RGBColor(0, 0, 0)
-    
-    # 使用配置的字体
-    if 'font' in order_data and order_data['font']:
-        value_p.font.name = order_data['font']
-    
-    # 使用配置的字体大小，如果没有配置则使用自适应大小
-    if 'fontSize' in order_data and order_data['fontSize'] is not None:
-        value_p.font.size = Pt(order_data['fontSize'])
+
+    if order_data.get('parseError'):
+        # 变量解析失败：不猜名字，醒目提示按原始变量人工核对
+        value_p.text = '⚠️ 变量解析失败，请按左上原始变量人工核对'
+        value_p.font.size = Pt(40)
+        value_p.font.color.rgb = RGBColor(255, 0, 0)
     else:
-        # 精确计算字体大小，根据文本长度和幻灯片宽度自适应
-        text_len = len(value_p.text)
-        
-        # 计算公式：基础字体大小 * 调整系数 / 文本长度的平方根
-        # 基础大小设为140点，这样短文本会很大，长文本会适当缩小
-        # 使用文本长度的平方根而不是线性关系，使得字体大小变化更平滑
-        base_size = 140
-        adjustment_factor = 3  # 调整系数，可以微调效果
-        
-        # 计算字体大小，对于非常短的文本设置上限，对于超长文本设置下限
-        font_size = min(180, max(120, int(base_size * adjustment_factor / (text_len ** 0.5))))
-        
-        value_p.font.size = Pt(font_size)
+        value_p.text = order_data.get('customName', '')
+        value_p.font.color.rgb = RGBColor(0, 0, 0)
+
+        # 使用配置的字体
+        if 'font' in order_data and order_data['font']:
+            value_p.font.name = order_data['font']
+
+        # 使用配置的字体大小，如果没有配置则使用自适应大小
+        if 'fontSize' in order_data and order_data['fontSize'] is not None:
+            value_p.font.size = Pt(order_data['fontSize'])
+        else:
+            # 精确计算字体大小，根据文本长度和幻灯片宽度自适应
+            text_len = len(value_p.text)
+
+            # 计算公式：基础字体大小 * 调整系数 / 文本长度的平方根
+            # 基础大小设为140点，这样短文本会很大，长文本会适当缩小
+            # 使用文本长度的平方根而不是线性关系，使得字体大小变化更平滑
+            base_size = 140
+            adjustment_factor = 3  # 调整系数，可以微调效果
+
+            # 计算字体大小，对于非常短的文本设置上限，对于超长文本设置下限
+            font_size = min(180, max(120, int(base_size * adjustment_factor / (text_len ** 0.5))))
+
+            value_p.font.size = Pt(font_size)
     
     # ----- BOTTOM SECTION -----
     # Generate and add QR code for order ID in bottom right corner

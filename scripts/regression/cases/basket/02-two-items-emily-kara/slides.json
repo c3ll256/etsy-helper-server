@@ -1,0 +1,4 @@
+[
+  {"orderNumber": "3000000002", "sku": "Bag-Blue", "color": "蓝色", "icon": "", "customName": "Emily", "recipientName": "Jane Doe", "quantity": 2, "shopName": "TestShop", "originalVariations": "PersonalizationEmily, Kara", "datePaid": "2026年10月25日", "position": "1/2", "orderType": "maternal_baby", "groupIconFilePaths": []},
+  {"orderNumber": "3000000002", "sku": "Bag-Blue", "color": "蓝色", "icon": "", "customName": "Kara", "recipientName": "Jane Doe", "quantity": 2, "shopName": "TestShop", "originalVariations": "PersonalizationEmily, Kara", "datePaid": "2026年10月25日", "position": "2/2", "orderType": "maternal_baby", "groupIconFilePaths": []}
+]

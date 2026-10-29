@@ -678,7 +678,8 @@ export class OrdersController {
     // First verify if the user has access to the record
     const record = await this.stampGenerationRecordRepository.findOne({
       where: { id: +recordId },
-      relations: ['template']
+      relations: ['template'],
+      withDeleted: true, // 模板软删除后，历史记录仍需展示模板信息
     });
     
     if (!record) {

@@ -94,7 +94,29 @@ export async function validateImageFile(filePath: string): Promise<{ mime: strin
  * @returns 文件类型信息
  */
 export async function validateFontFile(filePath: string): Promise<{ mime: string; ext: string }> {
-  return validateFileType(filePath, ALLOWED_FONT_MIMES);
+  // 先看 sfnt 头：file-type 不认 Apple 的 'true' / 'typ1' 头，TTC 需要单独提示
+  const header = Buffer.alloc(4);
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    fs.readSync(fd, header, 0, 4, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  const tag = header.toString('latin1');
+  if (tag === 'ttcf') {
+    throw new BadRequestException('这是字体集合文件（TTC），暂不支持，请上传单个字体文件');
+  }
+  if (tag === 'true' || tag === 'typ1') {
+    return { mime: 'font/ttf', ext: 'ttf' };
+  }
+
+  try {
+    return await validateFileType(filePath, ALLOWED_FONT_MIMES);
+  } catch (error) {
+    throw new BadRequestException(
+      `不是可识别的字体文件（文件头 ${header.toString('hex')}）：${error.message}`
+    );
+  }
 }
 
 /**

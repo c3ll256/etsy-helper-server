@@ -445,12 +445,12 @@ export class StampsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() updateStampTemplateDto: UpdateStampTemplateDto,
     @CurrentUser() user: User,
-    @Query('regenerateOrders') regenerateOrders?: boolean
+    @Query('regenerateOrders') regenerateOrders?: string
   ) {
     const updatedTemplate = await this.stampsService.update(id, updateStampTemplateDto, user);
 
-    // 如果指定了需要重新生成订单，创建一个异步任务
-    if (regenerateOrders) {
+    // 如果指定了需要重新生成订单，创建一个异步任务（query 参数是字符串，"false" 不能当成 true）
+    if (regenerateOrders === 'true') {
       const jobId = this.jobQueueService.createJob(user.id as string);
       
       // 启动异步处理

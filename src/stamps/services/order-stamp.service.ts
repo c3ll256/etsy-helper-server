@@ -256,6 +256,8 @@ export class OrderStampService {
               lastVariant: element.lastVariant,
               strokeWidth: element.strokeWidth,
               description: element.description,
+              // 模板上挂的图标（摇铃等）也要带上，否则批量生成的图会缺图标
+              icon: element.icon ? { ...element.icon } : undefined,
             };
           }).filter(Boolean);
         }

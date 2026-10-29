@@ -48,9 +48,9 @@ export class BasketGenerationRecord {
   @Column('text', { array: true, default: [] })
   skus: string[];
 
-  @ApiProperty({ description: '订单类型', enum: ['basket', 'backpack', 'all'], default: 'basket' })
+  @ApiProperty({ description: '上传时选择的订单类型：all 或 SKU 类型（maternal_baby / combo / sweater）；旧记录可能为 basket / backpack', default: 'all' })
   @Column({ default: 'basket' })
-  orderType: 'basket' | 'backpack' | 'all';
+  orderType: string;
 
   @ApiProperty({ description: '创建用户ID' })
   @Column({ nullable: true })

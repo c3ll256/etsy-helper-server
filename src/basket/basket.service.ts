@@ -17,7 +17,7 @@ import { User } from '../users/entities/user.entity';
 import { BasketPaginationDto } from './dto/basket-pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { JobQueueService } from '../common/services/job-queue.service';
-import { SkuConfig } from './entities/sku-config.entity';
+import { SkuConfig, SkuType } from './entities/sku-config.entity';
 import { CreateSkuConfigDto, BatchUpdateSkuConfigItemDto } from './dto/sku-config.dto';
 import { AliyunService } from 'src/common/services/aliyun.service';
 import { RemoteAreaService } from 'src/common/services/remote-area.service';
@@ -50,6 +50,8 @@ interface ParsedVariation {
   design?: string;
   originalText?: string;
   iconFilePath?: string;
+  /** LLM 解析失败：名字留空，页面上提示人工核对 */
+  parseError?: boolean;
 }
 
 interface ResolvedComboOverride {
@@ -102,6 +104,16 @@ class JobCancelledError extends Error {
   }
 }
 
+/** 上传时选择的订单类型：all 或某个 SKU 配置类型 */
+export type BasketUploadOrderType = 'all' | SkuType;
+
+const ORDER_TYPE_LABELS: Record<BasketUploadOrderType, string> = {
+  all: '所有类型',
+  [SkuType.MATERNAL_BABY]: '母婴单品',
+  [SkuType.COMBO]: '组合',
+  [SkuType.SWEATER]: '毛衣',
+};
+
 @Injectable()
 export class BasketService {
   private readonly logger = new Logger(BasketService.name);
@@ -147,7 +159,7 @@ export class BasketService {
     file: Express.Multer.File, 
     user: User,
     originalFilename?: string,
-    orderType: 'basket' | 'backpack' | 'all' = 'basket'
+    orderType: BasketUploadOrderType = 'all'
   ): Promise<BasketGenerationResponseDto> {
     const allowAdminGlobalSkuMatch = user.isAdmin && this.isAdminGlobalSkuMatchEnabled();
 
@@ -158,7 +170,10 @@ export class BasketService {
     };
 
     // Filter configs by type if orderType is specific
-    if (orderType === 'basket' || orderType === 'backpack') {
+    if (orderType !== 'all') {
+      if (!Object.values(SkuType).includes(orderType)) {
+        throw new BadRequestException(`不支持的订单类型 '${orderType}'`);
+      }
       findOptions.where.type = orderType;
     }
     
@@ -930,13 +945,27 @@ export class BasketService {
   private determineOrderType(sku: string, skuConfigs: SkuConfig[]): 'basket' | 'backpack' | 'combo' | undefined {
     if (!sku) return undefined;
     
-    // 使用模糊匹配，只要配置的 SKU 是订单 SKU 的一部分就匹配
-    const matchingConfig = skuConfigs.find(config => sku.includes(config.sku));
+    const matchingConfig = this.findSkuConfig(sku, skuConfigs);
     if (matchingConfig) {
       return matchingConfig.type as any;
     }
     
     return undefined;
+  }
+
+  /**
+   * 为订单 SKU 找对应的 SKU 配置：完全相同的优先；否则取被订单 SKU 包含的最长配置 SKU。
+   * 之前按创建时间取第一个包含命中，相似 SKU（如 Bag-Pink1 / Bag-Pink1(I)）会配错。
+   * TODO(v2 M2)：改为只做完整 SKU 精确匹配，未匹配进入待处理。
+   */
+  private findSkuConfig(sku: string, skuConfigs: SkuConfig[]): SkuConfig | undefined {
+    if (!sku) return undefined;
+    const orderSku = sku.trim();
+    const exact = skuConfigs.find(config => (config.sku || '').trim() === orderSku);
+    if (exact) return exact;
+    return skuConfigs
+      .filter(config => config.sku && orderSku.includes(config.sku))
+      .sort((a, b) => b.sku.length - a.sku.length)[0];
   }
 
   /**
@@ -998,7 +1027,7 @@ export class BasketService {
           const analyzedVariations = await this.analyzeVariations(variations, orderType);
           
           // Find matching SKU config for replacement value and font size
-          const skuConfig = skuConfigs.find(config => skuRaw.includes(config.sku));
+          const skuConfig = this.findSkuConfig(skuRaw, skuConfigs);
 
           const baseColorMap = await this.resolveColorMapForSkuConfig(skuConfig, colorGroupCache);
           const baseIconMap = await this.resolveIconMapForSkuConfig(skuConfig, iconGroupCache);
@@ -1392,7 +1421,7 @@ export class BasketService {
     file: Express.Multer.File, 
     jobId: string,
     skuConfigs: SkuConfig[],
-    orderType: 'basket' | 'backpack' | 'all' | 'combo'
+    orderType: BasketUploadOrderType
   ): Promise<void> {
     // Declare file paths outside the try block so they're available in catch block
     let modifiedExcelPath: string | null = null; // 导出的Excel文件路径
@@ -1451,18 +1480,7 @@ export class BasketService {
 
       // Check if any orders were found
       if (filteredOrders.length === 0) {
-        let errorMessage = '';
-        let errorType = '';
-        
-        switch (orderType) {
-          case 'basket': errorType = '篮子'; break;
-          case 'backpack': errorType = '书包'; break;
-          case 'all': errorType = '所有'; break;
-          case 'combo': errorType = '组合'; break;
-          default: errorType = '所有'; break;
-        }
-
-        errorMessage = `没有找到任何与您已配置的SKU匹配的${errorType}订单，请检查您的SKU配置是否正确`;
+        const errorMessage = `没有找到任何与您已配置的SKU匹配的${ORDER_TYPE_LABELS[orderType] || '所有类型'}订单，请检查您的SKU配置是否正确`;
 
         throw new Error(errorMessage);
       }
@@ -1723,7 +1741,7 @@ export class BasketService {
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'completed',
         progress: 100,
-        message: `${orderType === 'basket' ? '篮子' : '书包'}订单文件生成成功`,
+        message: `${ORDER_TYPE_LABELS[orderType] || ''}订单文件生成成功`,
         result: {
           filePath: webAccessiblePath, // Use web-accessible path
           totalOrders: filteredOrders.length,
@@ -1792,7 +1810,7 @@ export class BasketService {
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'failed',
         progress: 0,
-        message: `订单文件生成失败 (${orderType === 'all' ? '所有类型' : (orderType === 'basket' ? '篮子' : '书包')})`, // Update message
+        message: `订单文件生成失败 (${ORDER_TYPE_LABELS[orderType] || orderType})`,
         error: error.message
       });
       
@@ -1878,6 +1896,7 @@ export class BasketService {
           isRemoteArea: order.isRemoteArea || false,
           externalOrderReminderEnabled: order.externalOrderReminderEnabled || false,
           externalOrderReminderContent: order.externalOrderReminderContent || '',
+          parseError: !!variation.parseError,
         } as any;
 
         if (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length) {
@@ -2026,11 +2045,12 @@ export class BasketService {
     } catch (error) {
       this.logger.error(`Error analyzing variations data with LLM for ${orderType}: ${error.message}`);
       
-      // Return default value if LLM analysis fails
+      // 解析失败时不能把整段原文当成名字（会直接错做），名字留空并标记，由制作页提示人工核对
       return [{
         color: '',
-        value: variations || '',
-        originalText: variations || ''
+        value: '',
+        originalText: variations || '',
+        parseError: true,
       }];
     }
   }

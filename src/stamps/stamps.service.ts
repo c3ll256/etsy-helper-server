@@ -16,6 +16,7 @@ import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { JobQueueService } from '../common/services/job-queue.service';
 import { OrdersService } from '../orders/orders.service';
 import { Order } from '../orders/entities/order.entity';
+import { OrderStatus } from '../orders/enums/order.enum';
 
 @Injectable()
 export class StampsService {
@@ -222,16 +223,11 @@ export class StampsService {
   async remove(id: number, user: User): Promise<void> {
     const template = await this.findById(id, user);
     
-    await this.stampTemplateRepository.manager.transaction(async (entityManager) => {
-      await entityManager.getRepository(StampGenerationRecord).delete({ templateId: template.id });
-
-      await entityManager.getRepository(Order).update({ templateId: template.id }, { templateId: null });
-
-      const deleteResult = await entityManager.getRepository(StampTemplate).delete(template.id);
-      if (deleteResult.affected === 0) {
-        throw new NotFoundException(`Stamp template with ID ${id} not found or could not be deleted`);
-      }
-    });
+    // 软删除：模板不再出现在列表和 SKU 匹配中，但历史订单的 templateId 和生成记录保持不变
+    const deleteResult = await this.stampTemplateRepository.softDelete(template.id);
+    if (deleteResult.affected === 0) {
+      throw new NotFoundException(`Stamp template with ID ${id} not found or could not be deleted`);
+    }
   }
 
   async cloneTemplate(
@@ -302,14 +298,16 @@ export class StampsService {
     return this.stampGenerationRecordRepository.find({
       where: { orderId },
       order: { createdAt: 'DESC' },
-      relations: ['template']
+      relations: ['template'],
+      withDeleted: true, // 模板软删除后，历史记录仍需展示模板信息
     });
   }
 
   async getGenerationRecordById(id: number): Promise<StampGenerationRecord> {
     const record = await this.stampGenerationRecordRepository.findOne({
       where: { id },
-      relations: ['template']
+      relations: ['template'],
+      withDeleted: true, // 模板软删除后，历史记录仍需展示模板信息
     });
     
     if (!record) {
@@ -322,7 +320,8 @@ export class StampsService {
   async getLatestGenerationRecord(): Promise<StampGenerationRecord | null> {
     return this.stampGenerationRecordRepository.findOne({
       order: { createdAt: 'DESC' },
-      relations: ['template']
+      relations: ['template'],
+      withDeleted: true, // 模板软删除后，历史记录仍需展示模板信息
     });
   }
 
@@ -330,7 +329,8 @@ export class StampsService {
     return this.stampGenerationRecordRepository.findOne({
       where: { orderId },
       order: { createdAt: 'DESC' },
-      relations: ['template']
+      relations: ['template'],
+      withDeleted: true, // 模板软删除后，历史记录仍需展示模板信息
     });
   }
 
@@ -338,7 +338,8 @@ export class StampsService {
     return this.stampGenerationRecordRepository.find({
       where: { templateId },
       order: { createdAt: 'DESC' },
-      relations: ['template']
+      relations: ['template'],
+      withDeleted: true, // 模板软删除后，历史记录仍需展示模板信息
     });
   }
 
@@ -399,10 +400,14 @@ export class StampsService {
   async regenerateOrderStamps(templateId: number, updatedTemplate: StampTemplate, jobId: string): Promise<void> {
     try {
       // 查找使用该模板的所有订单
-      const orders = await this.orderRepository.find({
+      const allOrders = await this.orderRepository.find({
         where: { templateId },
         relations: ['etsyOrder']
       });
+
+      // 已审核通过的设计不随模板更新自动覆盖，需在订单内单独处理
+      const orders = allOrders.filter(order => order.status !== OrderStatus.STAMP_GENERATED_REVIEWED);
+      const skippedReviewedCount = allOrders.length - orders.length;
 
       const totalOrders = orders.length;
       
@@ -449,7 +454,8 @@ export class StampsService {
                     lastVariant: templateElement.lastVariant,
                     position: {
                       ...templateElement.position,
-                    }
+                    },
+                    icon: templateElement.icon ? { ...templateElement.icon } : undefined,
                   };
                 });
 
@@ -488,11 +494,12 @@ export class StampsService {
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'completed',
         progress: 100,
-        message: `Completed regenerating stamps for ${totalOrders} orders. Success: ${successCount}, Failed: ${failedCount}`,
+        message: `Completed regenerating stamps for ${totalOrders} orders. Success: ${successCount}, Failed: ${failedCount}, Skipped reviewed: ${skippedReviewedCount}`,
         result: {
           totalOrders,
           successCount,
-          failedCount
+          failedCount,
+          skippedReviewedCount
         }
       });
 

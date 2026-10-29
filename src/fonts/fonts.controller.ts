@@ -26,6 +26,9 @@ import { CreateFontDto } from './dto/create-font.dto';
 import { validateFontFile } from '../common/utils/file-validator.util';
 
 const UPLOADS_DIR = 'uploads/fonts';
+const ALLOWED_FONT_EXTENSIONS = ['.ttf', '.otf', '.woff', '.woff2'];
+// 中文全字库通常超过 10MB，上限可通过 FONT_MAX_FILE_SIZE_MB 调整（反向代理的上传上限需同步放开）
+const FONT_MAX_FILE_SIZE_MB = Number(process.env.FONT_MAX_FILE_SIZE_MB) || 50;
 
 // Ensure uploads directory exists
 if (!fs.existsSync(UPLOADS_DIR)) {
@@ -113,20 +116,24 @@ export class FontsController {
           // SECURITY: 清理文件名和扩展名，防止路径遍历攻击
           const sanitizedExt = sanitizeExtension(file.originalname);
           const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          const filename = `font-${uniqueSuffix}${sanitizedExt}`;
+          const filename = `font-${uniqueSuffix}.${sanitizedExt}`;
           cb(null, filename);
         },
       }),
       limits: {
-        fileSize: 10 * 1024 * 1024, // SECURITY: 限制字体文件大小为10MB，防止DoS攻击
+        fileSize: FONT_MAX_FILE_SIZE_MB * 1024 * 1024, // SECURITY: 限制字体文件大小，防止DoS攻击
       },
       fileFilter: (req, file, cb) => {
-        const validExt = ['.ttf', '.otf', '.woff', '.woff2'];
         const ext = path.extname(file.originalname).toLowerCase();
-        if (validExt.includes(ext)) {
+        if (ALLOWED_FONT_EXTENSIONS.includes(ext)) {
           cb(null, true);
+        } else if (ext === '.ttc' || ext === '.otc') {
+          cb(new BadRequestException(`暂不支持字体集合文件（${ext}），请上传单个字体文件（.ttf / .otf / .woff / .woff2）`), false);
         } else {
-          cb(new BadRequestException('Invalid file type. Only .ttf, .otf, .woff, and .woff2 files are allowed.'), false);
+          cb(new BadRequestException(
+            `文件扩展名 "${ext || '无'}" 不支持。只允许 .ttf / .otf / .woff / .woff2；` +
+            `如果文件名里带版本号（如 KaiXinSong2.1），请确认文件名以字体扩展名结尾`
+          ), false);
         }
       },
     }),

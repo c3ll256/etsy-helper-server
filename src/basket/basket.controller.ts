@@ -31,6 +31,7 @@ import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { BasketGenerationRecord } from './entities/basket-generation-record.entity';
 import { CreateSkuConfigDto, SkuConfigResponseDto, BatchUpdateSkuConfigDto } from './dto/sku-config.dto';
 import { SkuConfig } from './entities/sku-config.entity';
+import { BasketUploadOrderType } from './basket.service';
 import {
   CreateColorGroupDto,
   CreateColorKvDto,
@@ -99,9 +100,9 @@ export class BasketController {
         },
         orderType: {
           type: 'string',
-          enum: ['basket', 'backpack', 'all'],
-          description: '订单类型：篮子、书包或所有已配置类型',
-          default: 'basket'
+          enum: ['all', 'maternal_baby', 'combo'],
+          description: '只使用该类型的 SKU 配置；all 表示所有已配置类型',
+          default: 'all'
         }
       }
     }
@@ -109,7 +110,7 @@ export class BasketController {
   async generateBasketOrders(
     @UploadedFile() file: Express.Multer.File,
     @Body('originalFilename') originalFilename: string,
-    @Body('orderType') orderType: 'basket' | 'backpack' | 'all' = 'basket',
+    @Body('orderType') orderType: BasketUploadOrderType = 'all',
     @CurrentUser() user: User,
   ): Promise<BasketGenerationResponseDto> {
     if (!file) {

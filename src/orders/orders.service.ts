@@ -51,6 +51,14 @@ export class OrdersService {
     }
   }
 
+  /**
+   * 印章图 URL（/stamps/xxx.png）对应的磁盘路径。
+   * 静态服务把 /stamps 映射到 uploads/stamps（见 main.ts），只取文件名，避免越出该目录。
+   */
+  private resolveStampFilePath(stampUrl: string): string {
+    return path.join(process.cwd(), this.stampsOutputDir, path.basename(stampUrl));
+  }
+
   async create(createOrderDto: CreateOrderDto, user?: User): Promise<Order> {
     const order = this.ordersRepository.create({
       status: createOrderDto.status,
@@ -229,8 +237,7 @@ export class OrdersService {
       if (etsyOrder.stampImageUrls?.length) {
         for (const imageUrl of etsyOrder.stampImageUrls) {
           if (!imageUrl) continue;
-          const relativePath = imageUrl.startsWith('/') ? imageUrl.substring(1) : imageUrl;
-          const physicalPath = path.join(process.cwd(), relativePath);
+          const physicalPath = this.resolveStampFilePath(imageUrl);
           if (fs.existsSync(physicalPath)) {
             try {
               fs.unlinkSync(physicalPath);
@@ -606,7 +613,8 @@ export class OrdersService {
             if (!stampRecord) {
               stampRecord = await this.stampGenerationRecordRepository.findOne({
                 where: { id: recordId },
-                relations: ['template']
+                relations: ['template'],
+                withDeleted: true, // 模板软删除后，历史记录仍需展示模板信息
               });
               if (stampRecord) {
                 stampRecordCache.set(recordId, stampRecord);
@@ -780,7 +788,8 @@ export class OrdersService {
           where: { 
             id: In(order.etsyOrder.stampGenerationRecordIds || [])
           },
-          relations: ['template']
+          relations: ['template'],
+          withDeleted: true, // 模板软删除后，历史记录仍需展示模板信息
         });
         
         if (stampRecords.length > 0) {
@@ -875,9 +884,7 @@ export class OrdersService {
     }
 
     if (record.stampImageUrl) {
-      const physicalPath = record.stampImageUrl.startsWith('/')
-        ? path.join(process.cwd(), record.stampImageUrl.substring(1))
-        : path.join(process.cwd(), record.stampImageUrl);
+      const physicalPath = this.resolveStampFilePath(record.stampImageUrl);
       if (fs.existsSync(physicalPath)) {
         try {
           fs.unlinkSync(physicalPath);
