@@ -1,0 +1,115 @@
+{
+  "title": "颜色缺失或映射冲突：保留原值并提示核对，不猜色；混色显示完整配方；名字仍为黑色",
+  "acceptance": "12",
+  "rows": [
+    {
+      "Order ID": "3000000038",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorGrey\nPersonalizationNora",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000039",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorLavender\nPersonalizationNora",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000040",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorMix-2\nPersonalizationNora",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000041",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nName ColorRed\nPersonalizationNora",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "colors": [
+        [
+          "Grey",
+          null
+        ]
+      ],
+      "warningContains": [
+        "多个译法"
+      ]
+    },
+    {
+      "row": 3,
+      "status": "produced",
+      "colors": [
+        [
+          "Lavender",
+          null
+        ]
+      ],
+      "warningContains": [
+        "没有对应"
+      ]
+    },
+    {
+      "row": 4,
+      "status": "produced",
+      "colors": [
+        [
+          "Mix-2",
+          "混色2：蓝+白+浅粉"
+        ]
+      ]
+    },
+    {
+      "row": 5,
+      "status": "produced",
+      "colors": [
+        [
+          "Red",
+          null
+        ]
+      ]
+    }
+  ],
+  "ppt": {
+    "slides": [
+      {
+        "containsText": [
+          "颜色待核对（映射冲突）：原值 Grey"
+        ],
+        "nameColor": "000000"
+      },
+      {
+        "containsText": [
+          "颜色待核对：原值 Lavender"
+        ]
+      },
+      {
+        "containsText": [
+          "混色2：蓝+白+浅粉"
+        ],
+        "notContainsText": [
+          "颜色待核对"
+        ]
+      },
+      {
+        "containsText": [
+          "颜色待核对：原值 Red"
+        ],
+        "nameColor": "000000"
+      }
+    ]
+  }
+}

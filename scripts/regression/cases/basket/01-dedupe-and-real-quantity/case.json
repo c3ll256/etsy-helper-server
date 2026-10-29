@@ -1,0 +1,140 @@
+{
+  "title": "同订单完全重复的明细只保留一份；Quantity=2 仍生成两件；重音不同的不合并",
+  "acceptance": "01",
+  "rows": [
+    {
+      "Order ID": "3000000001",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationLuca",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000001",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationLuca",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000001",
+      "SKU": "Bag-Green",
+      "Quantity": 2,
+      "Variations": "Backpack ColorGreen\nYarn ColorBlue\nPersonalization\nNoah\nNoah",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000001",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationZoe",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000001",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationZoë",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000099",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationLuca",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "units": 1,
+      "names": [
+        "Luca"
+      ]
+    },
+    {
+      "row": 3,
+      "status": "duplicate",
+      "duplicateOf": 2,
+      "units": 0
+    },
+    {
+      "row": 4,
+      "status": "produced",
+      "units": 2,
+      "names": [
+        "Noah",
+        "Noah"
+      ],
+      "groupPositions": [
+        "2/5",
+        "3/5"
+      ]
+    },
+    {
+      "row": 5,
+      "status": "produced",
+      "names": [
+        "Zoe"
+      ]
+    },
+    {
+      "row": 6,
+      "status": "produced",
+      "names": [
+        "Zoë"
+      ],
+      "groupPositions": [
+        "5/5"
+      ]
+    },
+    {
+      "row": 7,
+      "status": "produced",
+      "names": [
+        "Luca"
+      ],
+      "groupPositions": [
+        "1/1"
+      ]
+    }
+  ],
+  "stats": {
+    "unitsProduced": 6
+  },
+  "ppt": {
+    "slideCount": 6,
+    "slides": [
+      {
+        "nameText": "Luca",
+        "groupPosition": "1/5"
+      },
+      {
+        "nameText": "Noah",
+        "groupPosition": "2/5"
+      },
+      {
+        "nameText": "Noah",
+        "groupPosition": "3/5"
+      },
+      {
+        "nameText": "Zoe"
+      },
+      {
+        "nameText": "Zoë"
+      },
+      {
+        "nameText": "Luca",
+        "groupPosition": "1/1"
+      }
+    ]
+  }
+}

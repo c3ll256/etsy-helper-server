@@ -1,0 +1,101 @@
+{
+  "title": "Hudson 图标 ZF / ZB：按完整编号一图，不拆字母；BDK 不在组内 → 待核对",
+  "acceptance": "04",
+  "rows": [
+    {
+      "Order ID": "3000000004",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationHudson, ZF",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000005",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack Color:Blue,Yarn Color:Blue,Personalization:Hudson, zb",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000006",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationHudson, BDK",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000007",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationHudson, C10",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "icons": [
+        [
+          "ZF"
+        ]
+      ]
+    },
+    {
+      "row": 3,
+      "status": "produced",
+      "icons": [
+        [
+          "ZB"
+        ]
+      ]
+    },
+    {
+      "row": 4,
+      "status": "review",
+      "category": "parse_review",
+      "reasonContains": [
+        "BDK",
+        "不会拆成单个字母"
+      ]
+    },
+    {
+      "row": 5,
+      "status": "produced",
+      "icons": [
+        [
+          "C10"
+        ]
+      ]
+    }
+  ],
+  "ppt": {
+    "slideCount": 4,
+    "slides": [
+      {
+        "iconNames": [
+          "ZF"
+        ]
+      },
+      {
+        "iconNames": [
+          "ZB"
+        ]
+      },
+      {
+        "kind": "placeholder",
+        "groupPosition": "待核对",
+        "iconCount": 0
+      },
+      {
+        "iconNames": [
+          "C10"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "title": "C5 未解决的行不制作；关闭\"待核对占位页\"开关后，不生成任何占位页（M1 的解析失败提示页由开关控制，默认保留）",
+  "acceptance": "C5",
+  "fixturePatch": {
+    "settings": {
+      "reviewPlaceholderPages": false
+    }
+  },
+  "rows": [
+    {
+      "Order ID": "3000000056",
+      "SKU": "Bag-Blue",
+      "Quantity": 2,
+      "Variations": "Backpack ColorBlue\nPersonalizationOnly One",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000057",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nPersonalizationGrace",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "review",
+      "reasonContains": [
+        "Quantity=2，但只有 1 个名字"
+      ]
+    },
+    {
+      "row": 3,
+      "status": "produced"
+    }
+  ],
+  "ppt": {
+    "slideCount": 1,
+    "slides": [
+      {
+        "nameText": "Grace",
+        "groupPosition": "1/1"
+      }
+    ]
+  }
+}

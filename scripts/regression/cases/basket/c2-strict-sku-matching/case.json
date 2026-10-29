@@ -1,0 +1,114 @@
+{
+  "title": "C2 严格 SKU 匹配：Bag-Pink1(I) 与 MB1-Pink(I) 不串；前缀后缀匹配；(I) 标记必须一致；重复配置 → 冲突",
+  "acceptance": "C2",
+  "fixturePatch": {
+    "configs": [
+      {
+        "id": 90,
+        "sku": "Set-Dup",
+        "type": "maternal_baby",
+        "replaceValue": "单品写法",
+        "font": "Back to school"
+      },
+      {
+        "id": 91,
+        "sku": "Set-Dup",
+        "type": "combo",
+        "replaceValue": "套组写法",
+        "comboItems": [
+          "A",
+          "B"
+        ],
+        "font": "Back to school"
+      }
+    ]
+  },
+  "rows": [
+    {
+      "Order ID": "3000000050",
+      "SKU": "Bag-Pink1(I)",
+      "Quantity": 1,
+      "Variations": "Item:Pink+Icon,Personalization:Ava",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000051",
+      "SKU": "MB1-Pink(I)",
+      "Quantity": 1,
+      "Variations": "Bag ColorPink+Icon\nPersonalizationAva",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000052",
+      "SKU": "Bag-Blue-Mix-2",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nPersonalizationAva",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000053",
+      "SKU": "Bag-Blue(I)",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nPersonalizationAva",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000054",
+      "SKU": "Bag-Blue1",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nPersonalizationAva",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000055",
+      "SKU": "Set-Dup",
+      "Quantity": 1,
+      "Variations": "Set ColorBlue\nPersonalizationAva",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "matchStatus": "exact",
+      "matchedSku": "Bag-Pink1(I)"
+    },
+    {
+      "row": 3,
+      "matchStatus": "exact",
+      "matchedSku": "MB1-Pink(I)"
+    },
+    {
+      "row": 4,
+      "matchStatus": "prefix",
+      "matchedSku": "Bag-Blue",
+      "status": "produced"
+    },
+    {
+      "row": 5,
+      "matchStatus": "unmatched",
+      "category": "unmatched_sku",
+      "reasonContains": [
+        "相近的配置 Bag-Blue"
+      ]
+    },
+    {
+      "row": 6,
+      "matchStatus": "unmatched"
+    },
+    {
+      "row": 7,
+      "matchStatus": "conflict",
+      "category": "sku_conflict",
+      "reasonContains": [
+        "2 条配置"
+      ]
+    }
+  ]
+}

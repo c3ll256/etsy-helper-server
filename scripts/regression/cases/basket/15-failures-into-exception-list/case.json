@@ -1,0 +1,105 @@
+{
+  "title": "新品未配置 / 解析失败：同订单页上提醒且进入异常清单（不用连单代替成功）；整单无页仍保留在异常清单；解析失败不猜名字",
+  "acceptance": "15",
+  "rows": [
+    {
+      "Order ID": "3000000045",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationAda",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000045",
+      "SKU": "StorageBag06-L-S4-Pink",
+      "Quantity": 1,
+      "Variations": "Bag ColorPink\nPersonalizationKalani",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer",
+      "Item Name": "Storage Basket"
+    },
+    {
+      "Order ID": "3000000046",
+      "SKU": "StorageBag06-L-S4-Pink",
+      "Quantity": 1,
+      "Variations": "Bag ColorPink\nPersonalizationKalani",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000047",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationplease put lots of flowers on the left side",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000047",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationKira",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "reminder": "Storage Basket（未生成，待处理）×1"
+    },
+    {
+      "row": 3,
+      "status": "unmatched",
+      "category": "unmatched_sku",
+      "orderHasPages": true
+    },
+    {
+      "row": 4,
+      "status": "unmatched",
+      "category": "unmatched_sku",
+      "orderHasPages": false,
+      "warningContains": [
+        "整单没有任何制作页"
+      ]
+    },
+    {
+      "row": 5,
+      "status": "review",
+      "category": "parse_review"
+    },
+    {
+      "row": 6,
+      "status": "produced",
+      "reminder": "蓝色书包（未生成，待处理）×1",
+      "groupPositions": [
+        "1/1"
+      ]
+    }
+  ],
+  "ppt": {
+    "slideCount": 3,
+    "slides": [
+      {
+        "nameText": "Ada",
+        "containsText": [
+          "连单：Storage Basket（未生成，待处理）×1"
+        ]
+      },
+      {
+        "kind": "placeholder",
+        "groupPosition": "待核对",
+        "containsText": [
+          "待核对：本行未生成，不可制作",
+          "原始定制："
+        ]
+      },
+      {
+        "nameText": "Kira",
+        "groupPosition": "1/1"
+      }
+    ]
+  }
+}

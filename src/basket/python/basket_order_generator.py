@@ -628,23 +628,23 @@ def render_slide(prs, spec, plan, registry, qr_cache):
     detail_path, _ = registry.resolve('Calibri')
 
     hx1, hy1, hx2, hy2 = pct_rect(*ZONES['header'])
-    add_text(slide, (hx1, hy1, hx1 + (hx2 - hx1) * 0.24, hy2), spec.get('orderDate') or '', 16, anchor='middle', wrap=False)
+    add_text(slide, (hx1, hy1, hx1 + (hx2 - hx1) * 0.24, hy2), spec.get('orderDate') or '', 16, anchor='middle', wrap=False).name = 'order-date'
     title = spec.get('title') or ''
     tsize, tlines, _ = fit_text_size(registry, detail_path, [title], (hx1 + (hx2 - hx1) * 0.25, hy1, hx1 + (hx2 - hx1) * 0.84, hy2), 18, 9)
-    add_text(slide, (hx1 + (hx2 - hx1) * 0.25, hy1, hx1 + (hx2 - hx1) * 0.84, hy2), '\n'.join(tlines), tsize, align='center', anchor='middle')
+    add_text(slide, (hx1 + (hx2 - hx1) * 0.25, hy1, hx1 + (hx2 - hx1) * 0.84, hy2), '\n'.join(tlines), tsize, align='center', anchor='middle').name = 'title'
     add_text(slide, (hx1 + (hx2 - hx1) * 0.85, hy1, hx2, hy2), spec.get('groupPosition') or '', 22, bold=True, align='right', anchor='middle', wrap=False,
-             color=(200, 0, 0) if spec.get('kind') == 'placeholder' else (0, 0, 0))
+             color=(200, 0, 0) if spec.get('kind') == 'placeholder' else (0, 0, 0)).name = 'group-position'
 
     dbox = pct_rect(*ZONES['details'])
     dsize, dlines, _ = fit_text_size(registry, detail_path, spec.get('details') or [], dbox, 13, 7)
-    add_text(slide, dbox, '\n'.join(dlines), dsize)
+    add_text(slide, dbox, '\n'.join(dlines), dsize).name = 'details'
 
     if spec.get('kind') == 'placeholder':
         ph = spec.get('placeholder') or {}
         body = [ph.get('title') or '待核对：本行不可制作'] + ['· ' + r for r in (ph.get('reasons') or [])]
         box = pct_rect(5, 22, 95, 82)
         psize, plines, _ = fit_text_size(registry, detail_path, body, box, 28, 12)
-        add_text(slide, box, '\n'.join(plines), psize, color=(220, 0, 0), bold=True)
+        add_text(slide, box, '\n'.join(plines), psize, color=(220, 0, 0), bold=True).name = 'placeholder'
     else:
         fit = (plan or {}).get('_fit')
         # 图标：三段校验的第三段，记录实际插入数
@@ -713,7 +713,7 @@ def render_slide(prs, spec, plan, registry, qr_cache):
             if fit.get('twoLines') and (spec.get('name') or {}).get('layout', {}).get('twoLineNote'):
                 nb = fit['nameBox']
                 add_text(slide, (nb[0], max(nb[1] - 22, pct_rect(0, CONTENT_TOP, 0, 0)[1]), nb[2], max(nb[1] - 2, pct_rect(0, CONTENT_TOP, 0, 0)[1] + 20)),
-                         spec['name']['layout']['twoLineNote'], 14, color=(220, 0, 0), align='center')
+                         spec['name']['layout']['twoLineNote'], 14, color=(220, 0, 0), align='center').name = 'two-line-note'
 
     # 提醒区：连单提醒 + 核对提示（红色）
     notices = []

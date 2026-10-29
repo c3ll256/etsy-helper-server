@@ -1,0 +1,92 @@
+{
+  "title": "书包生成、摇铃 ×2 和毛衣 ×1 不走 PPT：书包页显示\"连单：摇铃×2、毛衣×1\"",
+  "acceptance": "14",
+  "rows": [
+    {
+      "Order ID": "3000000043",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationTheo",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000043",
+      "SKU": "Rattle001-Bunny-Font1",
+      "Quantity": 2,
+      "Variations": "Rattle Style02 Bunny\nFont DesignFont 1\nPersonalizationTheo",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000043",
+      "SKU": "Sweater-Navy(0-3)",
+      "Quantity": 1,
+      "Variations": "Sweater ColorNavy\nSize0-3 months\nPersonalizationTheo",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000044",
+      "SKU": "Bag-Blue",
+      "Quantity": 2,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalization\nAnna\nElsa",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000044",
+      "SKU": "Rattle001-Bunny-Font2",
+      "Quantity": 1,
+      "Variations": "Rattle Style02 Bunny\nFont DesignFont 2\nPersonalizationAnna",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "reminder": "连单：摇铃×2、毛衣×1"
+    },
+    {
+      "row": 3,
+      "status": "external",
+      "category": null
+    },
+    {
+      "row": 4,
+      "status": "external",
+      "category": null
+    },
+    {
+      "row": 5,
+      "status": "produced",
+      "reminder": "连单：摇铃×1",
+      "groupPositions": [
+        "1/2",
+        "2/2"
+      ]
+    }
+  ],
+  "ppt": {
+    "slideCount": 3,
+    "slides": [
+      {
+        "containsText": [
+          "连单：摇铃×2、毛衣×1"
+        ]
+      },
+      {
+        "containsText": [
+          "连单：摇铃×1"
+        ]
+      },
+      {
+        "containsText": [
+          "连单：摇铃×1"
+        ]
+      }
+    ]
+  }
+}

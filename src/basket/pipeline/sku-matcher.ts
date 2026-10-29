@@ -8,7 +8,7 @@ import { MatchStatus, SkuConfigLike } from './types';
  * 2. 订单 SKU 与配置 SKU 完全相同 → exact。
  * 3. 否则：订单 SKU 以「配置 SKU + 分隔符」开头 → prefix。分隔符只认 `-`、`+`、空格
  *    （生产数据里的后缀写法：`LZ-L-Mix-2`、`Bag001-Pink+Box`、`SB1-Rose + Icon-Mix-2`）。
- *    - 末尾括号里的款式标记（如 `(I)`）必须一致：`Set2-Pink-Strawberry(I)` 不能匹配 `Set2-Pink`
+ *    - 末尾括号里含字母的款式标记（如 `(I)`）必须一致：`Set2-Pink-Strawberry(I)` 不能匹配 `Set2-Pink`；`(0-3)` 这类尺码不算
  *    - 多个候选时取最长的配置 SKU
  * 4. 同一长度的候选不止一条（例如同一账号下同一 SKU 有两条配置，一条单品一条套组）→ conflict。
  * 5. 都没有 → unmatched，附上最接近的配置（只作提示，不使用）。
@@ -24,9 +24,11 @@ export interface SkuMatchResult {
 
 const SEPARATORS = new Set(['-', '+', ' ']);
 
+/** 末尾括号里的款式标记，例如 (I)。只认含字母的标记；(0-3)、(27) 这类尺码 / 编号不算款式标记 */
 function trailingMarker(sku: string): string {
   const m = sku.match(/\(([^()]*)\)\s*$/);
-  return m ? m[1].trim() : '';
+  if (!m || !/\p{L}/u.test(m[1])) return '';
+  return m[1].trim();
 }
 
 export function matchSkuConfig(orderSkuRaw: string, configs: SkuConfigLike[]): SkuMatchResult {
