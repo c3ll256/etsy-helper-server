@@ -14,6 +14,13 @@ import { ColorKv } from './entities/color-kv.entity';
 import { IconGroup } from './entities/icon-group.entity';
 import { IconKv } from './entities/icon-kv.entity';
 import { PythonBasketService } from './services/python-basket.service';
+import { BasketOrderLine } from './entities/basket-order-line.entity';
+import { BasketIconLayoutTemplate } from './entities/basket-icon-layout-template.entity';
+import { BasketReferenceImage } from './entities/basket-reference-image.entity';
+import { BasketShopSettings } from './entities/basket-shop-settings.entity';
+import { BasketLinesService } from './basket-lines.service';
+import { BasketLinesController } from './basket-lines.controller';
+import { Font } from '../fonts/entities/font.entity';
 import { CommonModule } from '../common/common.module';
 import { UsersModule } from '../users/users.module';
 import { AuthModule } from '../auth/auth.module';
@@ -27,7 +34,7 @@ if (!fs.existsSync(BASKETS_UPLOADS_DIR)) {
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([BasketGenerationRecord, SkuConfig, ColorGroup, ColorKv, IconGroup, IconKv]),
+    TypeOrmModule.forFeature([BasketGenerationRecord, SkuConfig, ColorGroup, ColorKv, IconGroup, IconKv, BasketOrderLine, BasketIconLayoutTemplate, BasketReferenceImage, BasketShopSettings, Font]),
     CommonModule,
     UsersModule,
     AuthModule,
@@ -44,8 +51,8 @@ if (!fs.existsSync(BASKETS_UPLOADS_DIR)) {
       }),
     }),
   ],
-  controllers: [BasketController],
-  providers: [BasketService, PythonBasketService, RemoteAreaService],
-  exports: [BasketService, PythonBasketService],
+  controllers: [BasketLinesController, BasketController],
+  providers: [BasketService, BasketLinesService, PythonBasketService, RemoteAreaService],
+  exports: [BasketService, BasketLinesService, PythonBasketService],
 })
 export class BasketModule {} 

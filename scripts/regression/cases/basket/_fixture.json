@@ -1,0 +1,127 @@
+{
+  "_comment": "母婴回归用例的共用配置（全部是合成数据）。字体引用 uploads/fonts 下的 BackToSchool 和 Calibri 文件（字体文件不入库）。名字区域按《母婴模块优化需求》附表中已确认的数值配置；附表写'校准'的项目不配置区域。",
+  "shopName": "TestShop",
+  "processDate": "2026-10-29",
+  "fonts": [
+    {"id": 131, "name": "BackToSchool", "filePath": "uploads/fonts/font-1755228066009-73323646.ttf"},
+    {"id": 242, "name": "calibri", "filePath": "uploads/fonts/font-1776155783103-114112184ttf"}
+  ],
+  "iconGroups": {
+    "1": [
+      {"id": 101, "name": "A", "filePath": "scripts/regression/assets/icons/A.png"},
+      {"id": 102, "name": "B", "filePath": "scripts/regression/assets/icons/B.png"},
+      {"id": 103, "name": "ZF", "filePath": "scripts/regression/assets/icons/ZF.png"},
+      {"id": 104, "name": "ZB", "filePath": "scripts/regression/assets/icons/ZB.png"},
+      {"id": 105, "name": "Z", "filePath": "scripts/regression/assets/icons/Z.png"},
+      {"id": 106, "name": "F", "filePath": "scripts/regression/assets/icons/F.png"},
+      {"id": 107, "name": "C10", "filePath": "scripts/regression/assets/icons/C10.png"},
+      {"id": 108, "name": "C1", "filePath": "scripts/regression/assets/icons/C1.png"},
+      {"id": 109, "name": "White Flower", "kind": "flower", "aliases": ["weiße Blume"], "filePath": "scripts/regression/assets/icons/white-flower.png"},
+      {"id": 110, "name": "Pink Flower", "kind": "flower", "filePath": "scripts/regression/assets/icons/pink-flower.png"},
+      {"id": 111, "name": "Bear", "aliases": ["Teddy"], "filePath": "scripts/regression/assets/icons/bear.png"},
+      {"id": 112, "name": "Lion", "filePath": "scripts/regression/assets/icons/lion.png"},
+      {"id": 113, "name": "Lion Head", "filePath": "scripts/regression/assets/icons/lion-head.png"},
+      {"id": 114, "name": "Bow", "filePath": "scripts/regression/assets/icons/bow.png"},
+      {"id": 115, "name": "Ribbon", "filePath": "scripts/regression/assets/icons/ribbon.png"},
+      {"id": 116, "name": "Flower", "filePath": "scripts/regression/assets/icons/flower-line.png"},
+      {"id": 117, "name": "Star", "filePath": "scripts/regression/assets/icons/star.png"}
+    ],
+    "2": [
+      {"id": 201, "name": "A", "filePath": "scripts/regression/assets/icons/does-not-exist-A.png"},
+      {"id": 202, "name": "B", "filePath": "scripts/regression/assets/icons/B.png"}
+    ]
+  },
+  "colorGroups": {
+    "1": [
+      {"name": "Blue", "colorValue": "蓝色"},
+      {"name": "Mix-2", "colorValue": "混色2：蓝+白+浅粉"},
+      {"name": "Cream", "colorValue": "米白"},
+      {"name": "Grey", "colorValue": "灰色"},
+      {"name": "Grey", "colorValue": "浅灰"}
+    ]
+  },
+  "layoutTemplates": [
+    {
+      "id": 1, "name": "右上左下型",
+      "slots": [
+        {"key": "top_right", "label": "右上", "anchor": "absolute", "x": 78, "y": 21, "w": 16, "h": 20},
+        {"key": "bottom_left", "label": "左下", "anchor": "absolute", "x": 5, "y": 62, "w": 16, "h": 20}
+      ],
+      "rules": [],
+      "defaultOrder": ["top_right", "bottom_left"]
+    },
+    {
+      "id": 2, "name": "三位置组合型（含彩色小花）",
+      "slots": [
+        {"key": "bottom_left", "label": "左下", "anchor": "absolute", "x": 3, "y": 62, "w": 15, "h": 20},
+        {"key": "bottom_right", "label": "右下", "anchor": "absolute", "x": 72, "y": 62, "w": 15, "h": 20},
+        {"key": "top_right", "label": "右上", "anchor": "absolute", "x": 80, "y": 21, "w": 15, "h": 20},
+        {"key": "flower_1", "label": "小花1", "anchor": "absolute", "x": 20, "y": 70, "w": 8, "h": 11},
+        {"key": "flower_2", "label": "小花2", "anchor": "absolute", "x": 62, "y": 70, "w": 8, "h": 11}
+      ],
+      "rules": [
+        {"large": 1, "flower": 0, "placements": [{"slot": "bottom_left", "kind": "large"}]},
+        {"large": 1, "flower": 1, "placements": [{"slot": "bottom_left", "kind": "large"}, {"slot": "flower_1", "kind": "flower"}]},
+        {"large": 2, "flower": 0, "placements": [{"slot": "bottom_left", "kind": "large"}, {"slot": "bottom_right", "kind": "large"}]},
+        {"large": 1, "flower": 2, "placements": [{"slot": "bottom_left", "kind": "large"}, {"slot": "flower_1", "kind": "flower"}, {"slot": "flower_2", "kind": "flower"}]},
+        {"large": 2, "flower": 1, "placements": [{"slot": "bottom_left", "kind": "large"}, {"slot": "bottom_right", "kind": "large"}, {"slot": "flower_1", "kind": "flower"}]},
+        {"large": 3, "flower": 0, "placements": [{"slot": "bottom_left", "kind": "large"}, {"slot": "bottom_right", "kind": "large"}, {"slot": "top_right", "kind": "large"}], "requiresReview": true}
+      ],
+      "defaultOrder": ["bottom_left", "bottom_right", "top_right"]
+    },
+    {
+      "id": 3, "name": "名字前后型",
+      "slots": [
+        {"key": "name_left", "label": "名字左侧", "anchor": "name_left", "size": 14},
+        {"key": "name_right", "label": "名字右侧", "anchor": "name_right", "size": 14}
+      ],
+      "rules": [],
+      "defaultOrder": ["name_left", "name_right"]
+    },
+    {
+      "id": 4, "name": "单图右下 / 多图依序",
+      "slots": [
+        {"key": "bottom_right", "label": "右下", "anchor": "absolute", "x": 72, "y": 62, "w": 15, "h": 20},
+        {"key": "bottom_left", "label": "左下", "anchor": "absolute", "x": 5, "y": 62, "w": 15, "h": 20},
+        {"key": "top_right", "label": "右上", "anchor": "absolute", "x": 80, "y": 21, "w": 15, "h": 20},
+        {"key": "top_left", "label": "左上", "anchor": "absolute", "x": 5, "y": 21, "w": 15, "h": 20}
+      ],
+      "rules": [],
+      "defaultOrder": ["bottom_right", "bottom_left", "top_right", "top_left"]
+    }
+  ],
+  "configs": [
+    {"id": 1, "sku": "Bag-Blue", "type": "maternal_baby", "replaceValue": "蓝色书包", "fontSize": 275, "font": "Back to school", "colorGroupId": 1, "iconGroupId": 1, "iconLayoutTemplateId": 1,
+     "nameLayout": {"area": {"x1": 11, "x2": 91, "y1": 20, "y2": 89}, "maxFontSize": 275, "presetKey": "appendix:backpack", "confirmed": true}},
+    {"id": 2, "sku": "Bag-Pink1(I)", "type": "maternal_baby", "replaceValue": "粉1(I)", "fontSize": 300, "font": "Back To School", "colorGroupId": 1, "iconGroupId": 1, "iconLayoutTemplateId": 1,
+     "nameLayout": {"area": {"x1": 11, "x2": 91, "y1": 30, "y2": 89}, "maxFontSize": 300, "presetKey": "appendix:backpack_pink1", "confirmed": true}},
+    {"id": 3, "sku": "MB1-Pink(I)", "type": "maternal_baby", "replaceValue": "粉色小书包(I)", "fontSize": 220, "font": "Back To School", "colorGroupId": 1, "iconGroupId": 1, "iconLayoutTemplateId": 4,
+     "nameLayout": {"maxFontSize": 220, "minFontSize": 152, "preferredFontSize": 175, "maxLatinLetters": 10, "presetKey": "appendix:small_backpack", "confirmed": false}},
+    {"id": 4, "sku": "Basket-M", "type": "maternal_baby", "replaceValue": "M篮子", "fontSize": 275, "font": "Back to school", "colorGroupId": 1, "iconGroupId": 1, "iconLayoutTemplateId": 2,
+     "nameLayout": {"area": {"x1": 0, "x2": 100, "y1": 29, "y2": 82}, "maxFontSize": 275, "presetKey": "appendix:basket_m", "confirmed": true}},
+    {"id": 5, "sku": "LB-Blue", "type": "maternal_baby", "replaceValue": "蓝色餐包", "fontSize": 240, "font": "Back to school", "colorGroupId": 1, "iconGroupId": 1, "iconLayoutTemplateId": 4, "maxIcons": 2,
+     "nameLayout": {"area": {"x1": 15, "x2": 88, "y1": 36, "y2": 81}, "maxFontSize": 275, "bufferPt": 10, "presetKey": "appendix:lunch_bag", "confirmed": true}},
+    {"id": 6, "sku": "Set-Blue", "type": "combo", "replaceValue": "蓝色书包餐包套组", "fontSize": 275, "font": "Back to school", "colorGroupId": 1, "iconGroupId": 1, "iconLayoutTemplateId": 1,
+     "comboItems": ["蓝色书包", "蓝色餐包"],
+     "comboOverridesJson": {
+       "蓝色书包": {"nameLayout": {"area": {"x1": 11, "x2": 91, "y1": 20, "y2": 89}, "maxFontSize": 275, "presetKey": "appendix:backpack_set", "confirmed": true}},
+       "蓝色餐包": {"maxIcons": 2, "iconLayoutTemplateId": 4, "nameLayout": {"area": {"x1": 15, "x2": 88, "y1": 36, "y2": 81}, "maxFontSize": 275, "bufferPt": 10, "presetKey": "appendix:lunch_bag", "confirmed": true}}
+     }},
+    {"id": 7, "sku": "Pouch Bag3-Black", "type": "maternal_baby", "replaceValue": "文具04-黑色", "fontSize": 220, "font": "Back to school", "colorGroupId": 1, "iconGroupId": 1, "iconLayoutTemplateId": 4, "maxIcons": 2,
+     "nameLayout": {"maxFontSize": 220, "minFontSize": 200, "allowTwoLines": false, "maxLatinLetters": 10, "presetKey": "appendix:stationery04", "confirmed": false}},
+    {"id": 8, "sku": "Rattle001", "type": "maternal_baby", "replaceValue": "摇铃", "produceMode": "external"},
+    {"id": 9, "sku": "Sweater", "type": "sweater", "replaceValue": "毛衣"},
+    {"id": 10, "sku": "GO-Oval 18x25", "type": "maternal_baby", "replaceValue": "宠物椭圆画框18x25", "fontSize": 200, "font": "Back to school",
+     "nameLayout": {"area": {"x1": 11, "x2": 91, "y1": 20, "y2": 89}, "maxFontSize": 200, "presetKey": "manual", "confirmed": false}},
+    {"id": 11, "sku": "Bag-Green", "type": "maternal_baby", "replaceValue": "绿色书包", "fontSize": 275, "font": "Back to school", "colorGroupId": 1, "iconGroupId": 1, "iconLayoutTemplateId": 2,
+     "nameLayout": {"area": {"x1": 11, "x2": 91, "y1": 20, "y2": 89}, "maxFontSize": 275, "presetKey": "appendix:backpack", "confirmed": true}},
+    {"id": 12, "sku": "HB3-Orange", "type": "maternal_baby", "replaceValue": "橙色格纹篮子", "fontSize": 275, "font": "Back to school", "colorGroupId": 1, "iconGroupId": 1, "iconLayoutTemplateId": 2,
+     "nameLayout": {"area": {"x1": 0, "x2": 100, "y1": 29, "y2": 82}, "maxFontSize": 275, "presetKey": "appendix:basket_m", "confirmed": true}},
+    {"id": 13, "sku": "Bag-Red", "type": "maternal_baby", "replaceValue": "红色书包", "fontSize": 275, "font": "Back to school", "colorGroupId": 1, "iconGroupId": 2, "iconLayoutTemplateId": 1,
+     "nameLayout": {"area": {"x1": 11, "x2": 91, "y1": 20, "y2": 89}, "maxFontSize": 275, "confirmed": true}},
+    {"id": 14, "sku": "Bag-Yellow", "type": "maternal_baby", "replaceValue": "黄色书包", "fontSize": 275, "font": "Back to school", "iconGroupId": 1, "iconLayoutTemplateId": 3,
+     "nameLayout": {"area": {"x1": 11, "x2": 91, "y1": 20, "y2": 89}, "maxFontSize": 275, "confirmed": true}},
+    {"id": 15, "sku": "Bag-Purple", "type": "maternal_baby", "replaceValue": "紫色书包", "fontSize": 275, "font": "Some Missing Font", "colorGroupId": 1, "iconGroupId": 1, "iconLayoutTemplateId": 1,
+     "nameLayout": {"area": {"x1": 11, "x2": 91, "y1": 20, "y2": 89}, "maxFontSize": 275, "confirmed": true}}
+  ]
+}
