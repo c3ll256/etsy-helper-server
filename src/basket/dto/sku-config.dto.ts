@@ -1,9 +1,26 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
-import { IsString, IsEnum, IsOptional, IsNumber, IsObject, IsArray, IsBoolean, ValidateNested, IsInt, Min } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsNumber, IsObject, IsArray, IsBoolean, ValidateNested, IsInt, Min, IsIn } from 'class-validator';
 import { SkuType } from '../entities/sku-config.entity';
 import { Type } from 'class-transformer';
 
 export class ComboOverrideDto {
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  iconLayoutTemplateId?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  maxIcons?: number;
+
+  @ApiProperty({ required: false, type: Object })
+  @IsOptional()
+  @IsObject()
+  nameLayout?: Record<string, any>;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsNumber()
@@ -88,6 +105,34 @@ export class CreateSkuConfigDto {
   @IsString()
   @IsOptional()
   externalOrderReminderContent?: string;
+
+  @ApiProperty({ description: '生成方式：ppt / external（正常连单，不做 PPT）/ ignore（非商品行）', required: false })
+  @IsOptional()
+  @IsIn(['ppt', 'external', 'ignore'])
+  produceMode?: 'ppt' | 'external' | 'ignore';
+
+  @ApiProperty({ description: '图标布局模板ID', required: false, nullable: true })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  iconLayoutTemplateId?: number | null;
+
+  @ApiProperty({ description: '每件最多图标数，空为不限', required: false, nullable: true })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  maxIcons?: number | null;
+
+  @ApiProperty({ description: '名字安全区和字号', required: false, nullable: true, type: Object })
+  @IsOptional()
+  @IsObject()
+  nameLayout?: Record<string, any> | null;
+
+  @ApiProperty({ description: '母体（参考图共用分组）', required: false, nullable: true })
+  @IsOptional()
+  @IsString()
+  referenceGroupKey?: string | null;
 }
 
 export class SkuConfigResponseDto extends CreateSkuConfigDto {

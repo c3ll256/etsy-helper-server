@@ -1,0 +1,56 @@
+{
+  "title": "一件 Jess 图标 A,A,A：同页三个 A，不去重、不拆页",
+  "acceptance": "03",
+  "rows": [
+    {
+      "Order ID": "3000000003",
+      "SKU": "MB1-Pink(I)",
+      "Quantity": 1,
+      "Variations": "Bag ColorPink+Icon\nYarn ColorBlue\nPersonalizationJess, A, A, A",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "units": 1,
+      "names": [
+        "Jess"
+      ],
+      "icons": [
+        [
+          "A",
+          "A",
+          "A"
+        ]
+      ],
+      "slots": [
+        [
+          "bottom_right",
+          "bottom_left",
+          "top_right"
+        ]
+      ]
+    }
+  ],
+  "ppt": {
+    "slideCount": 1,
+    "slides": [
+      {
+        "nameText": "Jess",
+        "iconNames": [
+          "A",
+          "A",
+          "A"
+        ],
+        "pictureCount": 4,
+        "groupPosition": "1/1",
+        "containsText": [
+          "名字区域未确认"
+        ]
+      }
+    ]
+  }
+}

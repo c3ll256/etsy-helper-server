@@ -1,0 +1,143 @@
+{
+  "title": "书包+餐包套组 Quantity=1：两种各一页；公共要求两件都用，指定某件时按该件；不串到同订单其他商品",
+  "acceptance": "07",
+  "rows": [
+    {
+      "Order ID": "3000000014",
+      "SKU": "Set-Blue",
+      "Quantity": 1,
+      "Variations": "Set ColorBlue\nYarn ColorBlue\nPersonalizationLeo, Bear",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000014",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationMax",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000015",
+      "SKU": "Set-Blue",
+      "Quantity": 1,
+      "Variations": "Set ColorBlue\nYarn ColorBlue\nPersonalization\nBackpack:\nLeo, Bear\nLunch bag:\nLeo, Star",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000016",
+      "SKU": "Set-Blue",
+      "Quantity": 2,
+      "Variations": "Set ColorBlue\nYarn ColorBlue\nPersonalizationLeo, Bear",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000017",
+      "SKU": "Set-Blue",
+      "Quantity": 1,
+      "Variations": "Set ColorBlue\nYarn ColorBlue\nPersonalizationLeo, Bear, Star, Lion",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "units": 2,
+      "components": [
+        "蓝色书包",
+        "蓝色餐包"
+      ],
+      "names": [
+        "Leo",
+        "Leo"
+      ],
+      "icons": [
+        [
+          "Bear"
+        ],
+        [
+          "Bear"
+        ]
+      ],
+      "groupPositions": [
+        "1/3",
+        "2/3"
+      ]
+    },
+    {
+      "row": 3,
+      "status": "produced",
+      "names": [
+        "Max"
+      ],
+      "icons": [
+        []
+      ],
+      "groupPositions": [
+        "3/3"
+      ]
+    },
+    {
+      "row": 4,
+      "status": "produced",
+      "components": [
+        "蓝色书包",
+        "蓝色餐包"
+      ],
+      "icons": [
+        [
+          "Bear"
+        ],
+        [
+          "Star"
+        ]
+      ]
+    },
+    {
+      "row": 5,
+      "status": "review",
+      "reasonContains": [
+        "套组 Quantity=2"
+      ]
+    },
+    {
+      "row": 6,
+      "status": "review",
+      "category": "icon_layout",
+      "reasonContains": [
+        "超过"
+      ]
+    }
+  ],
+  "ppt": {
+    "slides": [
+      {
+        "nameText": "Leo",
+        "iconNames": [
+          "Bear"
+        ],
+        "containsText": [
+          "蓝色书包"
+        ]
+      },
+      {
+        "nameText": "Leo",
+        "iconNames": [
+          "Bear"
+        ],
+        "containsText": [
+          "蓝色餐包"
+        ]
+      },
+      {
+        "nameText": "Max",
+        "iconCount": 0
+      }
+    ]
+  }
+}

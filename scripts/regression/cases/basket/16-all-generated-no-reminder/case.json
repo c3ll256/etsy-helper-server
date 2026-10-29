@@ -1,0 +1,55 @@
+{
+  "title": "同订单全部商品都已生成：不显示多余的连单提醒",
+  "acceptance": "16",
+  "rows": [
+    {
+      "Order ID": "3000000048",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationOlivia",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000048",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationOlivia, Bear",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "reminderNull": true,
+      "groupPositions": [
+        "1/2"
+      ]
+    },
+    {
+      "row": 3,
+      "status": "produced",
+      "reminderNull": true,
+      "groupPositions": [
+        "2/2"
+      ]
+    }
+  ],
+  "ppt": {
+    "slideCount": 2,
+    "slides": [
+      {
+        "notContainsText": [
+          "连单"
+        ]
+      },
+      {
+        "notContainsText": [
+          "连单"
+        ]
+      }
+    ]
+  }
+}

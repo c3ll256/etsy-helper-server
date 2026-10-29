@@ -52,6 +52,37 @@ export class BasketGenerationRecord {
   @Column({ default: 'basket' })
   orderType: string;
 
+  @ApiProperty({ description: '上传的原始 Excel 路径' })
+  @Column({ name: 'source_file_path', type: 'varchar', nullable: true })
+  sourceFilePath: string | null;
+
+  @ApiProperty({ description: '明细行数（含重复行）' })
+  @Column({ name: 'lines_total', default: 0 })
+  linesTotal: number;
+
+  @ApiProperty({ description: '实际生成的制作单元数' })
+  @Column({ name: 'units_produced', default: 0 })
+  unitsProduced: number;
+
+  @ApiProperty({ description: '异常行数' })
+  @Column({ name: 'exception_count', default: 0 })
+  exceptionCount: number;
+
+  @ApiProperty({ description: '有提示的行数' })
+  @Column({ name: 'warning_count', default: 0 })
+  warningCount: number;
+
+  @ApiProperty({ description: '重新生成前的历史输出（备份）' })
+  @Column({ name: 'previous_outputs', type: 'jsonb', default: [] })
+  previousOutputs: Array<{ outputFilePath: string; replacedAt: string }>;
+
+  @ApiProperty({ description: '补处理记录：来源记录ID' })
+  @Column({ name: 'reprocess_of_record_id', type: 'int', nullable: true })
+  reprocessOfRecordId: number | null;
+
+  @Column({ name: 'pipeline_version', type: 'varchar', nullable: true })
+  pipelineVersion: string | null;
+
   @ApiProperty({ description: '创建用户ID' })
   @Column({ nullable: true })
   userId: string;

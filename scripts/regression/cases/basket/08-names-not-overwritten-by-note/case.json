@@ -1,0 +1,98 @@
+{
+  "title": "同订单 Luca、Luca、Mia Jocelyn、Lilly：每件保留自己的名字，不因 NOTE 统改；NOTE 原文（含换行）保存",
+  "acceptance": "08",
+  "rows": [
+    {
+      "Order ID": "3000000018",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationLuca",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer",
+      "Note": "Please make all of them Mia\nthank you"
+    },
+    {
+      "Order ID": "3000000018",
+      "SKU": "Bag-Green",
+      "Quantity": 1,
+      "Variations": "Backpack ColorGreen\nYarn ColorBlue\nPersonalizationLuca",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer",
+      "Note": "Please make all of them Mia\nthank you"
+    },
+    {
+      "Order ID": "3000000018",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationMia Jocelyn",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer",
+      "Note": "Please make all of them Mia\nthank you"
+    },
+    {
+      "Order ID": "3000000018",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationLilly",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer",
+      "Note": "Please make all of them Mia\nthank you"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "names": [
+        "Luca"
+      ],
+      "note": "Please make all of them Mia\nthank you",
+      "groupPositions": [
+        "1/4"
+      ]
+    },
+    {
+      "row": 3,
+      "names": [
+        "Luca"
+      ],
+      "groupPositions": [
+        "2/4"
+      ]
+    },
+    {
+      "row": 4,
+      "names": [
+        "Mia Jocelyn"
+      ],
+      "groupPositions": [
+        "3/4"
+      ]
+    },
+    {
+      "row": 5,
+      "names": [
+        "Lilly"
+      ],
+      "groupPositions": [
+        "4/4"
+      ]
+    }
+  ],
+  "ppt": {
+    "slideCount": 4,
+    "slides": [
+      {
+        "nameText": "Luca"
+      },
+      {
+        "nameText": "Luca"
+      },
+      {
+        "nameText": "Mia Jocelyn"
+      },
+      {
+        "nameText": "Lilly"
+      }
+    ]
+  }
+}

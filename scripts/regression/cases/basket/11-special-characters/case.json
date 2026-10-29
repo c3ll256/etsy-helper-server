@@ -1,0 +1,133 @@
+{
+  "title": "Sebastián 等特殊字符：原字保留，重音和 & 用 Calibri（& 小 10pt），上方红色 Calibri 40pt 标注原名；缺字和缺字体是系统异常",
+  "acceptance": "11",
+  "rows": [
+    {
+      "Order ID": "3000000033",
+      "SKU": "Bag-Pink1(I)",
+      "Quantity": 1,
+      "Variations": "Item:Pink+Icon,Yarn Color:Blue,Personalization:Sebastián",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000034",
+      "SKU": "Bag-Pink1(I)",
+      "Quantity": 1,
+      "Variations": "Item:Pink+Icon,Yarn Color:Blue,Personalization:Zoë &amp; Max",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000035",
+      "SKU": "Bag-Pink1(I)",
+      "Quantity": 1,
+      "Variations": "Item:Pink+Icon,Yarn Color:Blue,Personalization:O&#39;Brien-Lee",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000036",
+      "SKU": "Bag-Pink1(I)",
+      "Quantity": 1,
+      "Variations": "Item:Pink+Icon,Yarn Color:Blue,Personalization:小明",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000037",
+      "SKU": "Bag-Purple",
+      "Quantity": 1,
+      "Variations": "Backpack ColorPurple\nYarn ColorBlue\nPersonalizationMia",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "names": [
+        "Sebastián"
+      ]
+    },
+    {
+      "row": 3,
+      "status": "produced",
+      "names": [
+        "Zoë & Max"
+      ]
+    },
+    {
+      "row": 4,
+      "status": "produced",
+      "names": [
+        "O'Brien-Lee"
+      ]
+    },
+    {
+      "row": 5,
+      "status": "failed",
+      "category": "font_error",
+      "reasonContains": [
+        "字体缺字"
+      ]
+    },
+    {
+      "row": 6,
+      "status": "failed",
+      "category": "font_error",
+      "reasonContains": [
+        "Some Missing Font",
+        "系统异常"
+      ]
+    }
+  ],
+  "ppt": {
+    "slides": [
+      {
+        "nameText": "Sebastián",
+        "annotation": "Sebastián",
+        "nameRuns": [
+          {
+            "text": "á",
+            "font": "Calibri",
+            "sizeDelta": 0
+          }
+        ]
+      },
+      {
+        "nameText": "Zoë & Max",
+        "annotation": "Zoë & Max",
+        "nameRuns": [
+          {
+            "text": "&",
+            "font": "Calibri",
+            "sizeDelta": -10
+          },
+          {
+            "text": "ë",
+            "font": "Calibri",
+            "sizeDelta": 0
+          }
+        ]
+      },
+      {
+        "nameText": "O'Brien-Lee",
+        "noAnnotation": true
+      },
+      {
+        "kind": "placeholder",
+        "containsText": [
+          "字体缺字"
+        ]
+      },
+      {
+        "kind": "placeholder",
+        "containsText": [
+          "Some Missing Font"
+        ]
+      }
+    ]
+  }
+}

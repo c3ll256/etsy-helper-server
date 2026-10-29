@@ -42,6 +42,18 @@ export class IconKv {
   @ApiProperty({ description: '文件 MIME 类型' })
   mimeType: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  @ApiProperty({ description: '完整编号（为空时按名称识别；"02 White Flower" 这类名称会自动拆出编号 02）', required: false })
+  code?: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  @ApiProperty({ description: '本店别名（不同写法，如 weiße Blume）', required: false, type: [String] })
+  aliases?: string[] | null;
+
+  @Column({ type: 'varchar', length: 16, default: 'large' })
+  @ApiProperty({ description: '图标类别：large 大图标；flower 彩色小花（用于布局模板组合）', default: 'large' })
+  kind: string;
+
   @Column({ type: 'boolean', default: true, name: 'is_active' })
   @ApiProperty({ description: '是否启用' })
   isActive: boolean;

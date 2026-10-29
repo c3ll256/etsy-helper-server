@@ -1,0 +1,167 @@
+{
+  "title": "不同 SKU（书包、篮子）选同一图标布局模板；各组合位置正确；客户指定位置优先；\"名字后面\"待核对；名字前后型",
+  "acceptance": "09",
+  "rows": [
+    {
+      "Order ID": "3000000019",
+      "SKU": "Bag-Green",
+      "Quantity": 1,
+      "Variations": "Backpack ColorGreen\nYarn ColorBlue\nPersonalizationNoah, Bear",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000020",
+      "SKU": "HB3-Orange",
+      "Quantity": 1,
+      "Variations": "Basket ColorOrange\nYarn ColorBlue\nPersonalizationElla, Bear, White Flower",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000021",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationAva, Bear, Lion",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000022",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack Color:Blue,Yarn Color:Blue,Personalization:Paxton, A (bottom left)",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000023",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationRyan, A (after the name)",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000024",
+      "SKU": "Bag-Yellow",
+      "Quantity": 1,
+      "Variations": "Backpack ColorYellow\nPersonalizationBen, A, B",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000025",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationKai, Bear, Lion, Star",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "slots": [
+        [
+          "bottom_left"
+        ]
+      ]
+    },
+    {
+      "row": 3,
+      "status": "produced",
+      "slots": [
+        [
+          "bottom_left",
+          "flower_1"
+        ]
+      ]
+    },
+    {
+      "row": 4,
+      "status": "produced",
+      "slots": [
+        [
+          "bottom_left",
+          "bottom_right"
+        ]
+      ]
+    },
+    {
+      "row": 5,
+      "status": "produced",
+      "slots": [
+        [
+          "bottom_left"
+        ]
+      ]
+    },
+    {
+      "row": 6,
+      "status": "review",
+      "category": "icon_layout",
+      "reasonContains": [
+        "名字后面"
+      ]
+    },
+    {
+      "row": 7,
+      "status": "produced",
+      "slots": [
+        [
+          "name_left",
+          "name_right"
+        ]
+      ]
+    },
+    {
+      "row": 8,
+      "status": "review",
+      "category": "icon_layout",
+      "reasonContains": [
+        "人工复核"
+      ]
+    }
+  ],
+  "ppt": {
+    "slides": [
+      {
+        "iconNames": [
+          "Bear"
+        ]
+      },
+      {
+        "iconNames": [
+          "Bear",
+          "White Flower"
+        ]
+      },
+      {
+        "iconNames": [
+          "Bear",
+          "Lion"
+        ]
+      },
+      {
+        "iconNames": [
+          "A"
+        ]
+      },
+      {
+        "kind": "placeholder"
+      },
+      {
+        "iconNames": [
+          "A",
+          "B"
+        ],
+        "nameText": "Ben"
+      },
+      {
+        "kind": "placeholder"
+      }
+    ]
+  }
+}

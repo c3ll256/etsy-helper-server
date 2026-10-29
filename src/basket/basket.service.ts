@@ -12,6 +12,7 @@ import * as process from 'process';
 
 import { BasketGenerationRecord } from './entities/basket-generation-record.entity';
 import { PythonBasketService } from './services/python-basket.service';
+import { BasketLinesService } from './basket-lines.service';
 import { BasketGenerationResponseDto } from './dto/basket-generation-response.dto';
 import { User } from '../users/entities/user.entity';
 import { BasketPaginationDto } from './dto/basket-pagination.dto';
@@ -26,6 +27,7 @@ import { ColorGroup } from './entities/color-group.entity';
 import { ColorKv } from './entities/color-kv.entity';
 import { IconGroup } from './entities/icon-group.entity';
 import { IconKv } from './entities/icon-kv.entity';
+import { BasketIconLayoutTemplate } from './entities/basket-icon-layout-template.entity';
 import {
   CreateColorGroupDto,
   CreateColorKvDto,
@@ -42,55 +44,6 @@ import {
   UpdateIconGroupDto,
   UpdateIconKvDto,
 } from './dto/basket-dictionaries.dto';
-
-interface ParsedVariation {
-  color: string;
-  value: string;
-  icon?: string;
-  design?: string;
-  originalText?: string;
-  iconFilePath?: string;
-  /** LLM 解析失败：名字留空，页面上提示人工核对 */
-  parseError?: boolean;
-}
-
-interface ResolvedComboOverride {
-  fontSize?: number;
-  colorGroupId?: number;
-  iconGroupId?: number;
-  colorMap?: Record<string, string>;
-  iconMap?: Record<string, string>;
-  iconAssetPaths?: string[];
-}
-
-interface ProcessedOrder {
-  id: number;
-  quantity: number;
-  orderId: string;
-  shipName: string;
-  variations: ParsedVariation[];
-  sku: string; // replaced SKU for PPT
-  originalSku: string; // original SKU from import Excel for export
-  orderType?: 'basket' | 'backpack' | 'combo';
-  fontSize?: number;
-  font?: string;
-  rawVariations?: ParsedVariation[];
-  colorGroupId?: number | null;
-  iconGroupId?: number | null;
-  baseColorMap?: Record<string, string>;
-  baseIconMap?: Record<string, string>;
-  baseIconAssetPaths?: string[];
-  comboOverrides?: Record<string, ResolvedComboOverride>;
-  datePaid?: string;
-  orderDate?: string;
-  isRemoteArea?: boolean;
-  shipAddress?: string;
-  // combo specific
-  comboItems?: string[];
-  // external order reminder
-  externalOrderReminderEnabled?: boolean;
-  externalOrderReminderContent?: string;
-}
 
 interface GroupBindingSummary {
   boundSkuCount: number;
@@ -136,7 +89,10 @@ export class BasketService {
     private readonly iconGroupRepository: Repository<IconGroup>,
     @InjectRepository(IconKv)
     private readonly iconKvRepository: Repository<IconKv>,
+    @InjectRepository(BasketIconLayoutTemplate)
+    private readonly templateRepository: Repository<BasketIconLayoutTemplate>,
     private readonly pythonBasketService: PythonBasketService,
+    private readonly basketLinesService: BasketLinesService,
     private readonly jobQueueService: JobQueueService,
     private readonly aliyunService: AliyunService,
     private readonly remoteAreaService: RemoteAreaService,
@@ -207,7 +163,7 @@ export class BasketService {
     savedRecord.jobId = jobId;
 
     // Start processing in background
-    this.processBasketOrdersAsync(savedRecord.id, file, jobId, userConfigs, orderType);
+    this.processBasketOrdersAsync(savedRecord.id, file, jobId, user, orderType);
 
     // Return the record
     return {
@@ -416,6 +372,11 @@ export class BasketService {
         if (updateData.comboOverridesJson !== undefined) updateFields.comboOverridesJson = updateData.comboOverridesJson as any;
         if (updateData.externalOrderReminderEnabled !== undefined) updateFields.externalOrderReminderEnabled = updateData.externalOrderReminderEnabled;
         if (updateData.externalOrderReminderContent !== undefined) updateFields.externalOrderReminderContent = updateData.externalOrderReminderContent;
+        if (updateData.produceMode !== undefined) updateFields.produceMode = updateData.produceMode;
+        if (updateData.iconLayoutTemplateId !== undefined) updateFields.iconLayoutTemplateId = updateData.iconLayoutTemplateId;
+        if (updateData.maxIcons !== undefined) updateFields.maxIcons = updateData.maxIcons;
+        if (updateData.nameLayout !== undefined) updateFields.nameLayout = updateData.nameLayout;
+        if (updateData.referenceGroupKey !== undefined) updateFields.referenceGroupKey = updateData.referenceGroupKey;
 
         // Check if there are any fields to update
         if (Object.keys(updateFields).length === 0) {
@@ -443,6 +404,8 @@ export class BasketService {
           comboOverridesJson: (updateFields.comboOverridesJson ?? config.comboOverridesJson) as any,
           externalOrderReminderEnabled: updateFields.externalOrderReminderEnabled ?? config.externalOrderReminderEnabled,
           externalOrderReminderContent: updateFields.externalOrderReminderContent ?? config.externalOrderReminderContent,
+          iconLayoutTemplateId: (updateFields.iconLayoutTemplateId ?? config.iconLayoutTemplateId) as any,
+          nameLayout: (updateFields.nameLayout ?? config.nameLayout) as any,
         });
 
         // Update the configuration with only the provided fields
@@ -763,6 +726,9 @@ export class BasketService {
       fileName: file.originalname,
       filePath,
       mimeType: file.mimetype,
+      code: dto.code?.trim() || null,
+      aliases: this.parseAliases(dto.aliases),
+      kind: dto.kind === 'flower' ? 'flower' : 'large',
       isActive: true,
     });
     return this.iconKvRepository.save(entity);
@@ -781,7 +747,18 @@ export class BasketService {
       }
     }
     if (dto.name !== undefined) kv.name = dto.name.trim();
+    if (dto.code !== undefined) kv.code = dto.code?.trim() || null;
+    if (dto.aliases !== undefined) kv.aliases = this.parseAliases(dto.aliases);
+    if (dto.kind !== undefined) kv.kind = dto.kind === 'flower' ? 'flower' : 'large';
     return this.iconKvRepository.save(kv);
+  }
+
+  /** 别名：数组，或用逗号 / 换行分隔的字符串 */
+  private parseAliases(value: any): string[] | null {
+    if (value === undefined || value === null || value === '') return null;
+    const list = Array.isArray(value) ? value : String(value).split(/[,，\n]/);
+    const cleaned = Array.from(new Set(list.map((v) => String(v).trim()).filter(Boolean)));
+    return cleaned.length ? cleaned : null;
   }
 
   async deleteIconKv(id: number, user: User): Promise<void> {
@@ -825,6 +802,15 @@ export class BasketService {
       if (!group) throw new BadRequestException(`图标组 ${configDto.iconGroupId} 不存在或无权限访问`);
     }
 
+    if (configDto.iconLayoutTemplateId) {
+      const template = await this.templateRepository.findOne({ where: { id: configDto.iconLayoutTemplateId, isActive: true } });
+      if (!template || (template.userId !== userId)) throw new BadRequestException(`图标布局模板 ${configDto.iconLayoutTemplateId} 不存在或无权限访问`);
+    }
+    this.validateNameLayout(configDto.nameLayout as any, 'SKU');
+    if (configDto.produceMode && !['ppt', 'external', 'ignore'].includes(configDto.produceMode)) {
+      throw new BadRequestException('生成方式只能是 ppt / external / ignore');
+    }
+
     if (configDto.comboOverridesJson) {
       const comboItems = new Set((configDto.comboItems || []).map((item) => String(item).trim()).filter(Boolean));
       for (const [key, value] of Object.entries(configDto.comboOverridesJson)) {
@@ -842,7 +828,29 @@ export class BasketService {
           const group = await this.iconGroupRepository.findOne({ where: { id: value.iconGroupId, userId, isActive: true } });
           if (!group) throw new BadRequestException(`子 SKU ${key} 绑定的图标组不存在或无权限访问`);
         }
+        if ((value as any).iconLayoutTemplateId) {
+          const template = await this.templateRepository.findOne({ where: { id: (value as any).iconLayoutTemplateId, isActive: true } });
+          if (!template || template.userId !== userId) throw new BadRequestException(`子 SKU ${key} 的图标布局模板不存在或无权限访问`);
+        }
+        this.validateNameLayout((value as any).nameLayout, `子 SKU ${key}`);
       }
+    }
+  }
+
+  private validateNameLayout(layout: any, label: string) {
+    if (!layout) return;
+    const area = layout.area;
+    if (area) {
+      const nums = ['x1', 'x2', 'y1', 'y2'].map((k) => Number(area[k]));
+      if (nums.some((n) => !Number.isFinite(n) || n < 0 || n > 100) || nums[0] >= nums[1] || nums[2] >= nums[3]) {
+        throw new BadRequestException(`${label} 的名字区域无效：需要 0 ≤ x1 < x2 ≤ 100、0 ≤ y1 < y2 ≤ 100（百分比）`);
+      }
+    }
+    for (const k of ['maxFontSize', 'minFontSize', 'preferredFontSize', 'bufferPt', 'maxLatinLetters']) {
+      if (layout[k] !== undefined && layout[k] !== null && !(Number(layout[k]) >= 0)) throw new BadRequestException(`${label} 的 ${k} 必须是非负数`);
+    }
+    if (layout.minFontSize && layout.maxFontSize && Number(layout.minFontSize) > Number(layout.maxFontSize)) {
+      throw new BadRequestException(`${label} 的最小字号不能大于最大字号`);
     }
   }
 
@@ -937,420 +945,6 @@ export class BasketService {
   }
 
   /**
-   * Determine order type based on SKU and user configuration
-   * @param sku SKU from Excel
-   * @param skuConfigs User's SKU configurations
-   * @returns Order type ('basket', 'backpack', or undefined if no match)
-   */
-  private determineOrderType(sku: string, skuConfigs: SkuConfig[]): 'basket' | 'backpack' | 'combo' | undefined {
-    if (!sku) return undefined;
-    
-    const matchingConfig = this.findSkuConfig(sku, skuConfigs);
-    if (matchingConfig) {
-      return matchingConfig.type as any;
-    }
-    
-    return undefined;
-  }
-
-  /**
-   * 为订单 SKU 找对应的 SKU 配置：完全相同的优先；否则取被订单 SKU 包含的最长配置 SKU。
-   * 之前按创建时间取第一个包含命中，相似 SKU（如 Bag-Pink1 / Bag-Pink1(I)）会配错。
-   * TODO(v2 M2)：改为只做完整 SKU 精确匹配，未匹配进入待处理。
-   */
-  private findSkuConfig(sku: string, skuConfigs: SkuConfig[]): SkuConfig | undefined {
-    if (!sku) return undefined;
-    const orderSku = sku.trim();
-    const exact = skuConfigs.find(config => (config.sku || '').trim() === orderSku);
-    if (exact) return exact;
-    return skuConfigs
-      .filter(config => config.sku && orderSku.includes(config.sku))
-      .sort((a, b) => b.sku.length - a.sku.length)[0];
-  }
-
-  /**
-   * Process Excel file to extract order data
-   * @param excelBuffer Buffer containing Excel data
-   * @param skuConfigs User's SKU configurations
-   * @returns Array of processed order data
-   */
-  private async processExcelData(excelBuffer: Buffer, skuConfigs: SkuConfig[]): Promise<ProcessedOrder[]> {
-    try {
-      // Read the Excel file
-      const workbook = read(excelBuffer, { type: 'buffer' });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rawData = utils.sheet_to_json(worksheet);
-      
-      this.logger.log(`Processing ${rawData.length} rows from Excel file`);
-      
-      const processedOrders: ProcessedOrder[] = [];
-      const colorGroupCache = new Map<number, Record<string, string>>();
-      const iconGroupCache = new Map<number, Record<string, string>>();
-      const iconAssetPathCache = new Map<number, string[]>();
-      
-      // Process each row
-      for (let i = 0; i < rawData.length; i++) {
-        const row = rawData[i];
-        
-        try {
-          this.logger.debug(`Processing row ${i + 1}: ${JSON.stringify(row)}`);
-          
-          // Extract required fields
-          const quantity = Number(row['Quantity'] || row['数量'] || 1);
-          const orderId = row['Order ID'] || row['OrderID'] || row['订单ID'] || '';
-          const shipName = row['Ship Name'] || row['收件人姓名'] || row['收件人'] || '';
-          const variations = row['Variations'] || row['变量'] || '';
-          const skuRaw = row['SKU'] || '';
-          const datePaid = row['Date Paid'] || row['付款日期'] || '';
-          const orderDate = row['Sale Date'] || row['Order Date'] || row['下单日期'] || row['下单时间'] || '';
-          const shipState = row['Ship State'] || row['省/州'] || '';
-          const shipAddress1 = row['Ship Address 1'] || row['地址1'] || '';
-          const shipAddress2 = row['Ship Address 2'] || row['地址2'] || '';
-          const shipCity = row['Ship City'] || row['城市'] || '';
-          const shipZip = row['Ship Zip'] || row['邮编'] || '';
-          const shipCountry = row['Ship Country'] || row['国家'] || '';
-          
-          // 使用dayjs格式化日期
-          const formattedDatePaid = this.formatExcelDate(datePaid);
-          const formattedOrderDate = this.formatExcelDate(orderDate);
-          
-          // Determine order type based on SKU
-          const orderType = this.determineOrderType(skuRaw, skuConfigs);
-
-          // If neither basket nor backpack SKU is matched, skip this order
-          if (!orderType) {
-            this.logger.debug(`Skipping row ${i + 1}: SKU ${skuRaw} does not match any configured patterns`);
-            continue;
-          }
-          
-          // Use LLM to analyze variations based on order type
-          const analyzedVariations = await this.analyzeVariations(variations, orderType);
-          
-          // Find matching SKU config for replacement value and font size
-          const skuConfig = this.findSkuConfig(skuRaw, skuConfigs);
-
-          const baseColorMap = await this.resolveColorMapForSkuConfig(skuConfig, colorGroupCache);
-          const baseIconMap = await this.resolveIconMapForSkuConfig(skuConfig, iconGroupCache);
-          const baseIconAssetPaths = await this.resolveIconAssetPathsForSkuConfig(skuConfig, iconAssetPathCache);
-          const comboOverrides = await this.resolveComboOverrides(skuConfig, colorGroupCache, iconGroupCache, iconAssetPathCache);
-          
-          // Replace the matched part while preserving the rest
-          const replacedSku = replaceSkuDisplayValue(skuRaw, skuConfig?.sku, skuConfig?.replaceValue);
-
-          // Apply yarn color mapping if configured for this SKU
-          const finalVariations = this.applyColorMap(analyzedVariations, baseColorMap);
-          
-          // 保存数据行号（注意：第一行是标题行，不包含在rawData中）
-          // 因此实际的Excel行号需要加2（1是因为Excel从1开始，再加1是因为标题行）
-          const excelRowIndex = i + 2;
-          
-          // Map the row data to our order structure
-          const orderData: ProcessedOrder = {
-            id: excelRowIndex, // 使用正确的Excel行号
-            quantity,
-            orderId,
-            shipName,
-            variations: finalVariations,
-            rawVariations: analyzedVariations,
-            sku: replacedSku,
-            originalSku: skuRaw,
-            orderType,
-            fontSize: skuConfig?.fontSize,
-            font: skuConfig?.font,
-            colorGroupId: skuConfig?.colorGroupId,
-            iconGroupId: skuConfig?.iconGroupId,
-            baseColorMap,
-            baseIconMap,
-            baseIconAssetPaths,
-            comboOverrides,
-            datePaid: formattedDatePaid,
-            orderDate: formattedOrderDate,
-            isRemoteArea: this.remoteAreaService.isRemoteArea(shipState),
-            shipAddress: [shipAddress1, shipAddress2, shipCity, shipState, shipZip, shipCountry]
-              .filter(Boolean)
-              .join(', '),
-            comboItems: skuConfig?.type === 'combo' ? ((skuConfig as any).comboItems || []) : undefined,
-            externalOrderReminderEnabled: skuConfig?.externalOrderReminderEnabled || false,
-            externalOrderReminderContent: skuConfig?.externalOrderReminderContent || undefined,
-          };
-          
-          processedOrders.push(orderData);
-        } catch (error) {
-          this.logger.error(`Error processing row ${i + 1}: ${error.message}`);
-        }
-      }
-      
-      return processedOrders;
-    } catch (error) {
-      this.logger.error(`Error processing Excel data: ${error.message}`);
-      throw error;
-    }
-  }
-  
-  /**
-   * 将Excel日期转换为标准格式
-   * @param excelDate Excel日期值（可能是数字或字符串）
-   * @returns 格式化的日期字符串 MM/DD/YYYY
-   */
-  private formatExcelDate(excelDate: any): string {
-    if (!excelDate) return '';
-    
-    try {
-      // 如果是日期对象
-      if (excelDate instanceof Date) {
-        return dayjs(excelDate).format('YYYY年MM月DD日');
-      }
-
-      // 如果是数字或可以转换为数字的字符串
-      const numDate = Number(excelDate);
-      if (!isNaN(numDate) && numDate > 0) {
-        // Excel 日期序列号从 1900-01-01 开始计数，但 Excel 错误地将 1900 视为闰年
-        // 因此对于 1900-03-01 之后的日期，需要减去额外的一天
-        const excelBaseDate = dayjs('1899-12-31');
-        let serial = Math.floor(numDate);
-
-        if (serial > 59) {
-          serial -= 1; // 调整 Excel 的闰年错误（虚构的 1900-02-29）
-        }
-
-        const date = excelBaseDate.add(serial, 'day');
-
-        // 格式化为中文日期格式
-        return date.format('YYYY年MM月DD日');
-      }
-      
-      // 处理其他已经是字符串格式的日期
-      const parsedDate = dayjs(excelDate);
-      if (parsedDate.isValid()) {
-        return parsedDate.format('YYYY年MM月DD日');
-      }
-      
-      // 如果无法解析，返回原始字符串
-      return String(excelDate);
-    } catch (error) {
-      this.logger.warn(`Error formatting Excel date with dayjs: ${error.message}`, excelDate);
-      return String(excelDate);
-    }
-  }
-
-  private async resolveColorMapForSkuConfig(
-    skuConfig: SkuConfig | undefined,
-    cache: Map<number, Record<string, string>>,
-  ): Promise<Record<string, string>> {
-    if (!skuConfig) {
-      return {};
-    }
-
-    if (skuConfig.colorGroupId) {
-      return this.loadColorMapByGroupId(Number(skuConfig.colorGroupId), cache);
-    }
-
-    return skuConfig.yarnColorMap || {};
-  }
-
-  private async resolveIconMapForSkuConfig(
-    skuConfig: SkuConfig | undefined,
-    cache: Map<number, Record<string, string>>,
-  ): Promise<Record<string, string>> {
-    if (!skuConfig?.iconGroupId) {
-      return {};
-    }
-
-    return this.loadIconMapByGroupId(Number(skuConfig.iconGroupId), cache);
-  }
-
-  private async resolveIconAssetPathsForSkuConfig(
-    skuConfig: SkuConfig | undefined,
-    cache: Map<number, string[]>,
-  ): Promise<string[]> {
-    if (!skuConfig?.iconGroupId) {
-      return [];
-    }
-
-    return this.loadIconAssetPathsByGroupId(Number(skuConfig.iconGroupId), cache);
-  }
-
-  private async resolveComboOverrides(
-    skuConfig: SkuConfig | undefined,
-    colorCache: Map<number, Record<string, string>>,
-    iconCache: Map<number, Record<string, string>>,
-    iconAssetPathCache: Map<number, string[]>,
-  ): Promise<Record<string, ResolvedComboOverride>> {
-    const overrides = skuConfig?.comboOverridesJson || {};
-    const resolved: Record<string, ResolvedComboOverride> = {};
-
-    for (const [key, value] of Object.entries(overrides || {})) {
-      resolved[key] = {
-        fontSize: value?.fontSize,
-        colorGroupId: value?.colorGroupId,
-        iconGroupId: value?.iconGroupId,
-        colorMap: value?.colorGroupId ? await this.loadColorMapByGroupId(Number(value.colorGroupId), colorCache) : undefined,
-        iconMap: value?.iconGroupId ? await this.loadIconMapByGroupId(Number(value.iconGroupId), iconCache) : undefined,
-        iconAssetPaths: value?.iconGroupId ? await this.loadIconAssetPathsByGroupId(Number(value.iconGroupId), iconAssetPathCache) : undefined,
-      };
-    }
-
-    return resolved;
-  }
-
-  private async loadColorMapByGroupId(groupId: number, cache: Map<number, Record<string, string>>): Promise<Record<string, string>> {
-    if (cache.has(groupId)) {
-      return cache.get(groupId)!;
-    }
-
-    const items = await this.colorKvRepository.find({ where: { groupId, isActive: true } });
-    const mapped = Object.fromEntries(items.map((item) => [item.name, item.colorValue]));
-    cache.set(groupId, mapped);
-    return mapped;
-  }
-
-  private async loadIconMapByGroupId(groupId: number, cache: Map<number, Record<string, string>>): Promise<Record<string, string>> {
-    if (cache.has(groupId)) {
-      return cache.get(groupId)!;
-    }
-
-    const items = await this.iconKvRepository.find({ where: { groupId, isActive: true } });
-    const mapped = Object.fromEntries(items.map((item) => [item.name, item.filePath]));
-    cache.set(groupId, mapped);
-    return mapped;
-  }
-
-  private async loadIconAssetPathsByGroupId(groupId: number, cache: Map<number, string[]>): Promise<string[]> {
-    if (cache.has(groupId)) {
-      return cache.get(groupId)!;
-    }
-
-    const items = await this.iconKvRepository.find({
-      where: { groupId, isActive: true },
-      order: { createdAt: 'ASC', id: 'ASC' },
-    });
-    const assetPaths = items
-      .map((item) => item.filePath)
-      .filter((filePath): filePath is string => typeof filePath === 'string' && filePath.trim().length > 0);
-
-    cache.set(groupId, assetPaths);
-    return assetPaths;
-  }
-
-  private applyColorMap(variations: ParsedVariation[], colorMap?: Record<string, string>): ParsedVariation[] {
-    if (!variations?.length || !colorMap || Object.keys(colorMap).length === 0) {
-      return variations || [];
-    }
-
-    const normalizedMap = new Map<string, string>(
-      Object.entries(colorMap).map(([key, value]) => [this.normalizeDictionaryKey(key), value]),
-    );
-
-    return variations.map((variation) => {
-      const color = variation?.color?.trim();
-      if (!color) {
-        return variation;
-      }
-
-      const mapped = normalizedMap.get(this.normalizeDictionaryKey(color));
-      if (!mapped) {
-        return variation;
-      }
-
-      return {
-        ...variation,
-        color: mapped,
-      };
-    });
-  }
-
-  private resolveIconFilePath(iconName?: string, iconMap?: Record<string, string>): string {
-    if (!iconName || !iconMap || Object.keys(iconMap).length === 0) {
-      return '';
-    }
-
-    const normalizedTarget = this.normalizeDictionaryKey(iconName);
-    for (const [key, filePath] of Object.entries(iconMap)) {
-      if (this.normalizeDictionaryKey(key) === normalizedTarget) {
-        return filePath;
-      }
-    }
-
-    return '';
-  }
-
-  private resolveRequestedIconFilePaths(iconRequest?: string, iconMap?: Record<string, string>): string[] {
-    if (!iconRequest || !iconMap || Object.keys(iconMap).length === 0) {
-      return [];
-    }
-
-    const normalizedEntries = Object.entries(iconMap)
-      .map(([key, filePath]) => ({
-        key,
-        normalizedKey: this.normalizeDictionaryKey(key),
-        filePath,
-      }))
-      .filter((entry) => entry.normalizedKey && entry.filePath);
-
-    if (normalizedEntries.length === 0) {
-      return [];
-    }
-
-    const pushUnique = (target: string[], filePath?: string) => {
-      if (filePath && !target.includes(filePath)) {
-        target.push(filePath);
-      }
-    };
-
-    const exactNormalizedRequest = this.normalizeDictionaryKey(iconRequest);
-    if (exactNormalizedRequest) {
-      const exactMatch = normalizedEntries.find((entry) => entry.normalizedKey === exactNormalizedRequest);
-      if (exactMatch) {
-        return [exactMatch.filePath];
-      }
-    }
-
-    const requestWithoutParens = String(iconRequest)
-      .replace(/（[^）]*）/g, ' ')
-      .replace(/\([^)]*\)/g, ' ');
-
-    const requestParts = requestWithoutParens
-      .split(/\s*(?:&|\/|,|\+|和|and)\s*/i)
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    const resolvedPaths: string[] = [];
-
-    for (const part of requestParts) {
-      const normalizedPart = this.normalizeDictionaryKey(part);
-      if (!normalizedPart) {
-        continue;
-      }
-
-      const matchedEntry = normalizedEntries.find((entry) => entry.normalizedKey === normalizedPart);
-      if (matchedEntry) {
-        pushUnique(resolvedPaths, matchedEntry.filePath);
-      }
-    }
-
-    // Common case: icon IDs are numeric references like "4 & 22".
-    if (resolvedPaths.length === 0) {
-      const numericTokens = Array.from(new Set(requestWithoutParens.match(/\d+/g) || []));
-      for (const token of numericTokens) {
-        const matchedEntry = normalizedEntries.find((entry) => entry.normalizedKey === token);
-        if (matchedEntry) {
-          pushUnique(resolvedPaths, matchedEntry.filePath);
-        }
-      }
-    }
-
-    return resolvedPaths;
-  }
-
-  private normalizeDictionaryKey(value?: string): string {
-    return String(value || '')
-      .trim()
-      .toLowerCase()
-      .replace(/[\s_\-]+/g, '')
-      .replace(/[^\p{L}\p{N}]/gu, '');
-  }
-
-  /**
    * Helper method to safely clean up a file
    * @param filePath File path to clean up
    */
@@ -1409,649 +1003,104 @@ export class BasketService {
   }
 
   /**
-   * Process basket orders asynchronously
-   * @param recordId Generation record ID
-   * @param file Uploaded file
-   * @param jobId Job queue ID
-   * @param skuConfigs User's SKU configurations
-   * @param orderType Order type (basket or backpack)
+   * 后台处理上传的 Excel（v2）：明细落库 → 规则解析 → 布局计划 → 连单核对 → 渲染 → 打包。
+   * 具体流程见 BasketLinesService / pipeline/*。
    */
   private async processBasketOrdersAsync(
-    recordId: number, 
-    file: Express.Multer.File, 
+    recordId: number,
+    file: Express.Multer.File,
     jobId: string,
-    skuConfigs: SkuConfig[],
+    user: User,
     orderType: BasketUploadOrderType
   ): Promise<void> {
-    // Declare file paths outside the try block so they're available in catch block
-    let modifiedExcelPath: string | null = null; // 导出的Excel文件路径
-    let pptFilePath: string | null = null;
-    let zipFilePath: string | null = null;
-    
+    const progress = async (value: number, message: string) => {
+      this.ensureJobNotCancelled(jobId);
+      await this.basketRecordRepository.update(recordId, { progress: value });
+      this.jobQueueService.updateJobProgress(jobId, { status: 'processing', progress: value, message });
+    };
     try {
-      const recordEntity = await this.basketRecordRepository.findOne({
-        where: { id: recordId },
-        relations: ['user']
-      });
-
+      const recordEntity = await this.basketRecordRepository.findOne({ where: { id: recordId }, relations: ['user'] });
       if (!recordEntity) {
         throw new NotFoundException(`Record with ID ${recordId} not found`);
       }
+      await this.basketRecordRepository.update(recordId, { status: 'processing', progress: 10, sourceFilePath: file.path });
+      await progress(10, '开始处理Excel文件');
 
-      this.ensureJobNotCancelled(jobId);
-
-      // Update status to processing
-      await this.basketRecordRepository.update(recordId, {
-        status: 'processing',
-        progress: 10,
-      });
-      
-      // Update job progress
-      this.jobQueueService.updateJobProgress(jobId, {
-        status: 'processing',
-        progress: 10,
-        message: '开始处理Excel文件',
-      });
-
-      // Parse Excel data
-      await this.basketRecordRepository.update(recordId, {
-        progress: 20,
-      });
-      
-      this.jobQueueService.updateJobProgress(jobId, {
-        progress: 20,
-        message: '解析Excel数据',
-      });
-
-      this.ensureJobNotCancelled(jobId);
-
-      // Read the file from disk
-      const fileBuffer = fs.readFileSync(file.path);
-      
-      // Process the data and keep track of processed row indices
-      const processedOrders = await this.processExcelData(fileBuffer, skuConfigs);
-      
-      // Filter orders based on orderType, unless it's 'all'
-      const filteredOrders = orderType === 'all' 
-          ? processedOrders // Include all processed orders if type is 'all'
-          : processedOrders.filter(order => order.orderType === orderType); // Filter by specific type otherwise
-      
-      this.ensureJobNotCancelled(jobId);
-
-      // Check if any orders were found
-      if (filteredOrders.length === 0) {
-        const errorMessage = `没有找到任何与您已配置的SKU匹配的${ORDER_TYPE_LABELS[orderType] || '所有类型'}订单，请检查您的SKU配置是否正确`;
-
-        throw new Error(errorMessage);
-      }
-      
-      // --- Start: Generate new Excel with required columns and QR code ---
-      this.logger.debug('Generating export Excel with required columns and QR codes');
-
-      const exportWorkbook = new ExcelJS.Workbook();
-      const exportSheet = exportWorkbook.addWorksheet('订单导出');
-
-      // Define columns (requested order + SKU + 收货地址；自定义信息展示完整原始 variations)
-      const headers = [
-        '订单号',
-        '序号',
-        '下单时间',
-        '顾客姓名',
-        '产品数量',
-        '自定义信息',
-        'SKU',
-        '收货地址',
-        '二维码',
-        '是否识别成功',
-        '店铺名'
-      ];
-
-      exportSheet.columns = [
-        { header: headers[0], key: 'orderId', width: 20 },
-        { header: headers[1], key: 'orderGroupIndex', width: 16 },
-        { header: headers[2], key: 'orderDate', width: 18 },
-        { header: headers[3], key: 'shipName', width: 18 },
-        { header: headers[4], key: 'quantity', width: 12 },
-        { header: headers[5], key: 'customInfo', width: 50 },
-        { header: headers[6], key: 'sku', width: 20 },
-        { header: headers[7], key: 'shipAddress', width: 40 },
-        { header: headers[8], key: 'qrcode', width: 18 },
-        { header: headers[9], key: 'recognized', width: 16 },
-        { header: headers[10], key: 'shopName', width: 20 },
-      ];
-
-      // 获取记录关联的用户信息（用于店铺名）
-      const shopNameForExcel = recordEntity?.user?.shopName || '';
-
-      // 预计算每个订单号对应需要导出的总行数（用于序号标识 k/N）
-      const totalRowsByOrderId = new Map<string, number>();
-      for (const order of filteredOrders) {
-        this.ensureJobNotCancelled(jobId);
-        const orderIdKey = String(order.orderId || '');
-        const factor = (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length)
-          ? order.comboItems.length
-          : 1;
-        const rowsForThisOrder = (order.variations?.length || 0) * factor;
-        const prev = totalRowsByOrderId.get(orderIdKey) || 0;
-        totalRowsByOrderId.set(orderIdKey, prev + rowsForThisOrder);
-      }
-
-      // 当前序号计数器
-      const currentIndexByOrderId = new Map<string, number>();
-
-      // Add rows (expand combo orders to N rows)
-      for (const order of filteredOrders) {
-        this.ensureJobNotCancelled(jobId);
-        for (const variation of order.variations) {
-          this.ensureJobNotCancelled(jobId);
-          const recognized = !!(variation?.value && variation.value.trim() && variation.originalText && variation.value.trim() !== variation.originalText.trim());
-
-          // 自定义信息：展示完整原始 variations 文本（来自每行原始导入）
-          const fullVariations = variation?.originalText || '';
-
-          const orderIdKey = String(order.orderId || '');
-          const totalForThisOrderId = totalRowsByOrderId.get(orderIdKey) || 1;
-
-          const addOneRow = async (skuForRow: string) => {
-            const current = (currentIndexByOrderId.get(orderIdKey) || 0) + 1;
-            currentIndexByOrderId.set(orderIdKey, current);
-            const orderGroupIndex = `${current}/${totalForThisOrderId}`;
-
-            exportSheet.addRow({
-              orderId: orderIdKey,
-              orderGroupIndex,
-              orderDate: order.orderDate || '',
-              shipName: order.shipName || '',
-              quantity: order.quantity || 1,
-              customInfo: fullVariations,
-              sku: skuForRow || '',
-              shipAddress: order.shipAddress || '',
-              qrcode: '', // 图片稍后插入
-              recognized: recognized ? '是' : '否',
-              shopName: shopNameForExcel,
-            });
-            const addedRow = exportSheet.lastRow;
-            if (addedRow) {
-              addedRow.height = 80;
-              // Generate QR code for orderId
-              try {
-                const qrBuffer = await generateQrBuffer(String(order.orderId || ''));
-                const imageId = exportWorkbook.addImage({ buffer: qrBuffer, extension: 'png' });
-                const rowIndex = addedRow.number;
-                // Place image into the QR column
-                const qrColIndex = exportSheet.getColumn('qrcode').number; // 1-based index
-                // Anchor image to the cell (qr column, current row)
-                exportSheet.addImage(imageId, {
-                  tl: { col: qrColIndex - 1 + 0.15, row: rowIndex - 1 + 0.15 },
-                  ext: { width: 80, height: 80 },
-                  editAs: 'oneCell'
-                });
-              } catch (e) {
-                this.logger.warn(`Failed to generate QR for order ${order.orderId}: ${e.message}`);
-              }
-            }
-          };
-
-          if (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length) {
-            for (const item of order.comboItems) {
-              this.ensureJobNotCancelled(jobId);
-              const combinedSku = `${order.originalSku || ''} + ${item || ''}`.trim();
-              await addOneRow(combinedSku);
-            }
-          } else {
-            await addOneRow(order.originalSku || '');
-          }
-        }
-      }
-
-      // Save export workbook
-      const exportExcelFileName = `orders_export_${Date.now()}.xlsx`;
-      modifiedExcelPath = path.join(this.uploadsDir, exportExcelFileName);
-      await exportWorkbook.xlsx.writeFile(modifiedExcelPath);
-      this.logger.debug(`Saved export Excel to: ${modifiedExcelPath}`);
-      // --- End: Generate new Excel with required columns and QR code ---
-
-      this.ensureJobNotCancelled(jobId);
-
-      // Collect recognized orderIds and SKUs for search
-      const recognizedOrderIds = Array.from(new Set(filteredOrders.map(o => String(o.orderId || '')).filter(Boolean)));
-      const recognizedSkus = Array.from(new Set(filteredOrders.map(o => String(o.originalSku || o.sku || '')).filter(Boolean)));
-
-      // Update progress after processing Excel data
-      await this.basketRecordRepository.update(recordId, {
-        progress: 50,
-        ordersProcessed: filteredOrders.length,
-        totalOrders: filteredOrders.length,
-        orderIds: recognizedOrderIds,
-        skus: recognizedSkus,
-      });
-      
-      this.jobQueueService.updateJobProgress(jobId, {
-        progress: 50,
-        message: `已处理 ${filteredOrders.length} 个订单`,
-      });
-
-      // Generate PPT using Python service
-      this.logger.log(`Generating PPT for ${filteredOrders.length} orders`);
-      
-      // Prepare data for generating PPT
-      await this.basketRecordRepository.update(recordId, {
-        progress: 60,
-      });
-      
-      this.jobQueueService.updateJobProgress(jobId, {
-        progress: 60,
-        message: '准备生成PPT',
-      });
-      
-      this.ensureJobNotCancelled(jobId);
-
-      // 获取记录关联的用户信息
-      const shopName = recordEntity?.user?.shopName || '';
-      
-      // Prepare data for PPT generation
-      const pptData = this.preparePPTData(filteredOrders, shopName);
-      
-      // Call Python service to generate PPT
-      const result = await this.pythonBasketService.generateBasketOrderPPT(
-        Buffer.from(JSON.stringify(pptData)).toString('base64')
+      const owner = recordEntity.user || user;
+      const { output, webPath } = await this.basketLinesService.generateFromExcel(
+        recordEntity,
+        file.path,
+        { ...owner, isAdmin: user.isAdmin } as User,
+        orderType,
+        (value, message) => {
+          progress(value, message).catch(() => undefined);
+        },
       );
-
       this.ensureJobNotCancelled(jobId);
 
-      // Create zip file containing both PPT and highlighted Excel
-      const zip = new AdmZip();
-      const zipFileName = `order_package_${Date.now()}.zip`;
-      
-      // Create the physical file path (absolute)
-      const physicalZipPath = path.resolve(this.uploadsDir, zipFileName);
-      
-      // Create the web-accessible path (starting with /uploads)
-      const webAccessiblePath = `/uploads/baskets/${zipFileName}`;
-      
-      // Store both paths for later use
-      zipFilePath = physicalZipPath;
-      
-      this.logger.debug(`Python service returned PPT file path: ${result.filePath}`);
-      
-      // Handle different path formats that might be returned from Python service
-      pptFilePath = result.filePath;
-      
-      // Try multiple approaches to locate the file if needed
-      if (!fs.existsSync(pptFilePath)) {
-        const possiblePaths = [
-          pptFilePath,
-          path.resolve(pptFilePath),
-          path.join(process.cwd(), pptFilePath),
-          // Try without leading slash
-          pptFilePath.startsWith('/') ? pptFilePath.substring(1) : pptFilePath,
-          // Try with workspace root
-          path.join(process.cwd(), pptFilePath.startsWith('/') ? pptFilePath.substring(1) : pptFilePath)
-        ];
-        
-        // Find the first path that exists
-        const existingPath = possiblePaths.find(p => fs.existsSync(p));
-        if (existingPath) {
-          pptFilePath = existingPath;
-          this.logger.debug(`Found PPT file at: ${pptFilePath}`);
-        } else {
-          this.logger.error(`PPT file not found. Tried paths: ${possiblePaths.join(', ')}`);
-          throw new Error(`PPT file not found. Original path: ${result.filePath}`);
-        }
+      if (!webPath) {
+        const exceptions = output.stats.exceptionLines;
+        throw new Error(
+          output.stats.linesTotal === 0
+            ? 'Excel 里没有读到任何订单行'
+            : `没有生成任何制作页（${output.stats.linesTotal} 行明细，其中 ${exceptions} 行进入异常清单），请在"母婴明细 / 异常清单"中查看原因`,
+        );
       }
-      
-      // Check if modified Excel file exists
-      if (!fs.existsSync(modifiedExcelPath)) {
-        this.logger.error(`Modified Excel file not found at path: ${modifiedExcelPath}`);
-        throw new Error(`Modified Excel file not found at path: ${modifiedExcelPath}`);
-      }
-      
-      // Add PPT file to zip
-      const pptFileName = path.basename(pptFilePath);
-      zip.addFile(pptFileName, fs.readFileSync(pptFilePath));
-      
-      // Add modified Excel file to zip
-      const excelFileName = path.basename(modifiedExcelPath); // Use modifiedExcelPath
-      zip.addFile(excelFileName, fs.readFileSync(modifiedExcelPath)); // Use modifiedExcelPath
 
-      // Write zip file to the physical path
-      zip.writeZip(physicalZipPath);
-      
-      await this.basketRecordRepository.update(recordId, {
-        progress: 90,
-      });
-      
-      this.jobQueueService.updateJobProgress(jobId, {
-        progress: 90,
-        message: '文件打包完成，更新记录',
-      });
-
-      // Update record with the web-accessible path
+      const stats = this.basketLinesService.recordStats(output);
       await this.basketRecordRepository.update(recordId, {
         status: 'completed',
         progress: 100,
-        outputFilePath: webAccessiblePath, // Use web-accessible path
-        ordersProcessed: filteredOrders.length,
-        totalOrders: filteredOrders.length,
-        orderIds: recognizedOrderIds,
-        skus: recognizedSkus,
+        outputFilePath: webPath,
+        errorMessage: output.stats.exceptionLines ? `${output.stats.exceptionLines} 行进入异常清单` : null,
+        ...stats,
       });
-      
-      // Update job progress with success result and web-accessible path
+
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'completed',
         progress: 100,
-        message: `${ORDER_TYPE_LABELS[orderType] || ''}订单文件生成成功`,
+        message: `${ORDER_TYPE_LABELS[orderType] || ''}订单文件生成成功：${output.stats.unitsProduced} 个制作单元${output.stats.exceptionLines ? `，${output.stats.exceptionLines} 行异常待处理` : ''}`,
         result: {
-          filePath: webAccessiblePath, // Use web-accessible path
-          totalOrders: filteredOrders.length,
+          filePath: webPath,
+          totalOrders: output.stats.unitsProduced,
           fileType: 'zip',
           containsPpt: true,
           containsExcel: true,
-          orderType // Include the processed order type in the result
-        }
+          orderType,
+          recordId,
+          exceptionLines: output.stats.exceptionLines,
+          linesTotal: output.stats.linesTotal,
+        },
       });
-
       this.logger.log(`Successfully generated order package for record #${recordId}`);
-      
-      // Clean up temporary files using physical paths
-      this.safeDeleteFile(modifiedExcelPath); // Use modifiedExcelPath
-      this.safeDeleteFile(pptFilePath);
-      
-      // Start job cleanup after 3 hours
       this.jobQueueService.startJobCleanup(jobId, 3 * 60 * 60 * 1000);
     } catch (error) {
       if (error instanceof JobCancelledError) {
         this.logger.warn(`Job ${jobId} cancelled while processing record #${recordId}: ${error.message}`);
-
-        const physicalModifiedExcelPath = this.getPhysicalFilePath(modifiedExcelPath);
-        const physicalPptPath = this.getPhysicalFilePath(pptFilePath);
-        const physicalZipPath = this.getPhysicalFilePath(zipFilePath);
-
-        this.safeDeleteFile(physicalModifiedExcelPath);
-        this.safeDeleteFile(physicalPptPath);
-        this.safeDeleteFile(physicalZipPath);
-
         await this.basketRecordRepository.update(recordId, {
           status: 'cancelled',
           progress: 0,
           errorMessage: error.message,
           outputFilePath: null,
         });
-
-        this.jobQueueService.markJobCancelled(jobId, {
-          message: error.message,
-          progress: 0,
-        });
-
+        this.jobQueueService.markJobCancelled(jobId, { message: error.message, progress: 0 });
         this.jobQueueService.startJobCleanup(jobId, 60 * 60 * 1000);
         return;
       }
 
       this.logger.error(`Error generating order package for record #${recordId}: ${error.message}`);
-
-      // Clean up any temporary files that might have been created
-      const physicalModifiedExcelPath = this.getPhysicalFilePath(modifiedExcelPath);
-      const physicalPptPath = this.getPhysicalFilePath(pptFilePath);
-      const physicalZipPath = this.getPhysicalFilePath(zipFilePath);
-
-      this.safeDeleteFile(physicalModifiedExcelPath); // Use modifiedExcelPath
-      this.safeDeleteFile(physicalPptPath);
-      this.safeDeleteFile(physicalZipPath);
-      
-      // Update record with error
       await this.basketRecordRepository.update(recordId, {
         status: 'failed',
         progress: 0,
         errorMessage: error.message,
       });
-      
-      // Update job progress with error
       this.jobQueueService.updateJobProgress(jobId, {
         status: 'failed',
         progress: 0,
         message: `订单文件生成失败 (${ORDER_TYPE_LABELS[orderType] || orderType})`,
-        error: error.message
+        error: error.message,
       });
-      
-      // Start job cleanup after 1 hour for failed jobs
       this.jobQueueService.startJobCleanup(jobId, 60 * 60 * 1000);
-    }
-  }
-
-  /**
-   * Prepare order data for PPT generation
-   * @param processedOrders Processed order data
-   * @param shopName 用户店铺名称
-   * @returns Formatted data for PPT generation
-   */
-  private preparePPTData(processedOrders: ProcessedOrder[], shopName: string = ''): any[] {
-    const pptSlides = [];
-    const logIconResolution = (
-      scope: 'base' | 'combo',
-      order: ProcessedOrder,
-      variation: ParsedVariation,
-      iconFilePath: string,
-      groupIconFilePaths: string[],
-      comboItem?: string,
-    ) => {
-      const requestedIcon = String(variation?.icon || '').trim();
-      if (!requestedIcon) {
-        return;
-      }
-
-      const logContext = `orderId=${String(order.orderId || '')}, sku=${String(order.originalSku || order.sku || '')}, scope=${scope}${comboItem ? `, comboItem=${comboItem}` : ''}, requestedIcon=${requestedIcon}`;
-
-      if ((groupIconFilePaths?.length || 0) > 0 || iconFilePath) {
-        const resolvedPaths = Array.from(new Set([...(groupIconFilePaths || []), ...(iconFilePath ? [iconFilePath] : [])]));
-        this.logger.debug(`[Basket PPT][Icon Matched] ${logContext}, resolvedPaths=${JSON.stringify(resolvedPaths)}`);
-        return;
-      }
-
-      this.logger.warn(`[Basket PPT][Icon Missing] ${logContext}, resolvedPaths=[]`);
-    };
-
-    // 预计算每个订单号总页数（考虑套组展开）
-    const totalSlidesByOrderId = new Map<string, number>();
-    for (const order of processedOrders) {
-      const orderIdKey = String(order.orderId || '');
-      const factor = (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length)
-        ? order.comboItems.length
-        : 1;
-      const slidesForThisOrder = (order.variations?.length || 0) * factor;
-      const prev = totalSlidesByOrderId.get(orderIdKey) || 0;
-      totalSlidesByOrderId.set(orderIdKey, prev + slidesForThisOrder);
-    }
-
-    // 当前页计数
-    const currentIndexByOrderId = new Map<string, number>();
-
-    // 生成每页
-    for (const order of processedOrders) {
-      const sourceVariations = order.rawVariations || order.variations || [];
-      for (let variationIndex = 0; variationIndex < sourceVariations.length; variationIndex++) {
-        const variation = sourceVariations[variationIndex];
-        const orderIdKey = String(order.orderId || '');
-        const totalForThisOrderId = totalSlidesByOrderId.get(orderIdKey) || 1;
-
-        const baseVariation = (order.variations || [])[variationIndex] || variation;
-        const baseIconFilePath = this.resolveIconFilePath(variation.icon, order.baseIconMap);
-        const baseRequestedIconFilePaths = this.resolveRequestedIconFilePaths(variation.icon, order.baseIconMap);
-        logIconResolution('base', order, variation, baseIconFilePath, baseRequestedIconFilePaths);
-
-        const base = {
-          date: new Date().toLocaleDateString('zh-CN'),
-          orderNumber: String(order.orderId),
-          icon: variation.icon || '',
-          iconFilePath: baseIconFilePath,
-          groupIconFilePaths: baseRequestedIconFilePaths,
-          recipientName: order.shipName || '',
-          customName: variation.value || '',
-          quantity: order.quantity || 1,
-          shopName: shopName || '',
-          fontSize: order.fontSize,
-          font: order.font,
-          originalVariations: variation.originalText || '',
-          datePaid: order.datePaid || '',
-          isRemoteArea: order.isRemoteArea || false,
-          externalOrderReminderEnabled: order.externalOrderReminderEnabled || false,
-          externalOrderReminderContent: order.externalOrderReminderContent || '',
-          parseError: !!variation.parseError,
-        } as any;
-
-        if (order.orderType === 'combo' && Array.isArray(order.comboItems) && order.comboItems.length) {
-          for (const item of order.comboItems) {
-            const override = order.comboOverrides?.[item];
-            const comboVariation = this.applyColorMap([variation], override?.colorMap || order.baseColorMap)[0] || baseVariation;
-            const comboIconFilePath = this.resolveIconFilePath(variation.icon, override?.iconMap || order.baseIconMap);
-            const comboRequestedIconFilePaths = this.resolveRequestedIconFilePaths(
-              variation.icon,
-              override?.iconMap || order.baseIconMap,
-            );
-            logIconResolution('combo', order, variation, comboIconFilePath, comboRequestedIconFilePaths, item);
-            const current = (currentIndexByOrderId.get(orderIdKey) || 0) + 1;
-            currentIndexByOrderId.set(orderIdKey, current);
-            const position = `${current}/${totalForThisOrderId}`;
-
-            const slide = {
-              ...base,
-              color: comboVariation.color || '',
-              orderType: 'combo',
-              sku: `${order.sku || order.originalSku || ''} + ${item || ''}`.trim(),
-              fontSize: override?.fontSize ?? order.fontSize,
-              iconFilePath: comboIconFilePath,
-              groupIconFilePaths: comboRequestedIconFilePaths,
-              position,
-            } as any;
-            pptSlides.push(slide);
-          }
-        } else {
-          const current = (currentIndexByOrderId.get(orderIdKey) || 0) + 1;
-          currentIndexByOrderId.set(orderIdKey, current);
-          const position = `${current}/${totalForThisOrderId}`;
-
-          const slideData = {
-            ...base,
-            color: baseVariation.color || '',
-            orderType: order.orderType || 'basket',
-            sku: order.sku || '',
-            position,
-            groupIconFilePaths: baseRequestedIconFilePaths,
-          } as any;
-          if (order.orderType === 'backpack') slideData['backpackStyle'] = true;
-          pptSlides.push(slideData);
-        }
-      }
-    }
-
-    this.logger.debug(`Generated ${pptSlides.length} PPT slides with shop name: ${shopName}`);
-    return pptSlides;
-  }
-
-  /**
-   * Use LLM to analyze variations data based on order type
-   * @param variations Variations string from Excel
-   * @param orderType Type of order (basket or backpack)
-   * @returns Array of parsed variations
-   */
-  private async analyzeVariations(variations: string, orderType: 'basket' | 'backpack' | 'combo'): Promise<ParsedVariation[]> {
-    try {
-    const prompt = `
-你是一个订单变量解析专家，需要从变量中提取客户定制的内容，用JSON数组格式返回，每个元素包含：
-[
-  {
-    "color": 变量中提到的颜色（如毛线颜色、材料颜色等）,
-    ${orderType !== 'basket' ? '"icon": 变量中提到的背包图案编号,' : ''}
-    "value": 变量中客户要定制的内容（如名字、文字等）
-  },
-  ... // 可能还有更多定制项
-]
-
-请注意！！！
-1. 不要编造任何信息，并且 100% 完整保留客户定制的内容。
-2. 注意，客户的颜色定制内容一般会跟在 Yarn Color 后面，客户的信息定制内容一般以 名字, 图案编号 的格式出现在 Personalization 后面，但也有可能客户会不按格式填写
-
-例子1：
-变量 (Variations): ...Yarn Color: Cream, Personalization: Branko, zd...
-
-返回结果: [ { "color": "Cream", "icon": "zd", "value": "Branko" } ]
-
-例子2：
-变量 (Variations): Backpack Color:Rose + Icon,Yarn Color:Mix-2,Personalization:1. Rayla, 1 2. Jack, 3
-
-返回结果: [ { "color": "Mix-2", "icon": "1", "value": "Rayla" }, { "color": "Mix-2", "icon": "3", "value": "Jack" } ]
-
-例子3：
-变量 (Variations): Backpack Color:Rose + Icon,Yarn Color:Mix-2,Personalization:1. Rayla 2. 1 & 7 (bow and yellow flower)
-
-返回结果: [ { "color": "Mix-2", "icon": "1 & 7 (bow and yellow flower)", "value": "Rayla" } ]
-
-例子4：
-变量 (Variations): Size:L (14.96&#39;&#39;x14.96&#39;&#39;),Yarn Color:Mix-1,Personalization:1. Adler 2. No icons, just name
-
-返回结果: [ { "color": "Mix-1", "icon": "", "value": "Adler" } ]
-
-例子5：
-变量 (Variations): Basket Color + Size:Cream-- XL,Name Color:Purple,Personalization:Poppy
-
-返回结果: [ { "color": "Purple", "icon": "", "value": "Poppy" } ]
-
-例子6：
-变量 (Variations): Backpack ColorBlue,Yarn ColorMix-1,PersonalizationLucas, 15 and 21
-
-返回结果: [ { "color": "Mix-1", "icon": "15 and 21", "value": "Lucas" } ]
-
-例子7：
-变量 (Variations): Bag ColorCream,Yarn ColorMix-2,PersonalizationRuby,9,7
-
-返回结果: [ { "color": "Mix-2", "icon": "9,7", "value": "Ruby" } ]
-
-例子8：
-变量 (Variations): Bag ColorRose,Yarn ColorMix-2,PersonalizationAaliyah, 13 and 23
-
-返回结果: [ { "color": "Mix-2", "icon": "13 and 23", "value": "Aaliyah" } ]
-
-例子9：
-变量 (Variations): Backpack & Lunch Bag ColorPinkBerriesBackpack,Name Color02 Red (Popular),PersonalizationAva, M
-
-返回结果: [ { "color": "02 Red (Popular)", "icon": "M", "value": "Ava" } ]
-
-例子10：
-变量 (Variations): Bag Color & DesignPink + Icon,Name Color03 Pink,PersonalizationKiyana, BDK
-
-返回结果: [ { "color": "03 Pink", "icon": "B" , "value": "Kiyana" }, { "color": "03 Pink", "icon": "D", "value": "Kiyana" }, { "color": "03 Pink", "icon": "K", "value": "Kiyana" } ]
-解释：一般 icon 不会超过两个字符，所以这三个字符以上一般是表示分开的 icon 编号
-
-例子11：
-变量 (Variations): Basket ColorPink,Name ColorYR2-Blush,PersonalizationElodie, F1
-
-返回结果: [ { "color": "YR2-Blush", "icon": "F1", "value": "Elodie" } ]
-
-3. 客户的名字一定不是阿拉伯数字！！！
-4. 请确保返回有效的 JSON 格式数组！！！没有额外的文本！！！
-`;
-
-      const userPrompt = `变量 (Variations): ${variations}`;
-
-      const result = await this.aliyunService.generateJson(userPrompt, { systemPrompt: prompt });
-      
-      // 为每个解析的变量添加原始文本
-      result.forEach(variation => {
-        variation.originalText = variations;
-      });
-      
-      this.logger.debug(`LLM analysis result for ${orderType}: ${JSON.stringify(result)}`);
-      return result;
-    } catch (error) {
-      this.logger.error(`Error analyzing variations data with LLM for ${orderType}: ${error.message}`);
-      
-      // 解析失败时不能把整段原文当成名字（会直接错做），名字留空并标记，由制作页提示人工核对
-      return [{
-        color: '',
-        value: '',
-        originalText: variations || '',
-        parseError: true,
-      }];
     }
   }
 

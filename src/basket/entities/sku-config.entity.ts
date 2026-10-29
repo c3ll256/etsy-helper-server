@@ -88,7 +88,7 @@ export class SkuConfig {
       },
     },
   })
-  comboOverridesJson?: Record<string, { fontSize?: number; colorGroupId?: number; iconGroupId?: number }> | null;
+  comboOverridesJson?: Record<string, { fontSize?: number; colorGroupId?: number; iconGroupId?: number; iconLayoutTemplateId?: number; maxIcons?: number; nameLayout?: Record<string, any> }> | null;
 
   @Column({ type: 'boolean', default: false })
   @ApiProperty({ description: '外部订单提醒开关' })
@@ -97,6 +97,30 @@ export class SkuConfig {
   @Column({ nullable: true })
   @ApiProperty({ description: '外部订单提醒内容', required: false })
   externalOrderReminderContent: string;
+
+  @Column({ type: 'varchar', length: 16, name: 'produce_mode', default: 'ppt' })
+  @ApiProperty({ description: '生成方式：ppt 生成制作页；external 正常连单商品（不做 PPT，只在同订单页上提醒）；ignore 非商品行（如补差价），不提醒', default: 'ppt' })
+  produceMode: 'ppt' | 'external' | 'ignore';
+
+  @Column({ type: 'int', name: 'icon_layout_template_id', nullable: true })
+  @ApiProperty({ description: '图标布局模板ID', required: false })
+  iconLayoutTemplateId?: number | null;
+
+  @Column({ type: 'int', name: 'max_icons', nullable: true })
+  @ApiProperty({ description: '每件商品最多几个图标，超过进入待核对；空表示不限', required: false })
+  maxIcons?: number | null;
+
+  @Column({ type: 'jsonb', name: 'name_layout', nullable: true })
+  @ApiProperty({ description: '名字安全区和字号：{area:{x1,x2,y1,y2}(百分比), maxFontSize, minFontSize, preferredFontSize, allowTwoLines, maxLatinLetters, bufferPt, twoLineNote, presetKey, confirmed}', required: false, type: Object })
+  nameLayout?: Record<string, any> | null;
+
+  @Column({ type: 'varchar', name: 'reference_group_key', nullable: true })
+  @ApiProperty({ description: '母体（参考图共用分组）', required: false })
+  referenceGroupKey?: string | null;
+
+  @Column({ type: 'int', name: 'copied_from_id', nullable: true })
+  @ApiProperty({ description: '从哪条配置复制而来', required: false })
+  copiedFromId?: number | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   @ApiProperty({ description: '创建时间' })

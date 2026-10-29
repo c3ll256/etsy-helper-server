@@ -1,0 +1,161 @@
+{
+  "title": "篮子 Ian Parker、Christopher、Ellis Haneul、Nuh Shah：用篮子宽区域实际测量，名字完整不出页；小书包 / 文具04 的字母上限只作用于对应 SKU",
+  "acceptance": "10",
+  "rows": [
+    {
+      "Order ID": "3000000026",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationIan Parker, Bear, White Flower",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000027",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationChristopher",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000028",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationEllis Haneul, Lion, Pink Flower",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000029",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationNuh Shah, Bear, Lion",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000030",
+      "SKU": "Bag-Blue",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationChristopher",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000031",
+      "SKU": "Pouch Bag3-Black",
+      "Quantity": 1,
+      "Variations": "Bag ColorBlack\nYarn ColorBlue\nPersonalizationChristopher",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000032",
+      "SKU": "MB1-Pink(I)",
+      "Quantity": 1,
+      "Variations": "Bag ColorPink+Icon\nYarn ColorBlue\nPersonalizationAmelia, A",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "names": [
+        "Ian Parker"
+      ]
+    },
+    {
+      "row": 3,
+      "status": "produced",
+      "names": [
+        "Christopher"
+      ]
+    },
+    {
+      "row": 4,
+      "status": "produced",
+      "names": [
+        "Ellis Haneul"
+      ]
+    },
+    {
+      "row": 5,
+      "status": "produced",
+      "names": [
+        "Nuh Shah"
+      ]
+    },
+    {
+      "row": 6,
+      "status": "produced",
+      "names": [
+        "Christopher"
+      ]
+    },
+    {
+      "row": 7,
+      "status": "review",
+      "category": "name_layout",
+      "reasonContains": [
+        "11 个拉丁字母",
+        "10"
+      ]
+    },
+    {
+      "row": 8,
+      "status": "produced",
+      "names": [
+        "Amelia"
+      ]
+    }
+  ],
+  "ppt": {
+    "slides": [
+      {
+        "nameText": "Ian Parker",
+        "nameLines": 1,
+        "nameFontSize": {
+          "min": 100,
+          "max": 275
+        }
+      },
+      {
+        "nameText": "Christopher",
+        "nameFontSize": {
+          "min": 100,
+          "max": 275
+        }
+      },
+      {
+        "nameText": "Ellis Haneul",
+        "nameFontSize": {
+          "min": 90,
+          "max": 275
+        }
+      },
+      {
+        "nameText": "Nuh Shah",
+        "nameFontSize": {
+          "min": 100,
+          "max": 275
+        }
+      },
+      {
+        "nameText": "Christopher"
+      },
+      {
+        "kind": "placeholder"
+      },
+      {
+        "nameText": "Amelia",
+        "nameFontSize": {
+          "min": 152,
+          "max": 175
+        }
+      }
+    ]
+  }
+}

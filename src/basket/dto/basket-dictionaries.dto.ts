@@ -153,6 +153,20 @@ export class CreateIconKvDto {
   @ApiProperty()
   @IsString()
   name: string;
+
+  @ApiProperty({ required: false, description: '完整编号' })
+  @IsOptional()
+  @IsString()
+  code?: string;
+
+  @ApiProperty({ required: false, description: '本店别名，逗号分隔或数组' })
+  @IsOptional()
+  aliases?: string[] | string;
+
+  @ApiProperty({ required: false, enum: ['large', 'flower'] })
+  @IsOptional()
+  @IsIn(['large', 'flower'])
+  kind?: string;
 }
 
 export class DeleteIconKvBatchDto {
@@ -168,6 +182,19 @@ export class UpdateIconKvDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @ApiProperty({ required: false, nullable: true, description: '完整编号' })
+  @IsOptional()
+  code?: string | null;
+
+  @ApiProperty({ required: false, description: '本店别名，逗号分隔或数组' })
+  @IsOptional()
+  aliases?: string[] | string | null;
+
+  @ApiProperty({ required: false, enum: ['large', 'flower'] })
+  @IsOptional()
+  @IsIn(['large', 'flower'])
+  kind?: string;
 
   @ApiProperty({ required: false, nullable: true })
   @Type(() => Number)

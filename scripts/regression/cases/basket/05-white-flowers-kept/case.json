@@ -1,0 +1,102 @@
+{
+  "title": "white flower 写两次 → 两朵都附图；Flowers 表示两朵；明确写 two 不再翻倍",
+  "acceptance": "05",
+  "rows": [
+    {
+      "Order ID": "3000000008",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationIvy, white flower, white flower",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000009",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationAva, two white flowers",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000010",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationElla, white flowers",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000011",
+      "SKU": "Basket-M",
+      "Quantity": 1,
+      "Variations": "Basket SizeM\nYarn ColorBlue\nPersonalizationLily, weiße Blume",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "icons": [
+        [
+          "White Flower",
+          "White Flower"
+        ]
+      ],
+      "slots": [
+        [
+          "flower_1",
+          "flower_2"
+        ]
+      ]
+    },
+    {
+      "row": 3,
+      "status": "produced",
+      "icons": [
+        [
+          "White Flower",
+          "White Flower"
+        ]
+      ]
+    },
+    {
+      "row": 4,
+      "status": "produced",
+      "icons": [
+        [
+          "White Flower",
+          "White Flower"
+        ]
+      ]
+    },
+    {
+      "row": 5,
+      "status": "produced",
+      "icons": [
+        [
+          "White Flower"
+        ]
+      ]
+    }
+  ],
+  "ppt": {
+    "slideCount": 4,
+    "slides": [
+      {
+        "iconCount": 2
+      },
+      {
+        "iconCount": 2
+      },
+      {
+        "iconCount": 2
+      },
+      {
+        "iconCount": 1
+      }
+    ]
+  }
+}

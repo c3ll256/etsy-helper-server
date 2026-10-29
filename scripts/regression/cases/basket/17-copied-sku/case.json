@@ -1,0 +1,42 @@
+{
+  "title": "复制出的 SKU（Bag-Blue2，复制自 Bag-Blue）独立生效；参考图不进入 PPT，不覆盖真实名字或图标（复制和参考图本身由 API 端到端测试覆盖）",
+  "acceptance": "17",
+  "rows": [
+    {
+      "Order ID": "3000000049",
+      "SKU": "Bag-Blue2",
+      "Quantity": 1,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalizationWren, Star",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "matchStatus": "exact",
+      "matchedSku": "Bag-Blue2",
+      "names": [
+        "Wren"
+      ],
+      "icons": [
+        [
+          "Star"
+        ]
+      ]
+    }
+  ],
+  "ppt": {
+    "slideCount": 1,
+    "slides": [
+      {
+        "nameText": "Wren",
+        "iconNames": [
+          "Star"
+        ],
+        "pictureCount": 2
+      }
+    ]
+  }
+}

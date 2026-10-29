@@ -1,0 +1,56 @@
+{
+  "title": "Quantity=2 两个名字 → 两页，页码 1/2、2/2（不是 1/4）",
+  "acceptance": "02",
+  "rows": [
+    {
+      "Order ID": "3000000002",
+      "SKU": "Bag-Blue",
+      "Quantity": 2,
+      "Variations": "Backpack ColorBlue\nYarn ColorBlue\nPersonalization\nEmily\nKara",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "units": 2,
+      "names": [
+        "Emily",
+        "Kara"
+      ],
+      "groupPositions": [
+        "1/2",
+        "2/2"
+      ],
+      "reminderNull": true
+    }
+  ],
+  "ppt": {
+    "slideCount": 2,
+    "slides": [
+      {
+        "nameText": "Emily",
+        "groupPosition": "1/2",
+        "containsText": [
+          "全局 1/2",
+          "处理 2026-10-29",
+          "2026年10月25日"
+        ],
+        "notContainsText": [
+          "1/4",
+          "连单"
+        ],
+        "nameColor": "000000"
+      },
+      {
+        "nameText": "Kara",
+        "groupPosition": "2/2",
+        "containsText": [
+          "全局 2/2"
+        ]
+      }
+    ]
+  }
+}

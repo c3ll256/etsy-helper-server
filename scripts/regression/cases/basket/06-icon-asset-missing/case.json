@@ -1,0 +1,60 @@
+{
+  "title": "编号已识别但素材缺失：系统异常可见，不算附图成功；同组有素材的正常生成",
+  "acceptance": "06",
+  "rows": [
+    {
+      "Order ID": "3000000012",
+      "SKU": "Bag-Red",
+      "Quantity": 1,
+      "Variations": "Backpack ColorRed\nYarn ColorBlue\nPersonalizationMila, A",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000013",
+      "SKU": "Bag-Red",
+      "Quantity": 1,
+      "Variations": "Backpack ColorRed\nYarn ColorBlue\nPersonalizationMila, B",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "failed",
+      "category": "icon_asset_missing",
+      "reasonContains": [
+        "素材文件不存在"
+      ],
+      "orderHasPages": false
+    },
+    {
+      "row": 3,
+      "status": "produced",
+      "icons": [
+        [
+          "B"
+        ]
+      ]
+    }
+  ],
+  "ppt": {
+    "slideCount": 2,
+    "slides": [
+      {
+        "kind": "placeholder",
+        "containsText": [
+          "系统异常",
+          "素材文件不存在"
+        ],
+        "iconCount": 0
+      },
+      {
+        "iconNames": [
+          "B"
+        ]
+      }
+    ]
+  }
+}

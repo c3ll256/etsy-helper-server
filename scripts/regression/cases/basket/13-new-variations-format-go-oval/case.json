@@ -1,0 +1,50 @@
+{
+  "title": "需求原文 GO-Oval 18x25 新版 Variations 样例：字段正确，数量仍为 1，\"5 files\" 只是附件说明",
+  "acceptance": "13",
+  "rows": [
+    {
+      "Order ID": "3000000042",
+      "SKU": "GO-Oval 18x25",
+      "Quantity": 1,
+      "Variations": "Shape & SizeOval—18x25cm\nFabric BackgroundP8\nPet photo5 files\nPet NameRosie\nHalo OptionalAdd Halo",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "quantity": 1,
+      "units": 1,
+      "names": [
+        "Rosie"
+      ],
+      "attachments": [
+        "Pet photo: 5 files"
+      ],
+      "fields": {
+        "Shape & Size": "Oval—18x25cm",
+        "Fabric Background": "P8",
+        "Pet photo": "5 files",
+        "Pet Name": "Rosie",
+        "Halo Optional": "Add Halo"
+      }
+    }
+  ],
+  "ppt": {
+    "slideCount": 1,
+    "slides": [
+      {
+        "nameText": "Rosie",
+        "groupPosition": "1/1",
+        "containsText": [
+          "附件：Pet photo: 5 files（附件说明，不计件数）"
+        ],
+        "notContainsText": [
+          "数量 5"
+        ]
+      }
+    ]
+  }
+}
