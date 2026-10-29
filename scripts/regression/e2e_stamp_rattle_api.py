@@ -324,8 +324,11 @@ fo = find_order(oid_font)[0]
 check('C7 模板字体文件缺失时不静默换字体，订单提示"字体缺失"', fo['status'] == 'stamp_not_generated' and '字体' in (fo.get('processingError') or '') and missing[0]['name'] in (fo.get('processingError') or ''), fo.get('processingError'))
 
 # 清理：去掉测试加到真实模板上的 SKU 关联
+# （975 和 856 在真实数据里本来就重复关联 EB-K31-ZD，接口保存会被同账号 SKU 唯一校验拦住，所以这里直接说明）
 tpl975 = get('/stamps/templates/975').json()
-put('/stamps/templates/975', {'skus': [sku for sku in tpl975.get('skus', []) if not sku.startswith('EB-K31-ZD-QA')]})
+r = put('/stamps/templates/975', {'skus': [sku for sku in tpl975.get('skus', []) if not sku.startswith('EB-K31-ZD-QA')]})
+if not r.ok:
+    print(f"注意：模板 975 上的测试 SKU 没能通过接口清掉（{r.json().get('message')}），本地快照可用 SQL 清理")
 
 passed = sum(1 for _, ok, _ in results if ok)
 print(f'\n{passed} passed, {len(results) - passed} failed')
