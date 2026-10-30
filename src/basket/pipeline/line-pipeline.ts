@@ -310,17 +310,25 @@ export async function analyzeLine(line: LineDraft, ctx: PipelineContext, indexCa
     parse = parseVariations(line.variationsRaw, baseIndex);
     const retry = parse.reasons.some((r) => r.severity === 'blocking' && LLM_RETRY_CODES.has(r.code));
     if (retry) {
-      const llm = await tryLlmFallback(ctx.llm || null, line.variationsRaw, baseIndex);
+      const llm = await tryLlmFallback(ctx.llm || null, line.variationsRaw, baseIndex, parse.fields);
       if (llm.reason) parse.reasons.push(llm.reason);
       if (llm.used && llm.validation) {
         if (llm.validation.ok) {
+          // 默认 LLM 结果只作为建议：带入明细（人工修正表单会预填），但要人工确认后才制作。
+          // 真实数据里通过校验的 LLM 结果仍出现过错名；BASKET_LLM_AUTO_ACCEPT=true 时恢复为直接采用
+          const autoAccept = process.env.BASKET_LLM_AUTO_ACCEPT === 'true';
+          const suggestion = llm.validation.items
+            .map((item) => `${item.name ?? '（无名字）'}${item.icons.length ? ` + ${item.icons.map((i) => i.iconName || i.raw).join('、')}` : ''}`)
+            .join('；');
           parse = {
             ...parse,
             items: llm.validation.items,
             source: 'llm',
             reasons: [
               ...parse.reasons.filter((r) => !LLM_RETRY_CODES.has(r.code) && r.severity !== 'blocking'),
-              warning('parsed_by_llm', '规则无法拆分，采用了通过校验的 LLM 结果，请抽查'),
+              autoAccept
+                ? warning('parsed_by_llm', '规则无法拆分，采用了通过校验的 LLM 结果，请抽查')
+                : blocking('llm_needs_confirm', `规则无法拆分，LLM 建议：${suggestion}。请核对原文，在"人工指定"里确认或修改后再制作`),
             ],
           };
         } else {

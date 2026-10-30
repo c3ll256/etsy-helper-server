@@ -1,6 +1,6 @@
 import { IconIndex } from './icon-index';
 import { decodeEntities } from './variation-parser';
-import { ParsedIcon, ParsedItem, Reason } from './types';
+import { ParsedField, ParsedIcon, ParsedItem, Reason } from './types';
 
 /**
  * 规则解析拆不开时才调用 LLM；LLM 的结果必须通过校验才采用：
@@ -41,9 +41,21 @@ export interface LlmValidation {
   errors: string[];
 }
 
-export function validateLlmItems(result: any, variationsRaw: string, index: IconIndex): LlmValidation {
+// 顾客写的说明文字、商品名，不能当名字（真实数据里 LLM 曾把 "Lunch Bag"、"no name just flowers ... pls" 当成名字）
+const NOT_A_NAME = /\b(please|pls|plz|thanks?|thank you|same as|no name|just|backpack|lunch ?bag|bag|basket|set|colou?r|flowers?|icons?|name)\b/i;
+
+/** 名字只能出自定制 / 名字字段（或没有标签的续行），不能出自款式、颜色等选项字段 */
+function nameSourceTexts(fields: ParsedField[] | undefined, original: string): string[] {
+  if (!fields || fields.length === 0) return [original];
+  return fields
+    .filter((f) => !f.label || f.role === 'personalization' || f.role === 'name' || f.role === 'name_icon')
+    .map((f) => decodeEntities(f.value));
+}
+
+export function validateLlmItems(result: any, variationsRaw: string, index: IconIndex, fields?: ParsedField[]): LlmValidation {
   const errors: string[] = [];
   const original = decodeEntities(variationsRaw);
+  const sources = nameSourceTexts(fields, original);
   const rawItems = Array.isArray(result) ? result : Array.isArray(result?.items) ? result.items : null;
   if (!rawItems) return { ok: false, items: [], errors: ['LLM 返回格式不正确'] };
   const items: ParsedItem[] = [];
@@ -51,6 +63,11 @@ export function validateLlmItems(result: any, variationsRaw: string, index: Icon
     const name = raw?.name === null || raw?.name === undefined || raw?.name === '' ? null : String(raw.name);
     if (name !== null && !original.includes(name)) {
       errors.push(`名字 "${name}" 不是原文的子串`);
+    } else if (name !== null && !sources.some((text) => text.includes(name))) {
+      errors.push(`名字 "${name}" 不在定制 / 名字字段里（取自款式或颜色等选项）`);
+    }
+    if (name !== null && (name.trim().split(/\s+/).length > 4 || NOT_A_NAME.test(name))) {
+      errors.push(`名字 "${name}" 像是说明文字或商品名，不像名字`);
     }
     if (name !== null && /^\d+$/.test(name.trim())) errors.push(`名字 "${name}" 是纯数字`);
     const icons: ParsedIcon[] = [];
@@ -84,6 +101,7 @@ export async function tryLlmFallback(
   llm: LlmCall | null,
   variationsRaw: string,
   index: IconIndex,
+  fields?: ParsedField[],
 ): Promise<{ used: boolean; validation?: LlmValidation; reason?: Reason }> {
   if (!llm) {
     return { used: false, reason: { code: 'llm_unavailable', message: '规则无法拆分，且未配置 LLM，保持待核对', severity: 'warning' } };
@@ -92,7 +110,7 @@ export async function tryLlmFallback(
   const userPrompt = `可用图标：${JSON.stringify(iconNames)}\nVariations 原文：\n${decodeEntities(variationsRaw)}`;
   try {
     const result = await llm(userPrompt, LLM_SYSTEM_PROMPT);
-    const validation = validateLlmItems(result, variationsRaw, index);
+    const validation = validateLlmItems(result, variationsRaw, index, fields);
     return { used: true, validation };
   } catch (error) {
     return {
