@@ -16,11 +16,15 @@ plan  ：只测量，不生成 PPT。按真实字体文件（PIL）测量名字�
 render：按同样的算法生成 PPT，并返回每页实际插入的图标数等结构信息（供"实际插入"校验和回归测试）。
 
 页面分区（相对幻灯片的百分比）：
-  顶部 0–8      ：左 订单日期 / 中 标题（订单号-商品-颜色-图标）/ 右 组内页码
-  详情 8.5–19.5 ：订单详情（SKU、件次、原始定制、制作内容），自动缩小字号
-  名字安全区    ：按 SKU 配置，再与 19.5–(84 或 90) 求交；避让图标、二维码
+  页眉 0–14.3   ：Tools02 制作单页眉（2026-07-18 测试服视觉版）。两行圆角格：
+                  左 二维码 ｜ 收件人 ｜ 数量 ｜ Order Number ｜ ICON ｜ 右 店铺 + 订单日期
+                         ｜ 产品名称 ｜ 棉线配色
+                  下方一条贯穿全宽的黑色粗实线
+  详情 14.6–19.5：原始定制、本页制作内容（件次、名字、图标、颜色）、附件，自动缩小字号
+  名字安全区    ：按 SKU 配置，再与 19.5–(84 或 90) 求交；避让图标
   提醒 84–90    ：连单提醒、核对提示（红色）
-  页脚 90–100   ：左下 处理日期 / 中 店铺、数量、全局编号 / 右下 二维码
+  页脚 90–100   ：左下 处理日期 / 中 全局编号 / 右下 组内页码（放大、黑色加粗）
+图标在名字之后插入（位于最上层），在 PowerPoint 里可以直接点选、挪动。
 """
 
 import base64
@@ -44,12 +48,23 @@ SLIDE_W = SLIDE_W_IN * PT_PER_IN
 SLIDE_H = SLIDE_H_IN * PT_PER_IN
 
 ZONES = {
-    'header': (2, 1.5, 98, 8),
-    'details': (2, 8.5, 98, 19.5),
-    'notice': (2, 84, 88, 90),
-    'footer': (2, 90.5, 88, 98.5),
-    'qr': (89.7, 85.5, 98.3, 97.6),
+    'header': (0, 0, 100, 14.3),
+    'details': (2, 14.6, 98, 19.5),
+    'notice': (2, 84, 98, 90),
+    'footer': (2, 90.5, 98.3, 98.5),
 }
+
+# Tools02 页眉尺寸（pt）
+HEADER_ROW_H = 0.52 * PT_PER_IN
+HEADER_H = HEADER_ROW_H * 2
+DIVIDER_Y = HEADER_H + 0.12 * PT_PER_IN   # 黑色粗实线
+HEADER_QR_COL_W = 1.1 * PT_PER_IN
+HEADER_SHOP_COL_W = 1.5 * PT_PER_IN
+HEADER_GAP = 0.06 * PT_PER_IN
+COLOR_LABEL = (130, 118, 105)    # 字段名灰色
+COLOR_VALUE = (25, 25, 25)       # 字段值深色
+COLOR_SHOP = (80, 80, 80)        # 店铺名
+COLOR_DIVIDER = (200, 192, 180)  # 分隔线 / 边框
 CONTENT_TOP = 19.5
 CONTENT_BOTTOM_WITH_NOTICE = 84
 CONTENT_BOTTOM = 90
@@ -485,7 +500,7 @@ def fit_image_box(path, box):
 
 
 def fixed_obstacles(notice_present):
-    obs = [pct_rect(*ZONES['header']), pct_rect(*ZONES['details']), pct_rect(*ZONES['qr']), pct_rect(*ZONES['footer'])]
+    obs = [pct_rect(*ZONES['header']), pct_rect(*ZONES['details']), pct_rect(*ZONES['footer'])]
     if notice_present:
         obs.append(pct_rect(*ZONES['notice']))
     return obs
@@ -616,6 +631,186 @@ def wrap_line(registry, path, line, size, width):
     return out
 
 
+def add_line(slide, x1, y1, x2, y2, color, weight_pt):
+    from pptx.util import Pt
+    from pptx.dml.color import RGBColor
+    line = slide.shapes.add_connector(1, emu(x1), emu(y1), emu(x2), emu(y2))
+    line.line.color.rgb = RGBColor(*color)
+    line.line.width = Pt(weight_pt)
+    return line
+
+
+def add_rounded_border(slide, box, radius=8000):
+    """圆角矩形边框（无填充）"""
+    from pptx.util import Pt
+    from pptx.dml.color import RGBColor
+    from pptx.oxml.ns import qn
+    from lxml import etree
+    shape = slide.shapes.add_shape(5, emu(box[0]), emu(box[1]), emu(box[2] - box[0]), emu(box[3] - box[1]))  # 5 = 圆角矩形
+    shape.fill.background()
+    shape.line.color.rgb = RGBColor(*COLOR_DIVIDER)
+    shape.line.width = Pt(0.5)
+    prst = shape._element.find('.//' + qn('a:prstGeom'))
+    if prst is not None:
+        av = prst.find(qn('a:avLst'))
+        if av is None:
+            av = etree.SubElement(prst, qn('a:avLst'))
+        for gd in av.findall(qn('a:gd')):
+            av.remove(gd)
+        gd = etree.SubElement(av, qn('a:gd'))
+        gd.set('name', 'adj')
+        gd.set('fmla', f'val {radius}')
+    return shape
+
+
+def add_labeled_cell(slide, key, label, value, box, registry, font_path, label_size, value_size, bold=False):
+    """字段名（小灰字）和字段值（大深字）放在两个独立文本框里，在 PowerPoint 里可以单独选中、修改字段值。
+    字段值过长时按实际字体测量往下缩小字号，不截断。"""
+    from pptx.util import Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import MSO_ANCHOR
+    left, top, right, bottom = box
+    label_h = 0.16 * PT_PER_IN
+    pad_l, pad_r = 0.08 * PT_PER_IN, 0.04 * PT_PER_IN
+    text = value if value else '—'
+    size = value_size
+    if font_path:
+        avail = right - left - pad_l - pad_r
+        while size > 7 and registry.text_width(font_path, text, size) * 1.05 > avail:
+            size -= 0.5
+    for part, part_top, part_bottom, part_text, part_size, color, part_bold in (
+        ('label', top, top + label_h, label, label_size, COLOR_LABEL, False),
+        ('value', top + label_h, bottom, text, size, COLOR_VALUE, bold),
+    ):
+        tb = slide.shapes.add_textbox(emu(left), emu(part_top), emu(right - left), emu(part_bottom - part_top))
+        tb.name = f'header-{key}-{part}'
+        tf = tb.text_frame
+        tf.word_wrap = False
+        tf.margin_left, tf.margin_right = emu(pad_l), emu(pad_r)
+        tf.margin_top = emu(0.02 * PT_PER_IN) if part == 'label' else 0
+        tf.margin_bottom = 0 if part == 'label' else emu(0.02 * PT_PER_IN)
+        tf.vertical_anchor = MSO_ANCHOR.TOP
+        r = tf.paragraphs[0].add_run()
+        r.text = part_text
+        r.font.size = Pt(part_size)
+        r.font.bold = part_bold
+        r.font.color.rgb = RGBColor(*color)
+
+
+def format_color_arrows(color_raw):
+    """配色分隔符统一转成箭头：逗号 / 斜杠 / 顿号，以及中文之间的连字符（不动 Mix-2 这类字母数字间的连字符）"""
+    import re
+    if not color_raw:
+        return ''
+    text = re.sub(r'\s*[,/、]\s*', ' → ', color_raw)
+    text = re.sub(r'(?<=[一-鿿])\s*-\s*(?=[一-鿿])', ' → ', text)
+    return text.strip()
+
+
+def render_header(slide, spec, registry, detail_path, qr_cache):
+    """Tools02 制作单页眉：两行圆角格 + 左侧二维码 + 右侧店铺和订单日期 + 黑色粗实线"""
+    from pptx.util import Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    header = spec.get('header') or {}
+    fld_l = HEADER_QR_COL_W + HEADER_GAP
+    fld_r = SLIDE_W - HEADER_SHOP_COL_W - HEADER_GAP
+    row1, row2 = HEADER_ROW_H, HEADER_ROW_H
+    inch = PT_PER_IN
+
+    add_line(slide, fld_l, row1, fld_r, row1, COLOR_DIVIDER, 0.3)
+    add_rounded_border(slide, (fld_l, 0.04 * inch, fld_r, row1))
+    add_rounded_border(slide, (fld_l, row1 + 0.02 * inch, fld_r, row1 + row2 - 0.02 * inch))
+
+    order_id = spec.get('qr') or ''
+    if order_id:
+        try:
+            if order_id not in qr_cache:
+                import qrcode
+                qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=2)
+                qr.add_data(str(order_id))
+                qr.make(fit=True)
+                buf = io.BytesIO()
+                qr.make_image(fill_color='black', back_color='white').save(buf, format='PNG')
+                qr_cache[order_id] = buf.getvalue()
+            side = 0.8 * inch
+            pic = slide.shapes.add_picture(io.BytesIO(qr_cache[order_id]), emu((HEADER_QR_COL_W - side) / 2), emu((HEADER_H - side) / 2), emu(side), emu(side))
+            pic.name = 'qr'
+        except Exception as e:
+            logger.error(f'二维码生成失败：{e}')
+
+    # 店铺名（过长自动换行）+ 订单日期
+    shop_h = 0.9 * inch
+    tb = slide.shapes.add_textbox(emu(SLIDE_W - HEADER_SHOP_COL_W + 0.06 * inch), emu((HEADER_H - shop_h) / 2), emu(HEADER_SHOP_COL_W - 0.1 * inch), emu(shop_h))
+    tb.name = 'header-shop'
+    tf = tb.text_frame
+    tf.word_wrap = True
+    tf.margin_left, tf.margin_right = emu(0.02 * inch), emu(0.04 * inch)
+    for i, (text, size, bold, color) in enumerate((
+        (spec.get('shopName') or '', 12, True, COLOR_SHOP),
+        (spec.get('orderDate') or '', 10, False, COLOR_LABEL),
+    )):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        p.alignment = PP_ALIGN.CENTER
+        r = p.add_run()
+        r.text = text
+        r.font.size = Pt(size)
+        r.font.bold = bold
+        r.font.color.rgb = RGBColor(*color)
+
+    # 行1：收件人 ｜ 数量 ｜ Order Number ｜ ICON（ICON 用剩余宽度）
+    w_recipient, w_qty, w_order = 2.1 * inch, 0.7 * inch, 1.65 * inch
+    x_qty = fld_l + w_recipient
+    x_order = x_qty + w_qty
+    x_icon = x_order + w_order
+    for vx in (x_qty, x_order, x_icon):
+        add_line(slide, vx, 0.06 * inch, vx, row1 - 0.06 * inch, COLOR_DIVIDER, 0.4)
+    cell_top, cell_bottom = 0.02 * inch, row1
+    quantity = header.get('quantity')
+    try:
+        multi = int(quantity) >= 2
+    except (TypeError, ValueError):
+        multi = False
+    add_labeled_cell(slide, 'recipient', '收件人', header.get('recipient') or '', (fld_l, cell_top, x_qty, cell_bottom), registry, detail_path, 9, 17, bold=True)
+    add_labeled_cell(slide, 'quantity', '数量', f'{quantity} 件' if quantity not in (None, '') else '', (x_qty, cell_top, x_order, cell_bottom), registry, detail_path, 9, 16, bold=multi)
+    add_labeled_cell(slide, 'order-number', 'Order Number', str(header.get('orderNumber') or ''), (x_order, cell_top, x_icon, cell_bottom), registry, detail_path, 9, 14, bold=True)
+    add_labeled_cell(slide, 'icon', 'ICON', header.get('icon') or '', (x_icon, cell_top, fld_r, cell_bottom), registry, detail_path, 9, 15)
+
+    # 行2：产品名称 ｜ 棉线配色
+    x_color = fld_l + 3.6 * inch
+    add_line(slide, x_color, row1 + 0.06 * inch, x_color, row1 + row2 - 0.06 * inch, COLOR_DIVIDER, 0.4)
+    cell_top, cell_bottom = row1 + 0.02 * inch, row1 + row2
+    add_labeled_cell(slide, 'product', '产品名称', header.get('product') or '', (fld_l, cell_top, x_color, cell_bottom), registry, detail_path, 8, 15, bold=True)
+    add_labeled_cell(slide, 'color', '棉线配色', format_color_arrows(header.get('color') or ''), (x_color, cell_top, fld_r, cell_bottom), registry, detail_path, 8, 15)
+
+    add_line(slide, 0, DIVIDER_Y, SLIDE_W, DIVIDER_Y, (0, 0, 0), 1.5)
+
+
+def render_icons(slide, spec, fit, report):
+    """图标：三段校验的第三段，记录实际插入数"""
+    for icon in spec.get('icons') or []:
+        report['iconsExpected'] += 1
+        path = normalize_path(icon.get('path'))
+        slot = icon.get('slot') or {}
+        try:
+            if not path:
+                raise FileNotFoundError(icon.get('path'))
+            anchor = slot.get('anchor', 'absolute')
+            if anchor == 'absolute':
+                box = fit_image_box(path, slot_box(slot))
+            else:
+                rel = (fit or {}).get('relIconBoxes') or []
+                rel_icons = [i for i in spec.get('icons') if (i.get('slot') or {}).get('anchor') in ('name_left', 'name_right')]
+                lefts = [i for i in rel_icons if i['slot']['anchor'] == 'name_left']
+                ordered = lefts + [i for i in rel_icons if i['slot']['anchor'] == 'name_right']
+                box = fit_image_box(path, rel[ordered.index(icon)])
+            pic = slide.shapes.add_picture(path, emu(box[0]), emu(box[1]), emu(box[2] - box[0]), emu(box[3] - box[1]))
+            pic.name = f'icon:{icon.get("iconName")}'
+            report['iconsInserted'] += 1
+        except Exception as e:
+            report['iconErrors'].append(f'{icon.get("iconName")}: {e}')
+
+
 def render_slide(prs, spec, plan, registry, qr_cache):
     from pptx.util import Pt
     from pptx.dml.color import RGBColor
@@ -627,18 +822,13 @@ def render_slide(prs, spec, plan, registry, qr_cache):
     report = {'key': spec.get('key'), 'iconsExpected': 0, 'iconsInserted': 0, 'iconErrors': [], 'nameRendered': False, 'shapes': []}
     detail_path, _ = registry.resolve('Calibri')
 
-    hx1, hy1, hx2, hy2 = pct_rect(*ZONES['header'])
-    add_text(slide, (hx1, hy1, hx1 + (hx2 - hx1) * 0.24, hy2), spec.get('orderDate') or '', 16, anchor='middle', wrap=False).name = 'order-date'
-    title = spec.get('title') or ''
-    tsize, tlines, _ = fit_text_size(registry, detail_path, [title], (hx1 + (hx2 - hx1) * 0.25, hy1, hx1 + (hx2 - hx1) * 0.84, hy2), 18, 9)
-    add_text(slide, (hx1 + (hx2 - hx1) * 0.25, hy1, hx1 + (hx2 - hx1) * 0.84, hy2), '\n'.join(tlines), tsize, align='center', anchor='middle').name = 'title'
-    add_text(slide, (hx1 + (hx2 - hx1) * 0.85, hy1, hx2, hy2), spec.get('groupPosition') or '', 22, bold=True, align='right', anchor='middle', wrap=False,
-             color=(200, 0, 0) if spec.get('kind') == 'placeholder' else (0, 0, 0)).name = 'group-position'
+    render_header(slide, spec, registry, detail_path, qr_cache)
 
     dbox = pct_rect(*ZONES['details'])
-    dsize, dlines, _ = fit_text_size(registry, detail_path, spec.get('details') or [], dbox, 13, 7)
+    dsize, dlines, _ = fit_text_size(registry, detail_path, spec.get('details') or [], dbox, 10, 6)
     add_text(slide, dbox, '\n'.join(dlines), dsize).name = 'details'
 
+    fit = None
     if spec.get('kind') == 'placeholder':
         ph = spec.get('placeholder') or {}
         body = [ph.get('title') or '待核对：本行不可制作'] + ['· ' + r for r in (ph.get('reasons') or [])]
@@ -647,29 +837,6 @@ def render_slide(prs, spec, plan, registry, qr_cache):
         add_text(slide, box, '\n'.join(plines), psize, color=(220, 0, 0), bold=True).name = 'placeholder'
     else:
         fit = (plan or {}).get('_fit')
-        # 图标：三段校验的第三段，记录实际插入数
-        for icon in spec.get('icons') or []:
-            report['iconsExpected'] += 1
-            path = normalize_path(icon.get('path'))
-            slot = icon.get('slot') or {}
-            try:
-                if not path:
-                    raise FileNotFoundError(icon.get('path'))
-                anchor = slot.get('anchor', 'absolute')
-                if anchor == 'absolute':
-                    box = fit_image_box(path, slot_box(slot))
-                else:
-                    rel = (fit or {}).get('relIconBoxes') or []
-                    rel_icons = [i for i in spec.get('icons') if (i.get('slot') or {}).get('anchor') in ('name_left', 'name_right')]
-                    idx = rel_icons.index(icon)
-                    lefts = [i for i in rel_icons if i['slot']['anchor'] == 'name_left']
-                    ordered = lefts + [i for i in rel_icons if i['slot']['anchor'] == 'name_right']
-                    box = fit_image_box(path, rel[ordered.index(icon)])
-                pic = slide.shapes.add_picture(path, emu(box[0]), emu(box[1]), emu(box[2] - box[0]), emu(box[3] - box[1]))
-                pic.name = f'icon:{icon.get("iconName")}'
-                report['iconsInserted'] += 1
-            except Exception as e:
-                report['iconErrors'].append(f'{icon.get("iconName")}: {e}')
         if fit:
             if fit.get('annotation') and fit.get('annotationBox'):
                 ab = fit['annotationBox']
@@ -714,6 +881,8 @@ def render_slide(prs, spec, plan, registry, qr_cache):
                 nb = fit['nameBox']
                 add_text(slide, (nb[0], max(nb[1] - 22, pct_rect(0, CONTENT_TOP, 0, 0)[1]), nb[2], max(nb[1] - 2, pct_rect(0, CONTENT_TOP, 0, 0)[1] + 20)),
                          spec['name']['layout']['twoLineNote'], 14, color=(220, 0, 0), align='center').name = 'two-line-note'
+        # 图标在名字之后插入，位于最上层，在 PowerPoint 里点图标不会误选到名字文本框
+        render_icons(slide, spec, fit, report)
 
     # 提醒区：连单提醒 + 核对提示（红色）
     notices = []
@@ -730,27 +899,11 @@ def render_slide(prs, spec, plan, registry, qr_cache):
         tb.name = 'notice'
 
     fx1, fy1, fx2, fy2 = pct_rect(*ZONES['footer'])
-    add_text(slide, (fx1, fy1, fx1 + (fx2 - fx1) * 0.3, fy2), spec.get('processDate') or '', 14, anchor='bottom', wrap=False).name = 'process-date'
-    footer = ' | '.join(x for x in [spec.get('shopName') or '', spec.get('quantityText') or '', spec.get('globalNumber') or ''] if x)
-    add_text(slide, (fx1 + (fx2 - fx1) * 0.32, fy1, fx2, fy2), footer, 14, align='right', anchor='bottom', wrap=False).name = 'footer'
-
-    order_id = spec.get('qr') or ''
-    if order_id:
-        try:
-            if order_id not in qr_cache:
-                import qrcode
-                qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
-                qr.add_data(str(order_id))
-                qr.make(fit=True)
-                buf = io.BytesIO()
-                qr.make_image(fill_color='black', back_color='white').save(buf, format='PNG')
-                qr_cache[order_id] = buf.getvalue()
-            qx1, qy1, qx2, qy2 = pct_rect(*ZONES['qr'])
-            side = min(qx2 - qx1, qy2 - qy1)
-            pic = slide.shapes.add_picture(io.BytesIO(qr_cache[order_id]), emu(qx2 - side), emu(qy2 - side), emu(side), emu(side))
-            pic.name = 'qr'
-        except Exception as e:
-            logger.error(f'二维码生成失败：{e}')
+    fw = fx2 - fx1
+    add_text(slide, (fx1, fy1, fx1 + fw * 0.3, fy2), spec.get('processDate') or '', 14, anchor='bottom', wrap=False).name = 'process-date'
+    add_text(slide, (fx1 + fw * 0.31, fy1, fx1 + fw * 0.79, fy2), spec.get('globalNumber') or '', 14, align='center', anchor='bottom', wrap=False).name = 'footer'
+    add_text(slide, (fx1 + fw * 0.8, fy1, fx2, fy2), spec.get('groupPosition') or '', 22, bold=True, align='right', anchor='bottom', wrap=False,
+             color=(200, 0, 0) if spec.get('kind') == 'placeholder' else (0, 0, 0)).name = 'group-position'
     return report
 
 

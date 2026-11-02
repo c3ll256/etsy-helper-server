@@ -129,7 +129,6 @@ export function validateTemplate(template: Pick<LayoutTemplateLike, 'slots' | 'r
       if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 100 || y + h > 100) errors.push(`位置 ${slot.key} 坐标超出页面`);
       if (y < ZONES.detailsBottom) errors.push(`位置 ${slot.key} 与顶部订单详情区重叠（y 需 ≥ ${ZONES.detailsBottom}%）`);
       if (y + h > ZONES.footerTop) errors.push(`位置 ${slot.key} 与页脚区重叠（y+h 需 ≤ ${ZONES.footerTop}%）`);
-      if (x + w > ZONES.qrLeft && y + h > ZONES.qrTop) errors.push(`位置 ${slot.key} 与二维码重叠`);
     } else if (!slot.size || slot.size <= 0 || slot.size > 40) {
       errors.push(`位置 ${slot.key}（贴名字）需要 size（占页面高度百分比，0–40）`);
     }
@@ -150,10 +149,8 @@ export function validateTemplate(template: Pick<LayoutTemplateLike, 'slots' | 'r
 
 /** 页面分区（百分比），与 basket_order_generator.py 中的 ZONES 一致 */
 export const ZONES = {
-  headerBottom: 8,
+  headerBottom: 14.3, // Tools02 页眉（含二维码）
   detailsBottom: 19.5,
   noticeTop: 84,
-  footerTop: 90,
-  qrLeft: 89,
-  qrTop: 85,
+  footerTop: 90, // 页脚：处理日期 / 全局编号 / 组内页码
 };

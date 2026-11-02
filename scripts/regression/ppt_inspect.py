@@ -38,7 +38,7 @@ import sys
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
-LAYOUT_SHAPES = ('name', 'name-line-', 'name-annotation', 'icon:', 'qr', 'notice', 'footer', 'process-date', 'details', 'title', 'order-date', 'group-position', 'placeholder')
+LAYOUT_SHAPES = ('name', 'name-line-', 'name-annotation', 'icon:', 'qr', 'notice', 'footer', 'process-date', 'details', 'header-', 'group-position', 'placeholder')
 
 
 def extract(pptx_path):

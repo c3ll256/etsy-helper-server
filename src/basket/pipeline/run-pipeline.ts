@@ -62,6 +62,11 @@ function oneLine(text: string): string {
   return decodeEntities(text || '').replace(/\r?\n+/g, ' / ').trim();
 }
 
+/** Tools02 页眉格子：收件人、数量、订单号 */
+function headerOf(line: LineDraft) {
+  return { recipient: line.shipName || '', quantity: line.quantity, orderNumber: line.orderId || '' };
+}
+
 function buildSlides(lines: LineDraft[], ctx: PipelineContext, meta: RunMeta) {
   const cfgById = new Map<number, SkuConfigLike>(ctx.configs.map((c) => [c.id, c]));
   const summaries = reconcileOrders(lines, ctx.configs);
@@ -94,10 +99,10 @@ function buildSlides(lines: LineDraft[], ctx: PipelineContext, meta: RunMeta) {
         const colorText = unit.colorMapped || unit.colorRaw || '';
         const iconText = unit.icons.map((i) => i.iconName).join(',');
         const title = [line.orderId, display, colorText, iconText].filter((p) => p && String(p).trim()).join(' - ');
+        // 收件人、数量、订单号、图标、产品名、颜色在页眉格子里；详情区放原始定制和本页制作内容
         const details = [
-          `SKU ${line.sku}${unit.component ? ' · 组成件 ' + unit.component : ''} · 第 ${unit.itemIndex}/${line.quantity} 件${line.shipName ? ' · 收件人 ' + line.shipName : ''}`,
           `原始定制：${oneLine(line.variationsRaw)}`,
-          `制作：名字 ${unit.name ?? '-'} | 图标 ${iconText || '无'} (${unit.icons.length}) | 颜色 ${unit.colorRaw || '-'}${unit.colorMapped ? ' → ' + unit.colorMapped : ''}`,
+          `制作：SKU ${line.sku}${unit.component ? ' · 组成件 ' + unit.component : ''} · 第 ${unit.itemIndex}/${line.quantity} 件 | 名字 ${unit.name ?? '-'} | 图标 ${iconText || '无'} (${unit.icons.length}) | 颜色 ${unit.colorRaw || '-'}${unit.colorMapped ? ' → ' + unit.colorMapped : ''}`,
           ...(line.parse?.attachments || []).map((a) => `附件：${a}（附件说明，不计件数）`),
         ];
         slides.push({
@@ -105,6 +110,7 @@ function buildSlides(lines: LineDraft[], ctx: PipelineContext, meta: RunMeta) {
           kind: 'production',
           key: unit.unitKey,
           title,
+          header: { ...headerOf(line), icon: iconText, product: display, color: colorText },
           groupPosition: unit.groupPosition,
           quantityText: line.quantity > 1 ? `数量 ${line.quantity}` : '',
           details,
@@ -134,6 +140,7 @@ function buildSlides(lines: LineDraft[], ctx: PipelineContext, meta: RunMeta) {
         kind: 'placeholder',
         key: `${line.rowIndex}-placeholder`,
         title: [line.orderId, lineDisplayName(line, cfg), '待核对'].filter(Boolean).join(' - '),
+        header: { ...headerOf(line), icon: '', product: lineDisplayName(line, cfg), color: '' },
         groupPosition: '待核对',
         quantityText: line.quantity > 1 ? `数量 ${line.quantity}` : '',
         details: [`SKU ${line.sku} · Quantity ${line.quantityRaw}`, `原始定制：${oneLine(line.variationsRaw)}`],
