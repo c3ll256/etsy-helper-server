@@ -52,14 +52,25 @@ export class FontsService {
     return this.fontRepository.save(font);
   }
 
-  async findAll(): Promise<Array<Font & { fileMissing: boolean }>> {
+  async findAll(): Promise<Array<Font & { fileMissing: boolean; replacedByFontId: number | null }>> {
     const fonts = await this.fontRepository.find({
       order: {
         createdAt: 'DESC',
       },
     });
-    // 文件已丢失的字体单独标出：生成时会报"字体缺失"，需要用"更换文件"补上
-    return fonts.map(font => ({ ...font, fileMissing: !font.filePath || !fs.existsSync(font.filePath) }));
+    const withFile = fonts.map(font => ({ font, exists: !!font.filePath && fs.existsSync(font.filePath) }));
+    // 文件丢失、但已有同名（不区分大小写）且有文件的启用字体：生成时用那一条，这条记录只是遗留，不影响出图
+    const usableByName = new Map<string, number>();
+    for (const { font, exists } of withFile) {
+      const key = font.name.trim().toLowerCase();
+      if (exists && font.isActive && !usableByName.has(key)) usableByName.set(key, font.id);
+    }
+    // 文件已丢失且没有同名替代的字体：生成时会报"字体缺失"，需要用"更换文件"补上
+    return withFile.map(({ font, exists }) => ({
+      ...font,
+      fileMissing: !exists,
+      replacedByFontId: exists ? null : usableByName.get(font.name.trim().toLowerCase()) ?? null,
+    }));
   }
 
   async assertNameAvailable(name: string): Promise<void> {

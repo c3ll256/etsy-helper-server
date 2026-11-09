@@ -74,8 +74,13 @@ export class PythonStampService {
     const fontMapping: Record<string, string> = {};
     
     try {
-      const fonts = await this.fontRepository.find({ where: { isActive: true } });
-      
+      // 同名字体有多条记录时（文件丢失后重新上传过），后写入的覆盖先写入的：
+      // 文件丢失的记录排在前面，保证名字最终指向有文件的那条
+      const fonts = (await this.fontRepository.find({ where: { isActive: true }, order: { id: 'ASC' } }))
+        .map(font => ({ font, exists: !!font.filePath && fs.existsSync(font.filePath) }))
+        .sort((a, b) => Number(a.exists) - Number(b.exists))
+        .map(item => item.font);
+
       fonts.forEach(font => {
         // Map the font name to its file path
         fontMapping[font.name] = font.filePath;
