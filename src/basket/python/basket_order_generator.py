@@ -52,6 +52,8 @@ ZONES = {
     'details': (2, 14.6, 98, 19.5),
     'notice': (2, 84, 98, 90),
     'footer': (2, 90.5, 98.3, 98.5),
+    # 母体制作参考图（有才画）：左下角，占提醒区和页脚的左侧；提醒文字和处理日期右移让开
+    'reference': (2, 84, 13, 98.5),
 }
 
 # Tools02 页眉尺寸（pt）
@@ -233,7 +235,8 @@ def split_runs(text, main_path, special_path, mode, registry):
     for ch in text:
         special = False
         if special_path and is_special_char(ch):
-            special = True if mode == 'always' else (ord(ch) not in main_cmap)
+            # & 按需求总是用特殊字体（小一号）；重音字母在 missing_glyph 模式下只有主字体缺字才换，保持名字字体一致
+            special = True if (ch == '&' or mode == 'always') else (ord(ch) not in main_cmap)
         kind = 'special' if special else 'main'
         if runs and runs[-1][0] == kind:
             runs[-1] = (kind, runs[-1][1] + ch)
@@ -294,13 +297,17 @@ def fit_name(spec, registry, obstacles, notice_present):
     main_path, main_family = registry.resolve(font_name)
     if not main_path:
         raise NameFitError('font_missing', f'字体 "{font_name or "(未配置)"}" 在字体库中找不到对应文件（系统异常，不是顾客名字做不了）', True)
-    need_special = has_special(text)
+    mode = special_cfg.get('mode') or 'missing_glyph'
+    if mode == 'always':
+        need_special = has_special(text)
+    else:
+        main_cmap = registry.cmap(main_path)
+        need_special = any(is_special_char(ch) and (ch == '&' or ord(ch) not in main_cmap) for ch in text or '')
     special_path, special_family = (None, None)
     if need_special:
         special_path, special_family = registry.resolve(special_cfg.get('font') or 'Calibri')
         if not special_path:
             raise NameFitError('font_missing', f'特殊字符字体 "{special_cfg.get("font") or "Calibri"}" 在字体库中找不到（系统异常）', True)
-    mode = special_cfg.get('mode') or 'always'
     amp_delta = float(special_cfg.get('ampersandSizeDelta') or 10)
 
     try:
@@ -345,7 +352,8 @@ def fit_name(spec, registry, obstacles, notice_present):
 
     annotation = None
     ann_cfg = special_cfg.get('annotation') or {}
-    if need_special and ann_cfg.get('enabled'):
+    # 标注只看名字里有没有特殊字符，和大字是否换字体无关
+    if has_special(text) and ann_cfg.get('enabled'):
         ann_path, ann_family = registry.resolve(ann_cfg.get('font') or 'Calibri')
         if not ann_path:
             raise NameFitError('font_missing', f'标注字体 "{ann_cfg.get("font") or "Calibri"}" 在字体库中找不到（系统异常）', True)
@@ -499,11 +507,31 @@ def fit_image_box(path, box):
     return (x, y, x + w, y + h)
 
 
-def fixed_obstacles(notice_present):
+def fixed_obstacles(notice_present, reference_present=False):
     obs = [pct_rect(*ZONES['header']), pct_rect(*ZONES['details']), pct_rect(*ZONES['footer'])]
     if notice_present:
         obs.append(pct_rect(*ZONES['notice']))
+    if reference_present:
+        obs.append(pct_rect(*ZONES['reference']))
     return obs
+
+
+def reference_path(spec):
+    if spec.get('kind') == 'placeholder':
+        return ''
+    path = normalize_path(spec.get('referenceImage'))
+    return path if path and os.path.exists(path) else ''
+
+
+def render_reference(slide, path):
+    """左下角参考图：标注“参考图，非本单内容”，避免把图里的示例名字 / 图标当成订单内容"""
+    x1, y1, x2, y2 = pct_rect(*ZONES['reference'])
+    add_rounded_border(slide, (x1, y1, x2, y2)).name = 'ref-frame'  # 外框不参与重叠检查
+    label_h = 0.17 * 72
+    add_text(slide, (x1, y1 + 1, x2, y1 + label_h), '参考图 · 非本单内容', 7, color=(120, 120, 120), align='center', wrap=False).name = 'reference-label'
+    box = fit_image_box(path, (x1 + 3, y1 + label_h + 1, x2 - 3, y2 - 3))
+    pic = slide.shapes.add_picture(path, emu(box[0]), emu(box[1]), emu(box[2] - box[0]), emu(box[3] - box[1]))
+    pic.name = 'reference-image'
 
 
 def plan_slide(spec, registry):
@@ -511,7 +539,7 @@ def plan_slide(spec, registry):
     if spec.get('kind') == 'placeholder':
         return result
     notice_present = bool(spec.get('reminder') or spec.get('staticReminder') or spec.get('warnings'))
-    obstacles = fixed_obstacles(notice_present)
+    obstacles = fixed_obstacles(notice_present, bool(reference_path(spec)))
     abs_boxes = []
     for icon in spec.get('icons') or []:
         slot = icon.get('slot') or {}
@@ -892,15 +920,24 @@ def render_slide(prs, spec, plan, registry, qr_cache):
         notices.append(spec['reminder'])
     for w in spec.get('warnings') or []:
         notices.append('⚠ ' + w)
+    ref_path = reference_path(spec)
+    shift_x = pct_rect(*ZONES['reference'])[2] + 0.06 * 72 if ref_path else None
+    if ref_path:
+        try:
+            render_reference(slide, ref_path)
+        except Exception as e:  # 参考图坏了不影响出单
+            report.setdefault('warnings', []).append(f'参考图无法插入：{e}')
     if notices:
         nbox = pct_rect(*ZONES['notice'])
+        if shift_x:
+            nbox = (shift_x, nbox[1], nbox[2], nbox[3])
         nsize, nlines, _ = fit_text_size(registry, detail_path, notices, nbox, 16, 8)
         tb = add_text(slide, nbox, '\n'.join(nlines), nsize, color=(220, 0, 0), bold=True)
         tb.name = 'notice'
 
     fx1, fy1, fx2, fy2 = pct_rect(*ZONES['footer'])
     fw = fx2 - fx1
-    add_text(slide, (fx1, fy1, fx1 + fw * 0.3, fy2), spec.get('processDate') or '', 14, anchor='bottom', wrap=False).name = 'process-date'
+    add_text(slide, (shift_x or fx1, fy1, fx1 + fw * 0.3, fy2), spec.get('processDate') or '', 14, anchor='bottom', wrap=False).name = 'process-date'
     add_text(slide, (fx1 + fw * 0.31, fy1, fx1 + fw * 0.79, fy2), spec.get('globalNumber') or '', 14, align='center', anchor='bottom', wrap=False).name = 'footer'
     add_text(slide, (fx1 + fw * 0.8, fy1, fx2, fy2), spec.get('groupPosition') or '', 22, bold=True, align='right', anchor='bottom', wrap=False,
              color=(200, 0, 0) if spec.get('kind') == 'placeholder' else (0, 0, 0)).name = 'group-position'

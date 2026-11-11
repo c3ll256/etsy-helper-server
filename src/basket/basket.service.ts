@@ -429,6 +429,69 @@ export class BasketService {
     return updatedConfigs;
   }
 
+  /** 批量设置可改的字段（SKU 编码、类型、替换文本等每个 SKU 不同的字段不允许批量改） */
+  static readonly BATCH_APPLY_FIELDS = ['font', 'fontSize', 'colorGroupId', 'iconGroupId', 'produceMode', 'iconLayoutTemplateId', 'maxIcons', 'nameLayout', 'referenceGroupKey'] as const;
+
+  async batchApplySkuConfigs(userId: string, ids: number[], patch: Record<string, any>) {
+    const uniqueIds = [...new Set((ids || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+    if (!uniqueIds.length) throw new BadRequestException('请至少选择一个 SKU');
+    if (uniqueIds.length > 1000) throw new BadRequestException('一次最多批量设置 1000 个 SKU');
+    const fields: Record<string, any> = {};
+    for (const key of BasketService.BATCH_APPLY_FIELDS) {
+      if (patch && Object.prototype.hasOwnProperty.call(patch, key)) fields[key] = patch[key];
+    }
+    const unknown = Object.keys(patch || {}).filter((k) => !(BasketService.BATCH_APPLY_FIELDS as readonly string[]).includes(k));
+    if (unknown.length) throw new BadRequestException(`这些字段不能批量修改：${unknown.join('、')}`);
+    if (!Object.keys(fields).length) throw new BadRequestException('请至少勾选一项要修改的设置');
+    if (fields.produceMode !== undefined && !['ppt', 'external', 'ignore'].includes(fields.produceMode)) throw new BadRequestException('生成方式无效');
+    if (typeof fields.referenceGroupKey === 'string') fields.referenceGroupKey = fields.referenceGroupKey.trim() || null;
+
+    const configs = await this.skuConfigRepository.find({ where: { id: In(uniqueIds), userId } });
+    const byId = new Map(configs.map((c) => [Number(c.id), c]));
+    const failed: Array<{ id: number; sku?: string; reason: string }> = [];
+    let updated = 0;
+    for (const id of uniqueIds) {
+      const config = byId.get(id);
+      if (!config) {
+        failed.push({ id, reason: '不存在或不属于当前账号' });
+        continue;
+      }
+      const next: Record<string, any> = { ...fields };
+      if (config.type === SkuType.COMBO) {
+        // 套组的名字区域、颜色组、图标组在各组成件里单独配置
+        for (const k of ['nameLayout', 'colorGroupId', 'iconGroupId']) delete next[k];
+        if (!Object.keys(next).length) {
+          failed.push({ id, sku: config.sku, reason: '套组的名字区域 / 颜色组 / 图标组在组成件里配置，已跳过' });
+          continue;
+        }
+      }
+      try {
+        await this.validateSkuConfigReferences(userId, {
+          sku: config.sku,
+          type: config.type,
+          replaceValue: config.replaceValue,
+          fontSize: next.fontSize ?? config.fontSize,
+          font: next.font ?? config.font,
+          yarnColorMap: config.yarnColorMap,
+          comboItems: config.comboItems as string[] | undefined,
+          colorGroupId: 'colorGroupId' in next ? next.colorGroupId : config.colorGroupId,
+          iconGroupId: 'iconGroupId' in next ? next.iconGroupId : config.iconGroupId,
+          comboOverridesJson: config.comboOverridesJson as any,
+          externalOrderReminderEnabled: config.externalOrderReminderEnabled,
+          externalOrderReminderContent: config.externalOrderReminderContent,
+          iconLayoutTemplateId: ('iconLayoutTemplateId' in next ? next.iconLayoutTemplateId : config.iconLayoutTemplateId) as any,
+          nameLayout: ('nameLayout' in next ? next.nameLayout : config.nameLayout) as any,
+        });
+        this.skuConfigRepository.merge(config, next);
+        await this.skuConfigRepository.save(config);
+        updated++;
+      } catch (error) {
+        failed.push({ id, sku: config.sku, reason: error instanceof Error ? error.message : '未知错误' });
+      }
+    }
+    return { updated, failed };
+  }
+
   async listColorGroups(user: User, query: QueryColorGroupsDto): Promise<PaginatedResponse<ColorGroup>> {
     const page = query.page && query.page > 0 ? Number(query.page) : 1;
     const limit = query.limit && query.limit > 0 ? Number(query.limit) : 20;

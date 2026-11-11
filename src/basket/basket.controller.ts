@@ -29,7 +29,7 @@ import { User } from '../users/entities/user.entity';
 import { BasketPaginationDto } from './dto/basket-pagination.dto';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { BasketGenerationRecord } from './entities/basket-generation-record.entity';
-import { CreateSkuConfigDto, SkuConfigResponseDto, BatchUpdateSkuConfigDto } from './dto/sku-config.dto';
+import { CreateSkuConfigDto, SkuConfigResponseDto, BatchUpdateSkuConfigDto, BatchApplySkuConfigDto } from './dto/sku-config.dto';
 import { SkuConfig } from './entities/sku-config.entity';
 import { BasketUploadOrderType } from './basket.service';
 import {
@@ -285,6 +285,15 @@ export class BasketController {
       throw new BadRequestException('必须提供至少一个配置项');
     }
     return this.basketService.batchUpdateSkuConfigs(user.id, batchUpdateDto.configs);
+  }
+
+  @Post('sku-config/batch-apply')
+  @ApiOperation({ summary: '批量设置：把同一组字段应用到多个 SKU，返回成功数量和每个失败 SKU 的原因' })
+  async batchApplySkuConfigs(
+    @Body() dto: BatchApplySkuConfigDto,
+    @CurrentUser() user: User
+  ) {
+    return this.basketService.batchApplySkuConfigs(user.id, dto.ids, dto.patch);
   }
 
   @Get('color-groups')

@@ -162,3 +162,16 @@ export class BatchUpdateSkuConfigDto {
   @Type(() => BatchUpdateSkuConfigItemDto)
   configs: BatchUpdateSkuConfigItemDto[];
 }
+
+/** 批量设置：对勾选的多个 SKU 只改 patch 里给出的字段（例如同一母体下的所有子 SKU） */
+export class BatchApplySkuConfigDto {
+  @ApiProperty({ description: '要修改的 SKU 配置 id', type: [Number] })
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  ids: number[];
+
+  @ApiProperty({ description: '要改的字段：font, fontSize, colorGroupId, iconGroupId, produceMode, iconLayoutTemplateId, maxIcons, nameLayout, referenceGroupKey' })
+  @IsObject()
+  patch: Record<string, any>;
+}

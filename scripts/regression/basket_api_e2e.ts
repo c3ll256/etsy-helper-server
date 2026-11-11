@@ -81,7 +81,7 @@ async function upload(rows: any[], orderType = 'all', name = 'e2e.xlsx') {
   throw new Error('生成超时');
 }
 
-async function inspectZip(webPath: string): Promise<string[]> {
+async function inspectZip(webPath: string, extra: Record<string, any> = {}): Promise<string[]> {
   const res = await api('GET', webPath, undefined, { raw: true });
   const buf = Buffer.from(await res.arrayBuffer());
   const zip = new AdmZip(buf);
@@ -93,8 +93,9 @@ async function inspectZip(webPath: string): Promise<string[]> {
 import json,sys
 sys.path.insert(0, ${JSON.stringify(path.join(ROOT, 'scripts/regression'))})
 from ppt_inspect import extract, check
-print(json.dumps(check(extract(sys.argv[1]), {"allShapesInsideSlide": True, "noOverlap": True}), ensure_ascii=False))
-`, tmp]).toString();
+expect = {"allShapesInsideSlide": True, "noOverlap": True, **json.loads(sys.argv[2])}
+print(json.dumps(check(extract(sys.argv[1]), expect), ensure_ascii=False))
+`, tmp, JSON.stringify(extra)]).toString();
   fs.unlinkSync(tmp);
   return JSON.parse(out);
 }
@@ -252,13 +253,33 @@ async function main() {
   const grefs = await api('GET', `/baskets/reference-images?skuConfigId=${basketM.id}`);
   check('母体共用参考图', grefs.effective === 'group' && grefs.shared.length === 1, grefs);
   const job2 = await upload([{ 'Order ID': `9${S}09`, SKU: bagBlue.sku, Quantity: 1, Variations: 'Backpack ColorBlue\nPersonalizationWren, A' }], 'all', 'e2e-ref.xlsx');
-  const geo2 = await inspectZip(job2.result.filePath);
+  const geo2 = await inspectZip(job2.result.filePath, { slides: [{ containsText: ['参考图 · 非本单内容', 'Wren'] }] });
   const refLine = (await api('GET', `/baskets/lines?recordId=${job2.recordId}`)).items[0];
-  check('参考图不进入 PPT、不影响名字和图标', geo2.length === 0 && refLine.units[0].name === 'Wren' && refLine.units[0].icons.map((i: any) => i.iconName).join() === 'A', refLine.units);
+  check('参考图放在 PPT 左下角并标注非本单内容，不重叠、不影响名字和图标', geo2.length === 0 && refLine.units[0].name === 'Wren' && refLine.units[0].icons.map((i: any) => i.iconName).join() === 'A', refLine.units);
   const detail = await api('GET', `/baskets/lines/${refLine.id}`);
   check('审核页显示参考图', detail.referenceImages?.length === 1, detail.referenceImages);
   await api('DELETE', `/baskets/reference-images/${ref.id}`);
   check('参考图移除', (await api('GET', `/baskets/reference-images?skuConfigId=${bagBlue.id}`)).own.length === 0);
+
+  // 9b. 批量设置（同一母体的多个子 SKU 一次改字体 / 图标上限 / 母体分组 / 名字区域）
+  const batchKey = `E2E-批量-${stamp}`;
+  const b1 = await api('POST', '/baskets/sku-config/batch-apply', { ids: [bagBlue.id, basketM.id, combo.id], patch: { font: 'Back to school', maxIcons: 4, referenceGroupKey: ` ${batchKey} ` } });
+  const afterBatch = (await api('GET', `/baskets/sku-config?limit=50&search=${encodeURIComponent(stamp)}`)).items;
+  const pick = (id: number) => afterBatch.find((c: any) => c.id === id);
+  check('批量设置：勾选的字段应用到所有选中的 SKU（含套组），其他字段不变',
+    b1.updated === 3 && !b1.failed.length && [bagBlue.id, basketM.id, combo.id].every((id) => pick(id)?.maxIcons === 4 && pick(id)?.referenceGroupKey === batchKey)
+      && pick(bagBlue.id)?.replaceValue === '蓝色书包' && pick(basketM.id)?.nameLayout?.area?.y1 === 29, { b1, cfgs: afterBatch.map((c: any) => [c.sku, c.maxIcons, c.referenceGroupKey, c.replaceValue]) });
+  const area = { area: { x1: 5, x2: 95, y1: 25, y2: 85 }, maxFontSize: 260, confirmed: true };
+  const b2 = await api('POST', '/baskets/sku-config/batch-apply', { ids: [bagBlue.id, combo.id, 99999999], patch: { nameLayout: area } });
+  const afterBatch2 = (await api('GET', `/baskets/sku-config?limit=50&search=${encodeURIComponent(stamp)}`)).items;
+  check('批量设置：套组的名字区域跳过并说明原因，不存在 / 别人的 SKU 列为失败',
+    b2.updated === 1 && b2.failed.length === 2 && b2.failed.some((f: any) => f.id === combo.id && f.reason.includes('组成件')) && b2.failed.some((f: any) => f.id === 99999999)
+      && afterBatch2.find((c: any) => c.id === bagBlue.id)?.nameLayout?.area?.x1 === 5, b2);
+  await api('POST', '/baskets/sku-config/batch-apply', { ids: [bagBlue.id], patch: { sku: 'X' } }, { expect: 400 });
+  await api('POST', '/baskets/sku-config/batch-apply', { ids: [bagBlue.id], patch: { iconLayoutTemplateId: 99999999 } }).then((r: any) => {
+    check('批量设置：SKU 编码等单个字段不能批量改；无效的布局模板被拒绝', r.updated === 0 && r.failed.length === 1, r);
+  });
+  await api('POST', '/baskets/sku-config/batch-apply', { ids: [bagBlue.id], patch: { nameLayout: bagBlue.nameLayout } });
 
   // 10. 店铺开关
   const settings = await api('PUT', '/baskets/shop-settings', { specialCharAnnotationFontSize: 36 });

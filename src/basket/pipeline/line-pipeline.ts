@@ -37,6 +37,8 @@ export interface PipelineContext {
   /** 上传时选择的订单类型：all 或某个 SKU 类型 */
   orderTypeScope: string;
   llm?: LlmCall | null;
+  /** SKU 配置 id → 生效的第一张母体制作参考图（本 SKU 单独的优先，否则母体分组共用的），放进 PPT 左下角 */
+  referenceImages?: Map<number, string>;
 }
 
 const blocking = (code: string, message: string, system = false): Reason => ({ code, message, severity: 'blocking', system });

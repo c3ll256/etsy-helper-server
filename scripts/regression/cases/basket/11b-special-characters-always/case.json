@@ -1,0 +1,74 @@
+{
+  "title": "店铺设置“重音字母总是换成特殊字符字体”时：á、ë 单独用 Calibri",
+  "acceptance": "11",
+  "fixturePatch": {
+    "settings": {
+      "specialCharFontMode": "always"
+    }
+  },
+  "rows": [
+    {
+      "Order ID": "3000000033",
+      "SKU": "Bag-Pink1(I)",
+      "Quantity": 1,
+      "Variations": "Item:Pink+Icon,Yarn Color:Blue,Personalization:Sebastián",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
+      "Order ID": "3000000034",
+      "SKU": "Bag-Pink1(I)",
+      "Quantity": 1,
+      "Variations": "Item:Pink+Icon,Yarn Color:Blue,Personalization:Zoë &amp; Max",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    }
+  ],
+  "lines": [
+    {
+      "row": 2,
+      "status": "produced",
+      "names": [
+        "Sebastián"
+      ]
+    },
+    {
+      "row": 3,
+      "status": "produced",
+      "names": [
+        "Zoë & Max"
+      ]
+    }
+  ],
+  "ppt": {
+    "slides": [
+      {
+        "nameText": "Sebastián",
+        "annotation": "Sebastián",
+        "nameRuns": [
+          {
+            "text": "á",
+            "font": "Calibri",
+            "sizeDelta": 0
+          }
+        ]
+      },
+      {
+        "nameText": "Zoë & Max",
+        "annotation": "Zoë & Max",
+        "nameRuns": [
+          {
+            "text": "&",
+            "font": "Calibri",
+            "sizeDelta": -10
+          },
+          {
+            "text": "ë",
+            "font": "Calibri",
+            "sizeDelta": 0
+          }
+        ]
+      }
+    ]
+  }
+}

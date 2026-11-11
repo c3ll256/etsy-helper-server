@@ -1,5 +1,5 @@
 {
-  "title": "Sebastián 等特殊字符：原字保留，重音和 & 用 Calibri（& 小 10pt），上方红色 Calibri 40pt 标注原名；缺字和缺字体是系统异常",
+  "title": "Sebastián 等特殊字符：原字保留；重音字母主字体有就保持名字字体，主字体缺字（æ）才换 Calibri；& 用 Calibri 小 10pt；上方红色 Calibri 40pt 标注原名；缺字和缺字体是系统异常",
   "acceptance": "11",
   "rows": [
     {
@@ -35,6 +35,14 @@
       "Ship Name": "Test Buyer"
     },
     {
+      "Order ID": "3000000038",
+      "SKU": "Bag-Pink1(I)",
+      "Quantity": 1,
+      "Variations": "Item:Pink+Icon,Yarn Color:Blue,Personalization:Ælfric",
+      "Sale Date": "10/25/2026",
+      "Ship Name": "Test Buyer"
+    },
+    {
       "Order ID": "3000000037",
       "SKU": "Bag-Purple",
       "Quantity": 1,
@@ -66,6 +74,13 @@
       ]
     },
     {
+      "row": 6,
+      "status": "produced",
+      "names": [
+        "Ælfric"
+      ]
+    },
+    {
       "row": 5,
       "status": "failed",
       "category": "font_error",
@@ -74,7 +89,7 @@
       ]
     },
     {
-      "row": 6,
+      "row": 7,
       "status": "failed",
       "category": "font_error",
       "reasonContains": [
@@ -90,8 +105,8 @@
         "annotation": "Sebastián",
         "nameRuns": [
           {
-            "text": "á",
-            "font": "Calibri",
+            "text": "Sebastián",
+            "font": "Back To School",
             "sizeDelta": 0
           }
         ]
@@ -106,8 +121,8 @@
             "sizeDelta": -10
           },
           {
-            "text": "ë",
-            "font": "Calibri",
+            "text": "Zoë ",
+            "font": "Back To School",
             "sizeDelta": 0
           }
         ]
@@ -120,6 +135,22 @@
         "kind": "placeholder",
         "containsText": [
           "字体缺字"
+        ]
+      },
+      {
+        "nameText": "Ælfric",
+        "annotation": "Ælfric",
+        "nameRuns": [
+          {
+            "text": "Æ",
+            "font": "Calibri",
+            "sizeDelta": 0
+          },
+          {
+            "text": "lfric",
+            "font": "Back To School",
+            "sizeDelta": 0
+          }
         ]
       },
       {

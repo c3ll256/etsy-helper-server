@@ -141,7 +141,7 @@ export const DEFAULT_SHOP_SETTINGS: ShopSettings = {
   specialCharAnnotationFont: 'Calibri',
   specialCharFont: 'Calibri',
   ampersandSizeDelta: 10,
-  specialCharFontMode: 'always',
+  specialCharFontMode: 'missing_glyph',
   reviewPlaceholderPages: true,
   allowDefaultIconLayout: true,
 };

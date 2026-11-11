@@ -132,6 +132,7 @@ function buildSlides(lines: LineDraft[], ctx: PipelineContext, meta: RunMeta) {
             },
           },
           icons: unit.icons.map((icon: any) => ({ iconName: icon.iconName, path: icon.filePath, slot: icon.slot })),
+          referenceImage: (cfg && ctx.referenceImages?.get(Number(cfg.id))) || null,
         });
       }
     } else if ((line.status === 'review' || line.status === 'failed') && line.produceMode === 'ppt' && ctx.settings.reviewPlaceholderPages) {

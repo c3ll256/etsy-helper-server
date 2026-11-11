@@ -193,6 +193,17 @@ export class BasketLinesService {
     }
     const fonts = (await this.fontRepo.find({ where: { isActive: true } })).map((f) => ({ id: f.id, name: f.name, filePath: f.filePath, fileExists: this.fileExists(f.filePath) }));
     const settings = await this.getShopSettings(ownerId);
+    const referenceImages = new Map<number, string>();
+    if (configs.length) {
+      const images = await this.refImageRepo.find({ where: { userId: In([...new Set(configs.map((c) => c.userId))]) as any, isActive: true }, order: { sortOrder: 'ASC', id: 'ASC' } });
+      const usable = images.filter((i) => this.fileExists(i.filePath));
+      for (const c of configs) {
+        const own = usable.find((i) => Number(i.skuConfigId) === Number(c.id));
+        const shared = c.referenceGroupKey ? usable.find((i) => !i.skuConfigId && i.userId === c.userId && i.groupKey === c.referenceGroupKey) : undefined;
+        const pick = own || shared;
+        if (pick) referenceImages.set(Number(c.id), pick.filePath);
+      }
+    }
     const apiKey = this.configService.get<string>('aliyun.apiKey');
     return {
       configs: configLikes,
@@ -202,6 +213,7 @@ export class BasketLinesService {
       fonts,
       settings,
       orderTypeScope,
+      referenceImages,
       llm: apiKey
         ? (userPrompt: string, systemPrompt: string) => this.aliyunService.generateJson(userPrompt, { systemPrompt, temperature: 0 })
         : null,
