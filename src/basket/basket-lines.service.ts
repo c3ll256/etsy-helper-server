@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Brackets, In, Repository } from 'typeorm';
@@ -74,6 +74,37 @@ export interface LineQuery {
 
 @Injectable()
 export class BasketLinesService {
+  /** 正在重新生成 / 补建明细的记录：这期间不允许删除，也不允许同一条记录并发重做 */
+  private readonly busyRecords = new Set<number>();
+
+  isRecordBusy(recordId: number): boolean {
+    return this.busyRecords.has(Number(recordId));
+  }
+
+  private async withRecordLock<T>(recordId: number, fn: () => Promise<T>): Promise<T> {
+    const id = Number(recordId);
+    if (this.busyRecords.has(id)) throw new ConflictException('该记录正在重新生成，请等当前操作完成后再试');
+    this.busyRecords.add(id);
+    try {
+      return await fn();
+    } finally {
+      this.busyRecords.delete(id);
+    }
+  }
+
+  /** 生成要花一段时间：保存明细前确认记录还在（可能已被删除），不在就丢弃本次结果并说明原因 */
+  private async assertRecordStillExists(recordId: number, discardFile?: string | null) {
+    if (await this.recordRepo.exist({ where: { id: recordId } })) return;
+    if (discardFile) {
+      try {
+        fs.unlinkSync(path.resolve(this.uploadsDir, path.basename(discardFile)));
+      } catch {
+        // 文件已不在，忽略
+      }
+    }
+    throw new NotFoundException(`记录 ${recordId} 在生成过程中已被删除，本次生成结果已丢弃`);
+  }
+
   private readonly logger = new Logger(BasketLinesService.name);
   private readonly uploadsDir = 'uploads/baskets';
 
@@ -263,6 +294,7 @@ export class BasketLinesService {
       zip.writeZip(path.resolve(this.uploadsDir, zipName));
       webPath = `/uploads/baskets/${zipName}`;
     }
+    await this.assertRecordStillExists(record.id, webPath);
     await this.persistLines(record.id, record.userId, output.lines);
     return { output, webPath };
   }
@@ -634,6 +666,10 @@ export class BasketLinesService {
 
   /** 按保存的明细重新生成某条记录的 PPT（不需要重新上传）。旧文件保留在 previousOutputs 中作为备份 */
   async regenerateRecord(recordId: number, user: User) {
+    return this.withRecordLock(recordId, () => this.doRegenerateRecord(recordId, user));
+  }
+
+  private async doRegenerateRecord(recordId: number, user: User) {
     const record = await this.recordRepo.findOne({ where: { id: recordId }, relations: ['user'] });
     if (!record) throw new NotFoundException(`记录 ${recordId} 不存在`);
     if (!user.isAdmin && record.userId !== user.id) throw new ForbiddenException('无权访问该记录');
@@ -738,6 +774,10 @@ export class BasketLinesService {
    * 之后可以在明细页查看 NOTE 原文、异常，并按需补处理。
    */
   async backfillRecordLines(recordId: number, user: User, sourceFilePath?: string) {
+    return this.withRecordLock(recordId, () => this.doBackfillRecordLines(recordId, user, sourceFilePath));
+  }
+
+  private async doBackfillRecordLines(recordId: number, user: User, sourceFilePath?: string) {
     const record = await this.recordRepo.findOne({ where: { id: recordId }, relations: ['user'] });
     if (!record) throw new NotFoundException(`记录 ${recordId} 不存在`);
     if (!user.isAdmin && record.userId !== user.id) throw new ForbiddenException('无权访问该记录');
@@ -753,6 +793,7 @@ export class BasketLinesService {
     const ctx = await this.buildContext({ ...(record.user || user), isAdmin: user.isAdmin } as User, record.orderType === 'basket' ? 'all' : record.orderType || 'all', record.userId || undefined);
     await analyzeAll(lines, ctx);
     for (const l of lines) if (l.status === 'pending') (l as any).status = 'backfilled';
+    await this.assertRecordStillExists(record.id);
     await this.persistLines(record.id, record.userId, lines);
     await this.recordRepo.update(record.id, { sourceFilePath: filePath, linesTotal: lines.length });
     return { recordId, lines: lines.length };

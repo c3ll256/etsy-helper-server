@@ -1223,6 +1223,9 @@ export class BasketService {
     if (record.status === 'processing' || record.status === 'pending') {
       throw new BadRequestException('任务正在进行中，请先取消任务后再删除记录');
     }
+    if (this.basketLinesService.isRecordBusy(id)) {
+      throw new BadRequestException('该记录正在重新生成或补建明细，请等完成后再删除');
+    }
 
     const physicalPath = this.getPhysicalFilePath(record.outputFilePath);
     this.safeDeleteFile(physicalPath);

@@ -227,7 +227,13 @@ async function main() {
   await api('PUT', `/baskets/lines/${reviewLine.id}/manual`, { override: { units: [{ itemIndex: 1, name: 'Hudson', icons: ['B'] }] } });
 
   // 8. 整条记录重新生成（不重新上传）
-  const regenRecord = await api('POST', `/baskets/records/${recordId}/regenerate`);
+  // 重新生成期间：不能删除记录，也不能对同一记录再发一次重新生成
+  const regenPending = api('POST', `/baskets/records/${recordId}/regenerate`);
+  await new Promise((r) => setTimeout(r, 150));
+  const delDuring = await api('DELETE', `/baskets/records/${recordId}`, undefined, { raw: true, expect: 400 }).then((r: any) => r.json());
+  const secondRegen = await api('POST', `/baskets/records/${recordId}/regenerate`, undefined, { raw: true, expect: 409 }).then((r: any) => r.json());
+  const regenRecord = await regenPending;
+  check('重新生成期间删除记录被拒绝、重复重新生成被拒绝，原任务正常完成', String(delDuring.message).includes('正在重新生成') && String(secondRegen.message).includes('正在重新生成') && !!regenRecord.outputFilePath, { delDuring, secondRegen });
   const rec = await api('GET', `/baskets/records/${recordId}`);
   check('整条记录按明细重新生成，旧文件留作备份', !!regenRecord.outputFilePath && rec.previousOutputs?.length === 1 && rec.outputFilePath === regenRecord.outputFilePath, { regenRecord, prev: rec.previousOutputs });
   const afterRegen = (await api('GET', `/baskets/lines?recordId=${recordId}&limit=100`)).items;
