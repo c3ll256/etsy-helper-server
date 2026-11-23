@@ -124,6 +124,11 @@ export class CreateSkuConfigDto {
   @Min(0)
   maxIcons?: number | null;
 
+  @ApiProperty({ description: '含图标时强制进入待核对', required: false })
+  @IsOptional()
+  @IsBoolean()
+  requireReviewOnIcons?: boolean;
+
   @ApiProperty({ description: '名字安全区和字号', required: false, nullable: true, type: Object })
   @IsOptional()
   @IsObject()
@@ -171,7 +176,7 @@ export class BatchApplySkuConfigDto {
   @IsInt({ each: true })
   ids: number[];
 
-  @ApiProperty({ description: '要改的字段：font, fontSize, colorGroupId, iconGroupId, produceMode, iconLayoutTemplateId, maxIcons, nameLayout, referenceGroupKey' })
+  @ApiProperty({ description: '要改的字段：font, fontSize, colorGroupId, iconGroupId, produceMode, iconLayoutTemplateId, maxIcons, requireReviewOnIcons, nameLayout, referenceGroupKey' })
   @IsObject()
   patch: Record<string, any>;
 }

@@ -59,15 +59,19 @@ export interface SkuConfigLike {
   produceMode?: ProduceMode | null;
   iconLayoutTemplateId?: number | null;
   maxIcons?: number | null;
+  requireReviewOnIcons?: boolean | null;
   nameLayout?: NameLayoutConfig | null;
 }
+
+export type IconKind = 'large' | 'flower' | 'yarn' | 'bow';
+export type PlacementKind = IconKind | 'any';
 
 export interface IconEntry {
   id: number;
   name: string;
   code?: string | null;
   aliases?: string[] | null;
-  kind?: 'large' | 'flower' | string | null;
+  kind?: IconKind | string | null;
   filePath: string;
   /** 素材文件是否存在（由调用方检查磁盘后填入） */
   fileExists: boolean;
@@ -76,6 +80,7 @@ export interface IconEntry {
 export interface ColorEntry {
   name: string;
   colorValue: string;
+  colorSequence?: string[] | null;
 }
 
 export interface LayoutSlot {
@@ -92,11 +97,15 @@ export interface LayoutSlot {
 }
 
 export interface LayoutRule {
-  /** 适用组合：大图标数、彩色小花数 */
+  /** 按总数匹配（任意品类）；>0 时按总数匹配，优先级低于精确品类规则 */
+  total?: number;
+  /** 适用组合：普通大图标数、彩色小花数、毛线款数、蝴蝶结数 */
   large: number;
   flower: number;
+  yarn?: number;
+  bow?: number;
   /** 依次放置：每一枚图标的位置 */
-  placements: Array<{ slot: string; kind: 'large' | 'flower' }>;
+  placements: Array<{ slot: string; kind: PlacementKind }>;
   /** 复杂组合：需人工复核 */
   requiresReview?: boolean;
 }
@@ -189,6 +198,9 @@ export interface ParsedIcon {
   /** 顾客指定的位置（模板位置 key），可空 */
   position?: string | null;
   positionRaw?: string | null;
+  /** 混色名字 + 毛线款图标自动算出的毛线颜色 */
+  yarnColor?: string | null;
+  yarnColorNote?: string | null;
 }
 
 export interface ParsedItem {
@@ -221,6 +233,7 @@ export interface ProductionUnit {
   icons: ParsedIcon[];
   colorRaw: string | null;
   colorMapped: string | null;
+  yarnColorSummary?: string | null;
   iconGroupId: number | null;
   layoutTemplateId: number | null;
   nameLayout: NameLayoutConfig | null;

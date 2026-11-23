@@ -1,12 +1,27 @@
-import { LayoutSlot, LayoutTemplateLike, ParsedIcon, Reason } from './types';
+import { IconKind, LayoutRule, LayoutSlot, LayoutTemplateLike, ParsedIcon, PlacementKind, Reason } from './types';
 
 /**
  * 图标布局：按 SKU 选择的布局模板，把一页上的图标分配到模板位置。
- * - 先看模板里有没有和"大图标数 + 彩色小花数"完全一致的组合规则；没有时按模板的默认顺序依次放
- * - 顾客明确指定的位置优先（必须是模板里有的位置）
- * - 位置冲突、没有适用组合、超过位置数时进入待核对，绝不自动增页
- * - "名字后面"（name_after）的含义待确认：不猜，进入待核对
+ * - 先匹配精确品类组合规则（普通 / 彩色小花 / 毛线款 / 蝴蝶结）
+ * - 再匹配按总数兜底的规则（total = 图标总数，任意品类）
+ * - 都没有时按模板的默认顺序依次放（若模板存在小花规则且含小花但未命中，仍进待核对）
+ * - 顾客明确指定的位置优先；"名字后面"（name_after）在模板有 name_right 位置时直接落到 name_right，否则进待核对
+ * - 位置冲突、超过位置数或规则勾选“需人工复核”时进入待核对，绝不自动增页
  */
+
+export const ICON_KINDS: readonly IconKind[] = ['large', 'flower', 'yarn', 'bow'] as const;
+
+export const ICON_KIND_LABELS: Record<IconKind, string> = {
+  large: '普通图标',
+  flower: '彩色小花',
+  yarn: '毛线款',
+  bow: '蝴蝶结',
+};
+
+export function normalizeIconKind(kind?: string | null): IconKind {
+  if (kind === 'flower' || kind === 'yarn' || kind === 'bow') return kind;
+  return 'large';
+}
 
 export const SYSTEM_DEFAULT_TEMPLATE: LayoutTemplateLike = {
   id: 0,
@@ -34,43 +49,73 @@ export interface LayoutResult {
 
 const review = (code: string, message: string): Reason => ({ code, message, severity: 'blocking' });
 
-export function comboKey(icons: ParsedIcon[]): { large: number; flower: number } {
-  let large = 0;
-  let flower = 0;
+export function comboKey(icons: ParsedIcon[]): { total: number; large: number; flower: number; yarn: number; bow: number } {
+  const counts = { total: icons.length, large: 0, flower: 0, yarn: 0, bow: 0 };
   for (const icon of icons) {
-    if (icon.kind === 'flower') flower++;
-    else large++;
+    counts[normalizeIconKind(icon.kind)]++;
   }
-  return { large, flower };
+  return counts;
+}
+
+function formatRuleLabel(rule: LayoutRule): string {
+  if (rule.total && rule.total > 0) return `共${rule.total}个图标`;
+  const parts: string[] = [];
+  if (rule.large) parts.push(`${rule.large}普通`);
+  if (rule.flower) parts.push(`${rule.flower}小花`);
+  if (rule.yarn) parts.push(`${rule.yarn}毛线`);
+  if (rule.bow) parts.push(`${rule.bow}蝴蝶结`);
+  return parts.join('+') || '0个';
 }
 
 export function assignIconSlots(icons: ParsedIcon[], template: LayoutTemplateLike): LayoutResult {
   const reasons: Reason[] = [];
   if (!icons.length) return { assignments: [], reasons, ruleLabel: null };
   const slotByKey = new Map(template.slots.map((s) => [s.key, s]));
-  const { large, flower } = comboKey(icons);
+  const nameRightSlot = template.slots.find((s) => s.anchor === 'name_right') || slotByKey.get('name_right') || null;
+  const counts = comboKey(icons);
 
+  // 处理顾客指定位置（name_after 在模板有 name_right 时直接映射）
+  const resolvedPositions = new Map<ParsedIcon, string>();
   for (const icon of icons) {
     if (icon.position === 'name_after') {
-      reasons.push(review('position_name_after', `顾客要求图标放在"名字后面"（${icon.positionRaw || ''}），该位置的含义待确认，请人工核对`));
-    } else if (icon.position && !slotByKey.has(icon.position)) {
-      reasons.push(review('position_not_in_template', `顾客指定位置 ${icon.position}（${icon.positionRaw || ''}）不在布局模板"${template.name}"中`));
+      if (nameRightSlot) {
+        resolvedPositions.set(icon, nameRightSlot.key);
+      } else {
+        reasons.push(review('position_name_after', `顾客要求图标放在"名字后面"（${icon.positionRaw || ''}），但模板"${template.name}"没有“贴名字右”位置，请人工核对`));
+      }
+    } else if (icon.position) {
+      if (!slotByKey.has(icon.position)) {
+        reasons.push(review('position_not_in_template', `顾客指定位置 ${icon.position}（${icon.positionRaw || ''}）不在布局模板"${template.name}"中`));
+      } else {
+        resolvedPositions.set(icon, icon.position);
+      }
     }
   }
   if (reasons.length) return { assignments: [], reasons, ruleLabel: null };
 
-  // 1. 组合规则
-  const rule = template.rules.find((r) => r.large === large && r.flower === flower);
-  let plan: Array<{ slot: string; kind: 'large' | 'flower' | 'any' }> = [];
+  // 1. 组合规则：先精确匹配品类组合，再匹配按总数兜底的规则
+  const exactRule = template.rules.find(
+    (r) =>
+      !(r.total && r.total > 0) &&
+      (r.large || 0) === counts.large &&
+      (r.flower || 0) === counts.flower &&
+      (r.yarn || 0) === counts.yarn &&
+      (r.bow || 0) === counts.bow,
+  );
+  const totalRule = !exactRule ? template.rules.find((r) => r.total && r.total === counts.total) : undefined;
+  const rule = exactRule || totalRule;
+
+  let plan: Array<{ slot: string; kind: PlacementKind }> = [];
   let ruleLabel: string | null = null;
   if (rule) {
-    plan = rule.placements.map((p) => ({ slot: p.slot, kind: p.kind }));
-    ruleLabel = `${large}大${flower ? `+${flower}小花` : ''}`;
+    plan = rule.placements.map((p) => ({ slot: p.slot, kind: p.kind || 'any' }));
+    ruleLabel = formatRuleLabel(rule);
     if (rule.requiresReview) {
       reasons.push(review('layout_complex', `组合 ${ruleLabel} 在模板中标记为需人工复核`));
     }
-  } else if (template.rules.length && flower > 0) {
-    reasons.push(review('layout_no_rule', `布局模板"${template.name}"没有 ${large} 大 + ${flower} 小花的组合规则`));
+  } else if (template.rules.some((r) => !(r.total && r.total > 0) && (r.flower || 0) > 0) && counts.flower > 0) {
+    const desc = formatRuleLabel({ large: counts.large, flower: counts.flower, yarn: counts.yarn, bow: counts.bow, placements: [] });
+    reasons.push(review('layout_no_rule', `布局模板"${template.name}"没有 ${desc} 的组合规则`));
     return { assignments: [], reasons, ruleLabel: null };
   } else {
     plan = template.defaultOrder.map((slot) => ({ slot, kind: 'any' as const }));
@@ -85,21 +130,25 @@ export function assignIconSlots(icons: ParsedIcon[], template: LayoutTemplateLik
   const used = new Set<string>();
   const assignments: SlotAssignment[] = [];
   // 2. 顾客指定的位置优先
-  const pinned = icons.filter((i) => i.position);
-  for (const icon of pinned) {
-    if (used.has(icon.position!)) {
-      reasons.push(review('position_conflict', `两个图标都指定了位置 ${icon.position}`));
+  for (const icon of icons) {
+    const pos = resolvedPositions.get(icon);
+    if (!pos) continue;
+    if (used.has(pos)) {
+      reasons.push(review('position_conflict', `两个图标都指定了位置 ${pos}`));
       continue;
     }
-    used.add(icon.position!);
-    assignments.push({ icon, slot: slotByKey.get(icon.position!)! });
+    used.add(pos);
+    assignments.push({ icon, slot: slotByKey.get(pos)! });
   }
-  // 3. 其余按规则顺序
-  for (const icon of icons.filter((i) => !i.position)) {
-    const kind = icon.kind === 'flower' ? 'flower' : 'large';
-    const next = plan.find((p) => !used.has(p.slot) && (p.kind === 'any' || p.kind === kind));
+  // 3. 其余按规则顺序（优先匹配同品类槽位，其次 'any' 槽位）
+  for (const icon of icons) {
+    if (resolvedPositions.has(icon)) continue;
+    const kind = normalizeIconKind(icon.kind);
+    const next =
+      plan.find((p) => !used.has(p.slot) && p.kind === kind) ||
+      plan.find((p) => !used.has(p.slot) && p.kind === 'any');
     if (!next) {
-      reasons.push(review('layout_over_capacity', `图标 ${icon.iconName} 没有可用的${kind === 'flower' ? '小花' : '大图标'}位置`));
+      reasons.push(review('layout_over_capacity', `图标 ${icon.iconName} 没有可用的${ICON_KIND_LABELS[kind]}位置`));
       continue;
     }
     const slot = slotByKey.get(next.slot);
@@ -134,12 +183,29 @@ export function validateTemplate(template: Pick<LayoutTemplateLike, 'slots' | 'r
     }
   }
   for (const rule of template.rules || []) {
+    const label = formatRuleLabel(rule);
     for (const p of rule.placements || []) {
-      if (!keys.has(p.slot)) errors.push(`组合 ${rule.large}大+${rule.flower}小花 引用了不存在的位置 ${p.slot}`);
+      if (!keys.has(p.slot)) errors.push(`组合 ${label} 引用了不存在的位置 ${p.slot}`);
     }
-    const large = (rule.placements || []).filter((p) => p.kind !== 'flower').length;
-    const flower = (rule.placements || []).filter((p) => p.kind === 'flower').length;
-    if (large !== rule.large || flower !== rule.flower) errors.push(`组合 ${rule.large}大+${rule.flower}小花 的位置数量与组合不一致`);
+    if (rule.total && rule.total > 0) {
+      if ((rule.placements || []).length !== rule.total) {
+        errors.push(`按总数规则（${label}）的位置数量与总数不一致`);
+      }
+    } else {
+      const counts: Record<IconKind, number> = { large: 0, flower: 0, yarn: 0, bow: 0 };
+      for (const p of rule.placements || []) {
+        const k = normalizeIconKind(p.kind);
+        counts[k]++;
+      }
+      if (
+        counts.large !== (rule.large || 0) ||
+        counts.flower !== (rule.flower || 0) ||
+        counts.yarn !== (rule.yarn || 0) ||
+        counts.bow !== (rule.bow || 0)
+      ) {
+        errors.push(`组合 ${label} 的位置数量与各品类数量不一致`);
+      }
+    }
   }
   for (const k of template.defaultOrder || []) {
     if (!keys.has(k)) errors.push(`默认顺序引用了不存在的位置 ${k}`);

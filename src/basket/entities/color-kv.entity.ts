@@ -34,6 +34,10 @@ export class ColorKv {
   @ApiProperty({ description: '映射后的颜色值' })
   colorValue: string;
 
+  @Column({ type: 'jsonb', name: 'color_sequence', nullable: true })
+  @ApiProperty({ description: '混色毛线颜色顺序（如 ["红棕色","姜黄色","燕麦色","海蓝","灰色"]），用于混色名字 + 毛线图标自动算色与撞色跳色', required: false, type: [String] })
+  colorSequence?: string[] | null;
+
   @Column({ type: 'boolean', default: true, name: 'is_active' })
   @ApiProperty({ description: '是否启用' })
   isActive: boolean;

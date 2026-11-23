@@ -5,6 +5,7 @@ import { matchSkuConfig } from './sku-matcher';
 import { decodeEntities, dedupeReasons, parseVariations } from './variation-parser';
 import { LLM_RETRY_CODES, LlmCall, tryLlmFallback } from './llm-fallback';
 import { assignIconSlots, SYSTEM_DEFAULT_TEMPLATE } from './layout';
+import { assignYarnIconColors } from './yarn-color';
 import {
   ColorEntry,
   ComboOverride,
@@ -170,19 +171,20 @@ function normColorKey(value: string): string {
   return String(value || '').trim().toLowerCase().replace(/[\s_\-]+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
 }
 
-export function mapColor(raw: string | null, entries: ColorEntry[] | null, legacyMap: Record<string, string> | null): { mapped: string | null; warning: Reason | null } {
-  if (!raw) return { mapped: null, warning: null };
+export function mapColor(raw: string | null, entries: ColorEntry[] | null, legacyMap: Record<string, string> | null): { mapped: string | null; sequence: string[] | null; warning: Reason | null } {
+  if (!raw) return { mapped: null, sequence: null, warning: null };
   const list: ColorEntry[] = entries && entries.length ? entries : Object.entries(legacyMap || {}).map(([name, colorValue]) => ({ name, colorValue }));
-  if (!list.length) return { mapped: null, warning: warning('color_no_group', `SKU 没有关联颜色组，颜色保留原值 "${raw}"`) };
+  if (!list.length) return { mapped: null, sequence: null, warning: warning('color_no_group', `SKU 没有关联颜色组，颜色保留原值 "${raw}"`) };
   const key = normColorKey(raw);
   const hits = list.filter((e) => normColorKey(e.name) === key);
   const values = Array.from(new Set(hits.map((h) => h.colorValue.trim())));
-  if (!values.length) return { mapped: null, warning: warning('color_unmapped', `颜色 "${raw}" 在颜色组中没有对应，保留原值，请核对`) };
-  if (values.length > 1) return { mapped: null, warning: warning('color_conflict', `颜色 "${raw}" 在颜色组中有多个译法（${values.join(' / ')}），保留原值，请核对`) };
+  if (!values.length) return { mapped: null, sequence: null, warning: warning('color_unmapped', `颜色 "${raw}" 在颜色组中没有对应，保留原值，请核对`) };
+  if (values.length > 1) return { mapped: null, sequence: null, warning: warning('color_conflict', `颜色 "${raw}" 在颜色组中有多个译法（${values.join(' / ')}），保留原值，请核对`) };
+  const sequence = hits.find((h) => Array.isArray(h.colorSequence) && h.colorSequence.length >= 2)?.colorSequence || null;
   if (/^(混|彩)\s*\d+$/.test(values[0])) {
-    return { mapped: values[0], warning: warning('color_shorthand', `颜色 "${raw}" 只维护了简写 "${values[0]}"，没有完整中文配方，请在颜色组补充`) };
+    return { mapped: values[0], sequence, warning: warning('color_shorthand', `颜色 "${raw}" 只维护了简写 "${values[0]}"，没有完整中文配方，请在颜色组补充`) };
   }
-  return { mapped: values[0], warning: null };
+  return { mapped: values[0], sequence, warning: null };
 }
 
 // ---------------------------------------------------------------- 套组组成件
@@ -247,6 +249,7 @@ export function categorize(reasons: Reason[]): string | null {
     position_conflict: 'icon_layout',
     position_not_in_template: 'icon_layout',
     position_name_after: 'icon_layout',
+    icon_manual_review: 'icon_layout',
     icon_over_limit: 'icon_limit',
     icon_group_missing: 'icon_config',
     generation_failed: 'generation_failed',
@@ -455,6 +458,9 @@ export async function analyzeLine(line: LineDraft, ctx: PipelineContext, indexCa
         reasons.push(...layout.reasons);
         (ui as any).slots = layout.assignments;
       }
+      if (cfg.requireReviewOnIcons && !line.manualOverride) {
+        reasons.push(blocking('icon_manual_review', '该 SKU 已开启“含图标强制人工核对”，请确认图标位置和配色后再生成'));
+      }
     }
     // 颜色
     const colorGroupId = (override.colorGroupId ?? cfg.colorGroupId ?? null) as number | null;
@@ -466,17 +472,21 @@ export async function analyzeLine(line: LineDraft, ctx: PipelineContext, indexCa
       unitWarnings.push(warning('area_preset_unverified', `名字区域来自${nameLayout.presetKey ? '附表预设 ' + nameLayout.presetKey : '手工配置'}，SKU 与预设的对应尚未标记为已确认`));
     }
 
+    const placedIcons = (ui as any).slots && (ui as any).slots.length === icons.length
+      ? ((ui as any).slots as any[]).map((a) => ({ ...a.icon, position: a.icon.position, slot: a.slot }))
+      : icons;
+    const yarnColorResult = assignYarnIconColors(name, color.sequence, placedIcons);
+
     const unit: ProductionUnit = {
       unitKey: `${line.rowIndex}-${ui.itemIndex}${ui.component ? '-' + ui.component : ''}`,
       itemIndex: ui.itemIndex,
       component: ui.component,
       name,
       // 布局没有排成功时保留全部图标（不丢图），这一件进入待核对
-      icons: (ui as any).slots && (ui as any).slots.length === icons.length
-        ? ((ui as any).slots as any[]).map((a) => ({ ...a.icon, position: a.icon.position, slot: a.slot }))
-        : icons,
+      icons: yarnColorResult.icons,
       colorRaw: parse.colorRaw,
       colorMapped: color.mapped,
+      yarnColorSummary: yarnColorResult.summary,
       iconGroupId: groupId,
       layoutTemplateId: template ? template.id : null,
       nameLayout,

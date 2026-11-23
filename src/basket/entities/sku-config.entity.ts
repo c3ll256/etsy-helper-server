@@ -110,6 +110,10 @@ export class SkuConfig {
   @ApiProperty({ description: '每件商品最多几个图标，超过进入待核对；空表示不限', required: false })
   maxIcons?: number | null;
 
+  @Column({ type: 'boolean', name: 'require_review_on_icons', default: false })
+  @ApiProperty({ description: '含图标时强制进入待核对（用于复杂图标款式兜底人工审核）', default: false })
+  requireReviewOnIcons: boolean;
+
   @Column({ type: 'jsonb', name: 'name_layout', nullable: true })
   @ApiProperty({ description: '名字安全区和字号：{area:{x1,x2,y1,y2}(百分比), maxFontSize, minFontSize, preferredFontSize, allowTwoLines, maxLatinLetters, bufferPt, twoLineNote, presetKey, confirmed}', required: false, type: Object })
   nameLayout?: Record<string, any> | null;

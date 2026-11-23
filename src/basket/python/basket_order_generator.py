@@ -834,6 +834,16 @@ def render_icons(slide, spec, fit, report):
                 box = fit_image_box(path, rel[ordered.index(icon)])
             pic = slide.shapes.add_picture(path, emu(box[0]), emu(box[1]), emu(box[2] - box[0]), emu(box[3] - box[1]))
             pic.name = f'icon:{icon.get("iconName")}'
+            yarn_color = (icon.get('yarnColor') or '').strip()
+            if yarn_color:
+                label_h = 0.22 * 72
+                label_top = min(box[3] + 1, pct_rect(*ZONES['footer'])[1] - label_h)
+                label_w = max(box[2] - box[0], 0.9 * 72)
+                cx = (box[0] + box[2]) / 2
+                lx1 = max(4, cx - label_w / 2)
+                lx2 = min(SLIDE_W - 4, lx1 + label_w)
+                tb = add_text(slide, (lx1, label_top, lx2, label_top + label_h), yarn_color, 10, color=(180, 40, 20), bold=True, align='center', wrap=False)
+                tb.name = f'icon-color:{icon.get("iconName")}'
             report['iconsInserted'] += 1
         except Exception as e:
             report['iconErrors'].append(f'{icon.get("iconName")}: {e}')

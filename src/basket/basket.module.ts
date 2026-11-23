@@ -18,6 +18,7 @@ import { BasketOrderLine } from './entities/basket-order-line.entity';
 import { BasketIconLayoutTemplate } from './entities/basket-icon-layout-template.entity';
 import { BasketReferenceImage } from './entities/basket-reference-image.entity';
 import { BasketShopSettings } from './entities/basket-shop-settings.entity';
+import { SkuParentGroup } from './entities/sku-parent-group.entity';
 import { BasketLinesService } from './basket-lines.service';
 import { BasketLinesController } from './basket-lines.controller';
 import { Font } from '../fonts/entities/font.entity';
@@ -34,7 +35,7 @@ if (!fs.existsSync(BASKETS_UPLOADS_DIR)) {
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([BasketGenerationRecord, SkuConfig, ColorGroup, ColorKv, IconGroup, IconKv, BasketOrderLine, BasketIconLayoutTemplate, BasketReferenceImage, BasketShopSettings, Font]),
+    TypeOrmModule.forFeature([BasketGenerationRecord, SkuConfig, SkuParentGroup, ColorGroup, ColorKv, IconGroup, IconKv, BasketOrderLine, BasketIconLayoutTemplate, BasketReferenceImage, BasketShopSettings, Font]),
     CommonModule,
     UsersModule,
     AuthModule,

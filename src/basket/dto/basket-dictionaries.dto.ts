@@ -73,6 +73,10 @@ export class CreateColorKvDto {
   @ApiProperty()
   @IsString()
   colorValue: string;
+
+  @ApiProperty({ required: false, nullable: true, type: [String], description: '混色毛线颜色顺序（用于混色名字 + 毛线图标自动算色与撞色跳色）' })
+  @IsOptional()
+  colorSequence?: string[] | string | null;
 }
 
 export class UpdateColorKvDto extends PartialType(CreateColorKvDto) {}
@@ -85,6 +89,10 @@ export class CreateColorKvBatchItemDto {
   @ApiProperty()
   @IsString()
   colorValue: string;
+
+  @ApiProperty({ required: false, nullable: true, type: [String] })
+  @IsOptional()
+  colorSequence?: string[] | string | null;
 }
 
 export class CreateColorKvBatchDto {
@@ -163,9 +171,9 @@ export class CreateIconKvDto {
   @IsOptional()
   aliases?: string[] | string;
 
-  @ApiProperty({ required: false, enum: ['large', 'flower'] })
+  @ApiProperty({ required: false, enum: ['large', 'flower', 'yarn', 'bow'] })
   @IsOptional()
-  @IsIn(['large', 'flower'])
+  @IsIn(['large', 'flower', 'yarn', 'bow'])
   kind?: string;
 }
 
@@ -191,9 +199,9 @@ export class UpdateIconKvDto {
   @IsOptional()
   aliases?: string[] | string | null;
 
-  @ApiProperty({ required: false, enum: ['large', 'flower'] })
+  @ApiProperty({ required: false, enum: ['large', 'flower', 'yarn', 'bow'] })
   @IsOptional()
-  @IsIn(['large', 'flower'])
+  @IsIn(['large', 'flower', 'yarn', 'bow'])
   kind?: string;
 
   @ApiProperty({ required: false, nullable: true })

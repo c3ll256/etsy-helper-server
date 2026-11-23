@@ -103,6 +103,7 @@ function buildSlides(lines: LineDraft[], ctx: PipelineContext, meta: RunMeta) {
         const details = [
           `原始定制：${oneLine(line.variationsRaw)}`,
           `制作：SKU ${line.sku}${unit.component ? ' · 组成件 ' + unit.component : ''} · 第 ${unit.itemIndex}/${line.quantity} 件 | 名字 ${unit.name ?? '-'} | 图标 ${iconText || '无'} (${unit.icons.length}) | 颜色 ${unit.colorRaw || '-'}${unit.colorMapped ? ' → ' + unit.colorMapped : ''}`,
+          ...(unit.yarnColorSummary ? [unit.yarnColorSummary] : []),
           ...(line.parse?.attachments || []).map((a) => `附件：${a}（附件说明，不计件数）`),
         ];
         slides.push({
@@ -131,7 +132,7 @@ function buildSlides(lines: LineDraft[], ctx: PipelineContext, meta: RunMeta) {
               },
             },
           },
-          icons: unit.icons.map((icon: any) => ({ iconName: icon.iconName, path: icon.filePath, slot: icon.slot })),
+          icons: unit.icons.map((icon: any) => ({ iconName: icon.iconName, path: icon.filePath, slot: icon.slot, yarnColor: icon.yarnColor || null })),
           referenceImage: (cfg && ctx.referenceImages?.get(Number(cfg.id))) || null,
         });
       }

@@ -51,7 +51,7 @@ export class IconKv {
   aliases?: string[] | null;
 
   @Column({ type: 'varchar', length: 16, default: 'large' })
-  @ApiProperty({ description: '图标类别：large 大图标；flower 彩色小花（用于布局模板组合）', default: 'large' })
+  @ApiProperty({ description: '图标类别：large 普通图标；flower 彩色小花；yarn 毛线款图标；bow 蝴蝶结（用于布局模板组合和混色算色）', default: 'large' })
   kind: string;
 
   @Column({ type: 'boolean', default: true, name: 'is_active' })

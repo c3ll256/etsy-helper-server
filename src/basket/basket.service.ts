@@ -375,6 +375,7 @@ export class BasketService {
         if (updateData.produceMode !== undefined) updateFields.produceMode = updateData.produceMode;
         if (updateData.iconLayoutTemplateId !== undefined) updateFields.iconLayoutTemplateId = updateData.iconLayoutTemplateId;
         if (updateData.maxIcons !== undefined) updateFields.maxIcons = updateData.maxIcons;
+        if (updateData.requireReviewOnIcons !== undefined) updateFields.requireReviewOnIcons = !!updateData.requireReviewOnIcons;
         if (updateData.nameLayout !== undefined) updateFields.nameLayout = updateData.nameLayout;
         if (updateData.referenceGroupKey !== undefined) updateFields.referenceGroupKey = updateData.referenceGroupKey;
 
@@ -430,7 +431,7 @@ export class BasketService {
   }
 
   /** 批量设置可改的字段（SKU 编码、类型、替换文本等每个 SKU 不同的字段不允许批量改） */
-  static readonly BATCH_APPLY_FIELDS = ['font', 'fontSize', 'colorGroupId', 'iconGroupId', 'produceMode', 'iconLayoutTemplateId', 'maxIcons', 'nameLayout', 'referenceGroupKey'] as const;
+  static readonly BATCH_APPLY_FIELDS = ['font', 'fontSize', 'colorGroupId', 'iconGroupId', 'produceMode', 'iconLayoutTemplateId', 'maxIcons', 'requireReviewOnIcons', 'nameLayout', 'referenceGroupKey'] as const;
 
   async batchApplySkuConfigs(userId: string, ids: number[], patch: Record<string, any>) {
     const uniqueIds = [...new Set((ids || []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
@@ -600,6 +601,7 @@ export class BasketService {
       groupId,
       name: dto.name.trim(),
       colorValue: normalizedColorValue,
+      colorSequence: this.normalizeColorSequence(dto.colorSequence),
       isActive: true,
     });
     return this.colorKvRepository.save(entity);
@@ -622,6 +624,7 @@ export class BasketService {
       groupId,
       name: item.name.trim(),
       colorValue: this.normalizeColorValue(item.colorValue),
+      colorSequence: this.normalizeColorSequence(item.colorSequence),
       isActive: true,
     }));
 
@@ -643,6 +646,9 @@ export class BasketService {
     if (dto.name !== undefined) kv.name = dto.name.trim();
     if (dto.colorValue !== undefined) {
       kv.colorValue = this.normalizeColorValue(dto.colorValue);
+    }
+    if (dto.colorSequence !== undefined) {
+      kv.colorSequence = this.normalizeColorSequence(dto.colorSequence);
     }
     return this.colorKvRepository.save(kv);
   }
@@ -791,7 +797,7 @@ export class BasketService {
       mimeType: file.mimetype,
       code: dto.code?.trim() || null,
       aliases: this.parseAliases(dto.aliases),
-      kind: dto.kind === 'flower' ? 'flower' : 'large',
+      kind: this.normalizeIconKind(dto.kind),
       isActive: true,
     });
     return this.iconKvRepository.save(entity);
@@ -812,7 +818,7 @@ export class BasketService {
     if (dto.name !== undefined) kv.name = dto.name.trim();
     if (dto.code !== undefined) kv.code = dto.code?.trim() || null;
     if (dto.aliases !== undefined) kv.aliases = this.parseAliases(dto.aliases);
-    if (dto.kind !== undefined) kv.kind = dto.kind === 'flower' ? 'flower' : 'large';
+    if (dto.kind !== undefined) kv.kind = this.normalizeIconKind(dto.kind);
     return this.iconKvRepository.save(kv);
   }
 
@@ -948,6 +954,19 @@ export class BasketService {
       throw new BadRequestException('颜色映射值不能为空');
     }
     return colorValue;
+  }
+
+  private normalizeColorSequence(raw?: string[] | string | null): string[] | null {
+    if (raw === undefined || raw === null) return null;
+    const list = Array.isArray(raw)
+      ? raw.map((item) => String(item || '').trim()).filter(Boolean)
+      : String(raw).split(/[,，、→>\/|\n]+/).map((item) => item.trim()).filter(Boolean);
+    return list.length ? list : null;
+  }
+
+  private normalizeIconKind(kind?: string | null): 'large' | 'flower' | 'yarn' | 'bow' {
+    if (kind === 'flower' || kind === 'yarn' || kind === 'bow') return kind;
+    return 'large';
   }
 
   private async getOwnedIconKv(id: number, user: User): Promise<IconKv> {

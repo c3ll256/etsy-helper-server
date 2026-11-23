@@ -208,4 +208,35 @@ export class BasketLinesController {
   updateSettings(@Body() body: any, @CurrentUser() user: User) {
     return this.service.updateShopSettings(user.id, body || {});
   }
+
+  // ---------------- 总 SKU（母体分组）
+  @Get('parent-skus')
+  @ApiOperation({ summary: '总 SKU 分组列表（含下属子 SKU 及共用参考图）' })
+  listParentSkus(@Query('search') search: string | undefined, @CurrentUser() user: User) {
+    return this.service.listParentSkus(user, search);
+  }
+
+  @Post('parent-skus')
+  @ApiOperation({ summary: '新建或保存总 SKU 分组（可同时绑定子 SKU 并同步设置）' })
+  upsertParentSku(@Body() body: any, @CurrentUser() user: User) {
+    return this.service.upsertParentSku(user, body || {});
+  }
+
+  @Put('parent-skus/:id')
+  @ApiOperation({ summary: '更新总 SKU 分组（可同时同步设置到下属子 SKU）' })
+  updateParentSku(@Param('id', ParseIntPipe) id: number, @Body() body: any, @CurrentUser() user: User) {
+    return this.service.updateParentSku(user, id, body || {});
+  }
+
+  @Post('parent-skus/:id/sync')
+  @ApiOperation({ summary: '将总 SKU 的统一设置同步到全部子 SKU' })
+  syncParentSku(@Param('id', ParseIntPipe) id: number, @Body() body: any, @CurrentUser() user: User) {
+    return this.service.syncParentSkuToChildren(user, id, body?.fields);
+  }
+
+  @Delete('parent-skus/:id')
+  @ApiOperation({ summary: '删除总 SKU 分组（不删除下属子 SKU）' })
+  deleteParentSku(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
+    return this.service.deleteParentSku(user, id);
+  }
 }

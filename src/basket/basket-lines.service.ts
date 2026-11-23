@@ -14,7 +14,8 @@ import { BasketOrderLine } from './entities/basket-order-line.entity';
 import { BasketIconLayoutTemplate } from './entities/basket-icon-layout-template.entity';
 import { BasketReferenceImage } from './entities/basket-reference-image.entity';
 import { BasketShopSettings } from './entities/basket-shop-settings.entity';
-import { SkuConfig } from './entities/sku-config.entity';
+import { SkuParentGroup } from './entities/sku-parent-group.entity';
+import { SkuConfig, SkuType } from './entities/sku-config.entity';
 import { ColorKv } from './entities/color-kv.entity';
 import { IconKv } from './entities/icon-kv.entity';
 import { Font } from '../fonts/entities/font.entity';
@@ -114,6 +115,7 @@ export class BasketLinesService {
     @InjectRepository(BasketIconLayoutTemplate) private readonly templateRepo: Repository<BasketIconLayoutTemplate>,
     @InjectRepository(BasketReferenceImage) private readonly refImageRepo: Repository<BasketReferenceImage>,
     @InjectRepository(BasketShopSettings) private readonly settingsRepo: Repository<BasketShopSettings>,
+    @InjectRepository(SkuParentGroup) private readonly parentGroupRepo: Repository<SkuParentGroup>,
     @InjectRepository(SkuConfig) private readonly skuConfigRepo: Repository<SkuConfig>,
     @InjectRepository(ColorKv) private readonly colorKvRepo: Repository<ColorKv>,
     @InjectRepository(IconKv) private readonly iconKvRepo: Repository<IconKv>,
@@ -153,6 +155,7 @@ export class BasketLinesService {
       produceMode: (c.produceMode || 'ppt') as any,
       iconLayoutTemplateId: c.iconLayoutTemplateId ?? null,
       maxIcons: c.maxIcons ?? null,
+      requireReviewOnIcons: !!c.requireReviewOnIcons,
       nameLayout: (c.nameLayout as any) ?? null,
     };
   }
@@ -214,7 +217,7 @@ export class BasketLinesService {
       for (const c of colors) {
         const g = Number(c.groupId);
         if (!colorGroups.has(g)) colorGroups.set(g, []);
-        colorGroups.get(g)!.push({ name: c.name, colorValue: c.colorValue });
+        colorGroups.get(g)!.push({ name: c.name, colorValue: c.colorValue, colorSequence: c.colorSequence ?? null });
       }
     }
     const layoutTemplates = new Map<number, LayoutTemplateLike>();
@@ -843,7 +846,7 @@ export class BasketLinesService {
 
   static readonly COPY_FIELDS = [
     'type', 'replaceValue', 'fontSize', 'font', 'yarnColorMap', 'comboItems', 'colorGroupId', 'iconGroupId', 'comboOverridesJson',
-    'externalOrderReminderEnabled', 'externalOrderReminderContent', 'produceMode', 'iconLayoutTemplateId', 'maxIcons', 'nameLayout', 'referenceGroupKey',
+    'externalOrderReminderEnabled', 'externalOrderReminderContent', 'produceMode', 'iconLayoutTemplateId', 'maxIcons', 'requireReviewOnIcons', 'nameLayout', 'referenceGroupKey',
   ] as const;
 
   async copySkuConfig(id: number, user: User, newSku: string, overrides: Record<string, any> = {}) {
@@ -941,5 +944,221 @@ export class BasketLinesService {
     if (!existing || (!user.isAdmin && existing.userId !== user.id)) throw new NotFoundException('参考图不存在');
     existing.isActive = false;
     await this.refImageRepo.save(existing);
+  }
+
+  // ================================================================ 总 SKU（母体分组）
+
+  static readonly PARENT_SYNC_FIELDS = [
+    'font', 'fontSize', 'colorGroupId', 'iconGroupId', 'produceMode', 'iconLayoutTemplateId', 'maxIcons', 'requireReviewOnIcons', 'nameLayout',
+  ] as const;
+
+  async listParentSkus(user: User, search?: string) {
+    const groups = await this.parentGroupRepo.find({
+      where: { userId: user.id },
+      relations: ['colorGroup', 'iconGroup'],
+      order: { groupKey: 'ASC' },
+    });
+    const configs = await this.skuConfigRepo.find({
+      where: { userId: user.id },
+      relations: ['colorGroup', 'iconGroup'],
+      order: { sku: 'ASC' },
+    });
+    const refImages = await this.refImageRepo.find({
+      where: { userId: user.id, skuConfigId: null as any, isActive: true },
+      order: { sortOrder: 'ASC', id: 'ASC' },
+    });
+
+    const refsByGroup = new Map<string, BasketReferenceImage[]>();
+    for (const img of refImages) {
+      if (!img.groupKey) continue;
+      if (!refsByGroup.has(img.groupKey)) refsByGroup.set(img.groupKey, []);
+      refsByGroup.get(img.groupKey)!.push(img);
+    }
+
+    const childrenByGroup = new Map<string, SkuConfig[]>();
+    const ungrouped: SkuConfig[] = [];
+    for (const c of configs) {
+      const key = (c.referenceGroupKey || '').trim();
+      if (!key) {
+        ungrouped.push(c);
+        continue;
+      }
+      if (!childrenByGroup.has(key)) childrenByGroup.set(key, []);
+      childrenByGroup.get(key)!.push(c);
+    }
+
+    const groupMap = new Map<string, any>();
+    for (const g of groups) {
+      groupMap.set(g.groupKey, {
+        ...g,
+        persisted: true,
+        children: childrenByGroup.get(g.groupKey) || [],
+        referenceImages: refsByGroup.get(g.groupKey) || [],
+      });
+    }
+    // 兼容历史上只填了 referenceGroupKey 但还没建总 SKU 记录的分组
+    for (const [key, children] of childrenByGroup.entries()) {
+      if (!groupMap.has(key)) {
+        const first = children[0];
+        groupMap.set(key, {
+          id: null,
+          userId: user.id,
+          groupKey: key,
+          name: null,
+          font: first?.font ?? null,
+          fontSize: first?.fontSize ?? null,
+          colorGroupId: first?.colorGroupId ? Number(first.colorGroupId) : null,
+          iconGroupId: first?.iconGroupId ? Number(first.iconGroupId) : null,
+          produceMode: first?.produceMode || 'ppt',
+          iconLayoutTemplateId: first?.iconLayoutTemplateId ?? null,
+          maxIcons: first?.maxIcons ?? null,
+          requireReviewOnIcons: !!first?.requireReviewOnIcons,
+          nameLayout: first?.nameLayout ?? null,
+          persisted: false,
+          children,
+          referenceImages: refsByGroup.get(key) || [],
+        });
+      }
+    }
+
+    const q = (search || '').trim().toLowerCase();
+    const allGroups = [...groupMap.values()].sort((a, b) => String(a.groupKey).localeCompare(String(b.groupKey)));
+    const filteredGroups = q
+      ? allGroups
+          .map((g) => {
+            const groupHit =
+              String(g.groupKey || '').toLowerCase().includes(q) ||
+              String(g.name || '').toLowerCase().includes(q);
+            const matchedChildren = (g.children as SkuConfig[]).filter(
+              (c) =>
+                String(c.sku || '').toLowerCase().includes(q) ||
+                String(c.replaceValue || '').toLowerCase().includes(q),
+            );
+            if (!groupHit && !matchedChildren.length) return null;
+            return { ...g, children: groupHit ? g.children : matchedChildren };
+          })
+          .filter(Boolean)
+      : allGroups;
+
+    const filteredUngrouped = q
+      ? ungrouped.filter(
+          (c) =>
+            String(c.sku || '').toLowerCase().includes(q) ||
+            String(c.replaceValue || '').toLowerCase().includes(q),
+        )
+      : ungrouped;
+
+    return { groups: filteredGroups, ungrouped: filteredUngrouped };
+  }
+
+  private pickParentFields(body: Record<string, any>) {
+    const patch: Partial<SkuParentGroup> = {};
+    if (body.name !== undefined) patch.name = body.name ? String(body.name).trim() : null;
+    if (body.font !== undefined) patch.font = body.font ? String(body.font).trim() : null;
+    if (body.fontSize !== undefined) patch.fontSize = body.fontSize === null || body.fontSize === '' ? null : Number(body.fontSize);
+    if (body.colorGroupId !== undefined) patch.colorGroupId = body.colorGroupId ? Number(body.colorGroupId) : null;
+    if (body.iconGroupId !== undefined) patch.iconGroupId = body.iconGroupId ? Number(body.iconGroupId) : null;
+    if (body.produceMode !== undefined) {
+      if (!['ppt', 'external', 'ignore'].includes(body.produceMode)) throw new BadRequestException('生成方式无效');
+      patch.produceMode = body.produceMode;
+    }
+    if (body.iconLayoutTemplateId !== undefined) patch.iconLayoutTemplateId = body.iconLayoutTemplateId ? Number(body.iconLayoutTemplateId) : null;
+    if (body.maxIcons !== undefined) patch.maxIcons = body.maxIcons === null || body.maxIcons === '' ? null : Number(body.maxIcons);
+    if (body.requireReviewOnIcons !== undefined) patch.requireReviewOnIcons = !!body.requireReviewOnIcons;
+    if (body.nameLayout !== undefined) patch.nameLayout = body.nameLayout || null;
+    return patch;
+  }
+
+  async upsertParentSku(user: User, body: Record<string, any>) {
+    const groupKey = String(body?.groupKey || '').trim();
+    if (!groupKey) throw new BadRequestException('请填写总 SKU 编码');
+    let group = await this.parentGroupRepo.findOne({ where: { userId: user.id, groupKey } });
+    const patch = this.pickParentFields(body || {});
+    if (group) {
+      this.parentGroupRepo.merge(group, patch);
+    } else {
+      group = this.parentGroupRepo.create({ userId: user.id, groupKey, produceMode: 'ppt', requireReviewOnIcons: false, ...patch });
+    }
+    const saved = await this.parentGroupRepo.save(group);
+
+    // 可选：把勾选的子 SKU 归入该总 SKU
+    if (Array.isArray(body?.bindChildIds) && body.bindChildIds.length) {
+      const ids = body.bindChildIds.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+      if (ids.length) {
+        await this.skuConfigRepo
+          .createQueryBuilder()
+          .update(SkuConfig)
+          .set({ referenceGroupKey: groupKey })
+          .where('id IN (:...ids) AND "userId" = :userId', { ids, userId: user.id })
+          .execute();
+      }
+    }
+
+    let syncResult: { updated: number; skipped: number } | null = null;
+    if (body?.syncChildren) {
+      syncResult = await this.syncParentSkuToChildren(user, saved.id, body?.syncFields);
+    }
+    return { group: saved, syncResult };
+  }
+
+  async updateParentSku(user: User, id: number, body: Record<string, any>) {
+    const group = await this.parentGroupRepo.findOne({ where: { id, userId: user.id } });
+    if (!group) throw new NotFoundException(`总 SKU #${id} 不存在`);
+    const oldKey = group.groupKey;
+    const nextKey = body?.groupKey !== undefined ? String(body.groupKey || '').trim() : oldKey;
+    if (!nextKey) throw new BadRequestException('总 SKU 编码不能为空');
+    if (nextKey !== oldKey) {
+      const dup = await this.parentGroupRepo.findOne({ where: { userId: user.id, groupKey: nextKey } });
+      if (dup) throw new BadRequestException(`总 SKU "${nextKey}" 已存在`);
+      group.groupKey = nextKey;
+    }
+    this.parentGroupRepo.merge(group, this.pickParentFields(body || {}));
+    const saved = await this.parentGroupRepo.save(group);
+
+    if (nextKey !== oldKey) {
+      await this.skuConfigRepo.update({ userId: user.id, referenceGroupKey: oldKey }, { referenceGroupKey: nextKey });
+      await this.refImageRepo.update({ userId: user.id, groupKey: oldKey, skuConfigId: null as any }, { groupKey: nextKey });
+    }
+
+    let syncResult: { updated: number; skipped: number } | null = null;
+    if (body?.syncChildren) {
+      syncResult = await this.syncParentSkuToChildren(user, saved.id, body?.syncFields);
+    }
+    return { group: saved, syncResult };
+  }
+
+  async syncParentSkuToChildren(user: User, id: number, fields?: string[]) {
+    const group = await this.parentGroupRepo.findOne({ where: { id, userId: user.id } });
+    if (!group) throw new NotFoundException(`总 SKU #${id} 不存在`);
+    const children = await this.skuConfigRepo.find({ where: { userId: user.id, referenceGroupKey: group.groupKey } });
+    const allow = fields && fields.length
+      ? BasketLinesService.PARENT_SYNC_FIELDS.filter((f) => fields.includes(f))
+      : [...BasketLinesService.PARENT_SYNC_FIELDS];
+    let updated = 0;
+    let skipped = 0;
+    for (const child of children) {
+      const next: Record<string, any> = {};
+      for (const f of allow) {
+        if (child.type === SkuType.COMBO && ['nameLayout', 'colorGroupId', 'iconGroupId'].includes(f)) continue;
+        const val = (group as any)[f];
+        // 未指定（null）的字体/字号不覆盖子 SKU，显式值或明确字段则同步
+        if ((f === 'font' || f === 'fontSize') && (val === null || val === undefined || val === '')) continue;
+        next[f] = val && typeof val === 'object' ? JSON.parse(JSON.stringify(val)) : val;
+      }
+      if (!Object.keys(next).length) {
+        skipped++;
+        continue;
+      }
+      this.skuConfigRepo.merge(child, next);
+      await this.skuConfigRepo.save(child);
+      updated++;
+    }
+    return { updated, skipped };
+  }
+
+  async deleteParentSku(user: User, id: number) {
+    const group = await this.parentGroupRepo.findOne({ where: { id, userId: user.id } });
+    if (!group) throw new NotFoundException(`总 SKU #${id} 不存在`);
+    await this.parentGroupRepo.remove(group);
   }
 }
