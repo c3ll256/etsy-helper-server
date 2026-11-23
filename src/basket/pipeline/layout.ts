@@ -67,27 +67,55 @@ function formatRuleLabel(rule: LayoutRule): string {
   return parts.join('+') || '0个';
 }
 
+function findSlotForCustomerPosition(slots: LayoutSlot[], pos: string): LayoutSlot | null {
+  const byKey = slots.find((s) => s.key === pos);
+  if (byKey) return byKey;
+  if (pos === 'name_left' || pos === 'name_right' || pos === 'name_after') {
+    const anchor = pos === 'name_left' ? 'name_left' : 'name_right';
+    return slots.find((s) => s.anchor === anchor) || null;
+  }
+  const labelMap: Record<string, string> = { top_right: '右上', top_left: '左上', bottom_right: '右下', bottom_left: '左下' };
+  const label = labelMap[pos];
+  if (label) {
+    const byLabel = slots.find((s) => (s.label || '').trim() === label);
+    if (byLabel) return byLabel;
+  }
+  // 若位置是通过自由拖动新建的（key 为 slot_1 等），仅当对应象限内恰好只有一个自由位置时自动匹配
+  const quadHits = slots.filter((s) => {
+    if ((s.anchor || 'absolute') !== 'absolute') return false;
+    const cx = (s.x ?? 0) + (s.w ?? 0) / 2;
+    const cy = (s.y ?? 0) + (s.h ?? 0) / 2;
+    if (pos === 'top_right') return cx >= 50 && cy < 50;
+    if (pos === 'top_left') return cx < 50 && cy < 50;
+    if (pos === 'bottom_right') return cx >= 50 && cy >= 50;
+    if (pos === 'bottom_left') return cx < 50 && cy >= 50;
+    return false;
+  });
+  return quadHits.length === 1 ? quadHits[0] : null;
+}
+
 export function assignIconSlots(icons: ParsedIcon[], template: LayoutTemplateLike): LayoutResult {
   const reasons: Reason[] = [];
   if (!icons.length) return { assignments: [], reasons, ruleLabel: null };
   const slotByKey = new Map(template.slots.map((s) => [s.key, s]));
-  const nameRightSlot = template.slots.find((s) => s.anchor === 'name_right') || slotByKey.get('name_right') || null;
   const counts = comboKey(icons);
 
-  // 处理顾客指定位置（name_after 在模板有 name_right 时直接映射）
+  // 处理顾客指定位置（支持按 key、贴名字 anchor、中文备注或所在象限匹配）
   const resolvedPositions = new Map<ParsedIcon, string>();
   for (const icon of icons) {
     if (icon.position === 'name_after') {
-      if (nameRightSlot) {
-        resolvedPositions.set(icon, nameRightSlot.key);
+      const hit = findSlotForCustomerPosition(template.slots, 'name_after');
+      if (hit) {
+        resolvedPositions.set(icon, hit.key);
       } else {
         reasons.push(review('position_name_after', `顾客要求图标放在"名字后面"（${icon.positionRaw || ''}），但模板"${template.name}"没有“贴名字右”位置，请人工核对`));
       }
     } else if (icon.position) {
-      if (!slotByKey.has(icon.position)) {
+      const hit = findSlotForCustomerPosition(template.slots, icon.position);
+      if (!hit) {
         reasons.push(review('position_not_in_template', `顾客指定位置 ${icon.position}（${icon.positionRaw || ''}）不在布局模板"${template.name}"中`));
       } else {
-        resolvedPositions.set(icon, icon.position);
+        resolvedPositions.set(icon, hit.key);
       }
     }
   }
